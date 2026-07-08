@@ -20,8 +20,8 @@ class AuthRepository {
   }
 
   final FirebaseAuth _auth = FirebaseAuth.instance;
-  final Dio _dio = Dio(BaseOptions(baseUrl: 'https://api.you-pi.in/api'));
-
+  // final Dio _dio = Dio(BaseOptions(baseUrl: 'https://api.you-pi.in/api'));
+  final Dio _dio = Dio(BaseOptions(baseUrl: 'http://10.243.248.144:8082/api'));
   String? _verificationId;
 
   Future<bool> sendOtp(String mobile) async {

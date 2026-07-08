@@ -9,6 +9,10 @@ version: '3.9'
 #
 # All secrets come from a .env file in the same folder (git-ignored).
 # See .env.example for the list of keys. NEVER hardcode secrets here.
+#
+# Firebase Admin SDK needs Application Default Credentials (ADC) to verify
+# ID tokens locally — the ADC file created by `gcloud auth application-default
+# login` is mounted read-only into the container below.
 # ══════════════════════════════════════════════════════════════
 
 services:
@@ -42,6 +46,11 @@ services:
       - "8082:8082"
     env_file:
       - .env                      # <-- real values live here, NOT in this file
+    volumes:
+      # Mount the Google Cloud ADC file (created by
+      # `gcloud auth application-default login`) so the Firebase Admin SDK
+      # inside the container can find credentials and verify ID tokens.
+      - ${APPDATA}/gcloud/application_default_credentials.json:/tmp/adc.json:ro
     environment:
       # ── Server ──
       SERVER_PORT: "8082"
@@ -51,6 +60,9 @@ services:
       # Timezone
       TZ: "Asia/Kolkata"
       JAVA_TOOL_OPTIONS: "-Duser.timezone=Asia/Kolkata"
+
+      # ── Google Application Default Credentials (for Firebase Admin SDK) ──
+      GOOGLE_APPLICATION_CREDENTIALS: "/tmp/adc.json"
 
       # ── Database (reactive app → R2DBC + JDBC/Flyway) ──
       # These are the names the app actually binds. spring.datasource.* is NOT read.
