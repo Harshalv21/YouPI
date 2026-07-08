@@ -1,0 +1,120 @@
+version: '3.9'
+
+# ══════════════════════════════════════════════════════════════
+# YouPI Backend — Docker Compose (LOCAL DEV / VM ONLY)
+#
+# NOTE: This file is NOT used by Cloud Run. Cloud Run deploys the
+#       image directly via `gcloud run deploy`. Use this only for
+#       running the stack on a local machine or a plain VM.
+#
+# All secrets come from a .env file in the same folder (git-ignored).
+# See .env.example for the list of keys. NEVER hardcode secrets here.
+# ══════════════════════════════════════════════════════════════
+
+services:
+
+  # ── Redis (rate-limiting, OTP sessions, caching) ──
+  redis:
+    image: redis:7.2-alpine
+    container_name: youpi-redis
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"   # loopback only — not exposed externally
+    command: redis-server --save 20 1 --loglevel warning --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - youpi-net
+
+  # ── YouPI Spring Boot API (reactive / R2DBC) ──
+  youpi-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: youpi-api
+    restart: unless-stopped
+    ports:
+      - "8082:8082"
+    env_file:
+      - .env                      # <-- real values live here, NOT in this file
+    environment:
+      # ── Server ──
+      SERVER_PORT: "8082"
+      # CORRECT var name (app reads SPRING_PROFILES_ACTIVE, not SPRING_PROFILE)
+      SPRING_PROFILES_ACTIVE: "${SPRING_PROFILES_ACTIVE:-local}"
+
+      # Timezone
+      TZ: "Asia/Kolkata"
+      JAVA_TOOL_OPTIONS: "-Duser.timezone=Asia/Kolkata"
+
+      # ── Database (reactive app → R2DBC + JDBC/Flyway) ──
+      # These are the names the app actually binds. spring.datasource.* is NOT read.
+      DB_R2DBC_URL: "${DB_R2DBC_URL}"
+      DB_JDBC_URL: "${DB_JDBC_URL}"
+      DB_USERNAME: "${DB_USERNAME}"
+      DB_PASSWORD: "${DB_PASSWORD}"
+
+      # ── Redis (points at the co-located container by DNS name) ──
+      REDIS_HOST: "redis"
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: "${REDIS_PASSWORD:-}"
+
+      # ── Firebase (CORRECT project id) ──
+      FIREBASE_PROJECT_ID: "you-pi-55f85"
+      FIREBASE_DATABASE_URL: "${FIREBASE_DATABASE_URL:-}"
+
+      # ── Auth dummy (LOCAL ONLY — must be empty in prod) ──
+      AUTH_DUMMY_MOBILE: "${AUTH_DUMMY_MOBILE:-}"
+      AUTH_DUMMY_OTP: "${AUTH_DUMMY_OTP:-}"
+
+      # ── JWT / Encryption ──
+      JWT_PRIVATE_KEY: "${JWT_PRIVATE_KEY}"
+      JWT_PUBLIC_KEY: "${JWT_PUBLIC_KEY}"
+      AES_KEY: "${AES_KEY}"
+
+      # ── SMS / MSG91 ──
+      MSG91_AUTH_KEY: "${MSG91_AUTH_KEY:-}"
+      MSG91_TEMPLATE_ID: "${MSG91_TEMPLATE_ID:-}"
+
+      # ── Razorpay ──
+      RAZORPAY_KEY_ID: "${RAZORPAY_KEY_ID}"
+      RAZORPAY_KEY_SECRET: "${RAZORPAY_KEY_SECRET}"
+      RAZORPAY_WEBHOOK_SECRET: "${RAZORPAY_WEBHOOK_SECRET:-}"
+
+      # ── Vendors ──
+      A1TOPUP_BASE_URL: "${A1TOPUP_BASE_URL:-https://business.a1topup.com/recharge/api}"
+      A1TOPUP_USERNAME: "${A1TOPUP_USERNAME}"
+      A1TOPUP_PASSWORD: "${A1TOPUP_PASSWORD}"
+      AUGMONT_BASE_URL: "${AUGMONT_BASE_URL:-https://uat-api.augmont.com}"
+      AUGMONT_EMAIL: "${AUGMONT_EMAIL}"
+      AUGMONT_PASSWORD: "${AUGMONT_PASSWORD}"
+      DIGIO_BASE_URL: "${DIGIO_BASE_URL:-https://api.digio.in}"
+      DIGIO_API_KEY: "${DIGIO_API_KEY:-}"
+      KARZA_BASE_URL: "${KARZA_BASE_URL:-https://api.karza.in}"
+      KARZA_API_KEY: "${KARZA_API_KEY:-}"
+      MPLAN_API_KEY: "${MPLAN_API_KEY}"
+
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - youpi-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/api/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+
+volumes:
+  redis_data:
+    driver: local
+
+networks:
+  youpi-net:
+    driver: bridge

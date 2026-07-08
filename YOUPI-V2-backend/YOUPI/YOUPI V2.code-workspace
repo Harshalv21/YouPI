@@ -1,0 +1,14 @@
+{
+	"folders": [
+		{
+			"path": "../../../../../Users/terab/StudioProjects/YOUPI V2"
+		},
+		{
+			"path": ".."
+		}
+	],
+	"settings": {
+		"java.configuration.updateBuildConfiguration": "automatic",
+		"java.compile.nullAnalysis.mode": "automatic"
+	}
+}

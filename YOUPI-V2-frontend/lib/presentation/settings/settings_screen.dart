@@ -1,0 +1,292 @@
+import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import '../../core/constants/app_colors.dart';
+import '../../core/constants/app_dimensions.dart';
+import '../../core/constants/app_text_styles.dart';
+import '../../core/services/storage_service.dart';
+import '../../core/widgets/youpi_button.dart';
+import '../../core/widgets/youpi_card.dart';
+import '../../core/widgets/youpi_input.dart';
+import '../../data/datasources/mock_data.dart';
+
+// ─────────── Settings ───────────
+class SettingsScreen extends StatelessWidget {
+  const SettingsScreen({super.key});
+  @override
+  Widget build(BuildContext context) {
+    final user = MockData.mockUser;
+    return Scaffold(
+      backgroundColor: AppColors.backgroundPrimary,
+      appBar: AppBar(title: const Text('Settings'), backgroundColor: AppColors.backgroundPrimary),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(AppDimensions.paddingPage),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          // Avatar row
+          Center(
+            child: Column(children: [
+              Container(
+                width: 72, height: 72,
+                decoration: BoxDecoration(
+                    color: AppColors.primary, shape: BoxShape.circle,
+                    boxShadow: [BoxShadow(color: AppColors.primaryGlow, blurRadius: 16)]),
+                child: Center(
+                    child: Text(user.initials,
+                        style: AppTextStyles.displaySmall.copyWith(color: AppColors.backgroundPrimary))),
+              ),
+              const SizedBox(height: 8),
+              Text(user.name, style: AppTextStyles.headlineMedium),
+              Text(user.mobile, style: AppTextStyles.bodySmall),
+              if (user.isKycVerified)
+                Chip(
+                  label: Text('KYC Verified', style: AppTextStyles.chipText.copyWith(color: AppColors.success)),
+                  backgroundColor: AppColors.success.withOpacity(0.1),
+                  side: const BorderSide(color: AppColors.success),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                ),
+            ]),
+          ),
+          const SizedBox(height: 24),
+          Text('Account', style: AppTextStyles.labelMedium.copyWith(color: AppColors.textSecondary)),
+          const SizedBox(height: 8),
+          ...[
+            _SettingsTile('Edit Profile', Icons.person_outline_rounded, () => context.push('/settings/edit-profile')),
+            _SettingsTile('Change MPIN', Icons.lock_outline_rounded, () => context.push('/settings/change-mpin')),
+            _SettingsTile('Notifications', Icons.notifications_none_rounded, () => context.push('/settings/notifications')),
+          ],
+          const SizedBox(height: 16),
+          Text('Support', style: AppTextStyles.labelMedium.copyWith(color: AppColors.textSecondary)),
+          const SizedBox(height: 8),
+          ...[
+            _SettingsTile('Help & Support', Icons.help_outline_rounded,
+                    () => _showComingSoon(context, 'Help & Support')),
+            _SettingsTile('Privacy Policy', Icons.privacy_tip_outlined,
+                    () => _showComingSoon(context, 'Privacy Policy')),
+            _SettingsTile('Terms of Service', Icons.description_outlined,
+                    () => _showComingSoon(context, 'Terms of Service')),
+          ],
+          const SizedBox(height: 16),
+          YoupiCard(
+            onTap: () async {
+              await StorageService.clearAll();
+              if (context.mounted) context.go('/onboarding/welcome');
+            },
+            child: Row(children: [
+              const Icon(Icons.logout_rounded, color: AppColors.error, size: 20),
+              const SizedBox(width: 12),
+              Text('Sign Out', style: AppTextStyles.labelLarge.copyWith(color: AppColors.error)),
+            ]),
+          ),
+          const SizedBox(height: 8),
+          Text('YOUPI • Nexospendz Finothrive • v1.0.0',
+              style: AppTextStyles.captionText, textAlign: TextAlign.center),
+        ]),
+      ),
+    );
+  }
+}
+
+
+void _showComingSoon(BuildContext context, String feature) {
+  showDialog(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: AppColors.backgroundCard,
+      title: Text(feature, style: AppTextStyles.headlineSmall),
+      content: Text(
+        '$feature will be available soon.',
+        style: AppTextStyles.bodyMedium.copyWith(color: AppColors.textSecondary),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(ctx).pop(),
+          child: Text('OK', style: AppTextStyles.tealLink),
+        ),
+      ],
+    ),
+  );
+}
+
+class _SettingsTile extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+  const _SettingsTile(this.label, this.icon, this.onTap);
+  @override Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: YoupiCard(onTap: onTap, child: Row(children: [
+      Icon(icon, color: AppColors.textSecondary, size: 20),
+      const SizedBox(width: 12),
+      Expanded(child: Text(label, style: AppTextStyles.labelLarge)),
+      const Icon(Icons.chevron_right_rounded, color: AppColors.textSecondary),
+    ])),
+  );
+}
+
+// ─────────── Edit Profile ───────────
+class EditProfileScreen extends StatelessWidget {
+  const EditProfileScreen({super.key});
+  @override
+  Widget build(BuildContext context) {
+    final user = MockData.mockUser;
+    return Scaffold(
+      backgroundColor: AppColors.backgroundPrimary,
+      appBar: AppBar(title: const Text('Edit Profile'), backgroundColor: AppColors.backgroundPrimary),
+      body: Padding(
+        padding: const EdgeInsets.all(AppDimensions.paddingPage),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          YoupiInput(label: 'Full Name', hint: user.name, readOnly: false),
+          const SizedBox(height: 16),
+          YoupiInput(label: 'Email', hint: user.email, keyboardType: TextInputType.emailAddress),
+          const SizedBox(height: 16),
+          YoupiInput(label: 'Mobile', hint: user.mobile, readOnly: true),
+          const Spacer(),
+          YoupiButton(label: 'Save Changes', onPressed: () {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                content: Text('Profile updated!'), backgroundColor: AppColors.success));
+            context.pop();
+          }),
+        ]),
+      ),
+    );
+  }
+}
+
+// ─────────── Notifications Settings ───────────
+class NotificationsSettingsScreen extends StatefulWidget {
+  const NotificationsSettingsScreen({super.key});
+  @override State<NotificationsSettingsScreen> createState() => _NotificationsSettingsScreenState();
+}
+
+class _NotificationsSettingsScreenState extends State<NotificationsSettingsScreen> {
+  bool _rechargePushOn = true;
+  bool _goldAlertsOn = false;
+  bool _emiRemindersOn = true;
+  bool _offersOn = true;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.backgroundPrimary,
+      appBar: AppBar(title: const Text('Notifications'), backgroundColor: AppColors.backgroundPrimary),
+      body: Padding(
+        padding: const EdgeInsets.all(AppDimensions.paddingPage),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          _SwitchTile('Recharge Alerts', _rechargePushOn, (v) => setState(() => _rechargePushOn = v)),
+          _SwitchTile('Gold Price Alerts', _goldAlertsOn, (v) => setState(() => _goldAlertsOn = v)),
+          _SwitchTile('EMI Reminders', _emiRemindersOn, (v) => setState(() => _emiRemindersOn = v)),
+          _SwitchTile('Offers & Promotions', _offersOn, (v) => setState(() => _offersOn = v)),
+        ]),
+      ),
+    );
+  }
+}
+
+class _SwitchTile extends StatelessWidget {
+  final String label;
+  final bool value;
+  final void Function(bool) onChanged;
+  const _SwitchTile(this.label, this.value, this.onChanged);
+  @override Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: YoupiCard(child: Row(children: [
+      Expanded(child: Text(label, style: AppTextStyles.labelLarge)),
+      Switch(value: value, onChanged: onChanged, activeColor: AppColors.primary),
+    ])),
+  );
+}
+
+// ─────────── Change MPIN ───────────
+class ChangeMpinScreen extends StatefulWidget {
+  const ChangeMpinScreen({super.key});
+  @override State<ChangeMpinScreen> createState() => _ChangeMpinScreenState();
+}
+
+class _ChangeMpinScreenState extends State<ChangeMpinScreen> {
+  String _currentMpin = '';
+  String _newMpin = '';
+  String _step = 'verify'; // verify | new | confirm
+  String _confirmNew = '';
+
+  void _onDigit(String d) {
+    setState(() {
+      if (_step == 'verify' && _currentMpin.length < 4) {
+        _currentMpin += d;
+        if (_currentMpin.length == 4) _verifyAndProceed();
+      } else if (_step == 'new' && _newMpin.length < 4) {
+        _newMpin += d;
+        if (_newMpin.length == 4) _step = 'confirm';
+      } else if (_step == 'confirm' && _confirmNew.length < 4) {
+        _confirmNew += d;
+        if (_confirmNew.length == 4) _saveMpin();
+      }
+    });
+  }
+
+  void _onDelete() {
+    setState(() {
+      if (_step == 'verify' && _currentMpin.isNotEmpty) _currentMpin = _currentMpin.substring(0, _currentMpin.length - 1);
+      else if (_step == 'new' && _newMpin.isNotEmpty) _newMpin = _newMpin.substring(0, _newMpin.length - 1);
+      else if (_step == 'confirm' && _confirmNew.isNotEmpty) _confirmNew = _confirmNew.substring(0, _confirmNew.length - 1);
+    });
+  }
+
+  Future<void> _verifyAndProceed() async {
+    final ok = await StorageService.verifyMpin(_currentMpin);
+    setState(() => _step = ok ? 'new' : 'verify');
+    if (!ok) setState(() => _currentMpin = '');
+  }
+
+  Future<void> _saveMpin() async {
+    if (_newMpin != _confirmNew) {
+      setState(() { _confirmNew = ''; _step = 'new'; });
+      return;
+    }
+    await StorageService.saveMpin(_newMpin);
+    if (mounted) context.pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dots = _step == 'verify' ? _currentMpin : _step == 'new' ? _newMpin : _confirmNew;
+    return Scaffold(
+      backgroundColor: AppColors.backgroundPrimary,
+      appBar: AppBar(backgroundColor: AppColors.backgroundPrimary, title: const Text('Change MPIN')),
+      body: Padding(
+        padding: const EdgeInsets.all(AppDimensions.paddingPage),
+        child: Column(children: [
+          Text(_step == 'verify' ? 'Enter Current MPIN' : _step == 'new' ? 'Enter New MPIN' : 'Confirm New MPIN',
+              style: AppTextStyles.headlineMedium, textAlign: TextAlign.center),
+          const SizedBox(height: 40),
+          Row(mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(4, (i) => Container(
+                margin: const EdgeInsets.symmetric(horizontal: 8),
+                width: 16, height: 16,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: i < dots.length ? AppColors.primary : AppColors.divider,
+                ),
+              ))),
+          const Spacer(),
+          for (final row in [['1','2','3'],['4','5','6'],['7','8','9'],['','0','⌫']])
+            Row(mainAxisAlignment: MainAxisAlignment.center,
+                children: row.map((d) => GestureDetector(
+                  onTap: () => d == '⌫' ? _onDelete() : d.isNotEmpty ? _onDigit(d) : null,
+                  child: Container(
+                    width: 80, height: 72, margin: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                        color: d.isEmpty ? Colors.transparent : AppColors.backgroundCard,
+                        borderRadius: BorderRadius.circular(12),
+                        border: d.isEmpty ? null : Border.all(color: AppColors.divider)),
+                    child: Center(
+                      child: d == '⌫'
+                          ? const Icon(Icons.backspace_rounded, color: AppColors.textSecondary, size: 20)
+                          : Text(d, style: AppTextStyles.headlineLarge),
+                    ),
+                  ),
+                )).toList()),
+          const SizedBox(height: 20),
+        ]),
+      ),
+    );
+  }
+}

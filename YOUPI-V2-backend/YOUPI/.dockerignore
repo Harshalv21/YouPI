@@ -1,0 +1,11 @@
+.gradle
+build
+**/build
+**/.gradle
+*.log
+.env
+.git
+.gitignore
+README.md
+**/*.md
+infra/

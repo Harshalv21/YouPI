@@ -1,0 +1,39 @@
+﻿# Secrets — NEVER commit
+*.pem
+*.key
+.env
+*.env
+!.env.example
+**/application.properties
+**/firebase/serviceAccountKey.json
+
+# Build artifacts
+**/build/
+**/.gradle/
+**/bin/
+
+# Flutter
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/android/local.properties
+**/ios/Flutter/Flutter.podspec
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Logs
+*.log
+
+# Local machine-specific configs
+local.properties
+**/local.properties
+
+# Postman collections may contain secrets
+*.postman_collection.json

@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
+    <!-- ── Console appender for local dev ── -->
+    <springProfile name="local">
+        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder>
+                <pattern>%d{HH:mm:ss.SSS} %highlight(%-5level) [%thread] %cyan(%logger{36}) - %msg%n</pattern>
+            </encoder>
+        </appender>
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+    </springProfile>
+
+    <!-- ── Structured JSON for GCP Cloud Logging (dev + prod) ── -->
+    <springProfile name="dev,prod,gcp">
+        <appender name="JSON" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+                <fieldNames>
+                    <timestamp>timestamp</timestamp>
+                    <version>[ignore]</version>
+                    <levelValue>[ignore]</levelValue>
+                </fieldNames>
+                <customFields>{"service":"youpi-api"}</customFields>
+                <!-- PII redaction: mask mobile, Aadhaar, PAN in all log output -->
+                <jsonGeneratorDecorator class="net.logstash.logback.mask.MaskingJsonGeneratorDecorator">
+                    <valueMask>
+                        <value>\b[6-9]\d{9}\b</value>
+                        <mask>****MOBILE****</mask>
+                    </valueMask>
+                    <valueMask>
+                        <value>\b\d{4}\s?\d{4}\s?\d{4}\b</value>
+                        <mask>****AADHAAR****</mask>
+                    </valueMask>
+                    <valueMask>
+                        <value>\b[A-Z]{5}\d{4}[A-Z]\b</value>
+                        <mask>****PAN****</mask>
+                    </valueMask>
+                </jsonGeneratorDecorator>
+            </encoder>
+        </appender>
+        <root level="INFO">
+            <appender-ref ref="JSON"/>
+        </root>
+    </springProfile>
+
+    <!-- Quiet noisy loggers -->
+    <logger name="io.r2dbc.postgresql" level="WARN"/>
+    <logger name="org.springframework.data.r2dbc" level="WARN"/>
+    <logger name="io.lettuce.core" level="WARN"/>
+    <logger name="reactor.netty" level="WARN"/>
+</configuration>

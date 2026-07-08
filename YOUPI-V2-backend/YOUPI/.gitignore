@@ -1,0 +1,38 @@
+# Gradle
+.gradle/
+build/
+**/build/
+**/bin/
+
+# IDEs
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+.settings/
+.project
+.classpath
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Environment & Secrets
+.env
+firebase/serviceAccountKey.json
+
+# Logs
+*.log
+
+# Legacy files with exposed secrets
+application.properties
+**/application.properties
+
+# .env variants
+*.env
+!.env.example
+
+# Local test logs
+*.log
+docker-v8-test.log

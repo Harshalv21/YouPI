@@ -1,0 +1,34 @@
+# Gradle build caches (long filenames break Windows Git)
+youpi-backend/.gradle/
+youpi-backend/build/
+**/.gradle/
+**/build/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# ── Secrets & env (anywhere in repo) ──
+.env
+**/.env
+*.env
+!*.env.template
+!*.env.example
+
+# ── Keys / certificates (NEVER commit) ──
+*.pem
+*.key
+*.p12
+*.keystore
+*.jks
+
+# ── Firebase / GCP service accounts ──
+**/serviceAccountKey.json
+*serviceAccount*.json
+gcp-*.json
+firebase/serviceAccountKey.json
+
+# OS
+Thumbs.db
+.DS_Store

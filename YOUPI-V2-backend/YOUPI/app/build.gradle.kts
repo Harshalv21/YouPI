@@ -1,0 +1,48 @@
+plugins {
+    alias(libs.plugins.kotlin.jvm)
+    alias(libs.plugins.kotlin.spring)
+    alias(libs.plugins.spring.boot)
+    alias(libs.plugins.spring.dependency.management)
+}
+
+dependencies {
+    implementation(project(":shared:core"))
+    implementation(project(":shared:security"))
+    implementation(project(":shared:events"))
+    implementation(project(":modules:auth"))
+    implementation(project(":modules:user"))
+    implementation(project(":modules:recharge"))
+    implementation(project(":modules:payment"))
+    implementation(project(":modules:wallet"))
+    implementation(project(":modules:smart-saver"))
+    implementation(project(":modules:invest"))
+    implementation(project(":modules:bnpl"))  
+    implementation(project(":modules:loan"))
+    implementation(project(":modules:admin"))
+    api(project(":modules:invest"))
+
+    implementation(libs.spring.boot.starter.webflux)
+    implementation(libs.spring.boot.starter.data.r2dbc)
+    implementation(libs.spring.boot.starter.data.redis.reactive)
+    implementation(libs.spring.boot.starter.actuator)
+    implementation(libs.spring.boot.starter.validation)
+    implementation(libs.r2dbc.postgresql)
+    implementation(libs.r2dbc.pool)
+    implementation(libs.postgresql.jdbc)
+    implementation(libs.bcrypt)
+    implementation(libs.flyway.core)
+    implementation(libs.flyway.database.postgresql)
+    implementation(libs.firebase.admin)
+    implementation(libs.google.cloud.pubsub)
+    implementation(libs.google.cloud.secretmanager)
+    implementation(libs.logstash.logback.encoder)
+    implementation(libs.springdoc.openapi.webflux.ui)
+    implementation(libs.jackson.module.kotlin)              // ← ObjectMapper + Kotlin data classes
+    implementation(libs.jackson.datatype.jsr310)           // ← Instant/LocalDate serialization
+    implementation("com.google.cloud.sql:postgres-socket-factory:1.19.1")
+    implementation("com.google.cloud.sql:cloud-sql-connector-r2dbc-postgres:1.19.1")
+    testImplementation(libs.spring.boot.starter.test)
+    testImplementation(libs.testcontainers.postgresql)
+    testImplementation(libs.testcontainers.r2dbc)
+    testImplementation(libs.testcontainers.junit.jupiter)
+}

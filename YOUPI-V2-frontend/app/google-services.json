@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "887162129478",
+    "project_id": "you-pi-55f85",
+    "storage_bucket": "you-pi-55f85.firebasestorage.app"
+  },
+  "client": [
+    {  
+      "client_info": {
+        "mobilesdk_app_id": "1:887162129478:android:a0534a201d0578901b8e47",
+        "android_client_info": {
+          "package_name": "com.youpitwo"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB_HU2b3lEoanqUVUGK9lrT3PCIRAJklDM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
