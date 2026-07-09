@@ -7,8 +7,13 @@ import 'storage_service.dart';
 /// the stored refresh token, then retries the original request. The user stays
 /// logged in seamlessly. Only if refresh itself fails do we clear the session.
 class ApiService {
-  // static const String _baseUrl = 'https://youpi-api-887162129478.asia-south1.run.app/api';
-  static const String _baseUrl = 'http://10.243.248.144:8082/api';
+  // Defaults to the real Cloud Run backend. For local testing against your
+  // machine instead, run with:
+  //   flutter run --dart-define=API_BASE_URL=http://<your-local-ip>:8082/api
+  static const String _baseUrl = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'https://youpi-api-887162129478.asia-south1.run.app/api',
+  );
   static final Dio _dio = Dio();
   static Dio get instance => _dio;
 

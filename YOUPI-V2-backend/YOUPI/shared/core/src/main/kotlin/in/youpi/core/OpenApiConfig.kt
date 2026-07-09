@@ -26,7 +26,7 @@ class OpenApiConfig {
             .servers(
                 listOf(
                     io.swagger.v3.oas.models.servers.Server().url("http://localhost:8082/api").description("Local HTTP"),
-                    io.swagger.v3.oas.models.servers.Server().url("https://api.you-pi.in/api").description("Production HTTPS"),
+                    io.swagger.v3.oas.models.servers.Server().url("https://youpi-api-887162129478.asia-south1.run.app/api").description("Production (Cloud Run)"),
                     io.swagger.v3.oas.models.servers.Server().url("/api").description("Relative to current host")
                 )
             )

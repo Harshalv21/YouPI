@@ -20,6 +20,22 @@ class OtpVerifyScreen extends StatefulWidget {
 class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
   String _otp = '';   // ab yahan — rebuild pe reset nahi hoga
 
+  // Bumped every time OTP is resent. Used as the OtpInputField's key so the
+  // PIN boxes (and Firebase's underlying verification session) are always
+  // in sync -- otherwise a stale, already-superseded code can sit visible
+  // in the boxes and get submitted against the *new* session, which Firebase
+  // correctly rejects as invalid-verification-code even though the digits
+  // shown on screen look right.
+  int _resendGeneration = 0;
+
+  Future<void> _handleResend() async {
+    setState(() {
+      _otp = '';
+      _resendGeneration++;
+    });
+    await context.read<AuthViewModel>().resendOtp();
+  }
+
   @override
   Widget build(BuildContext context) {
     final vm = context.watch<AuthViewModel>();   // shared vm (root se)
@@ -48,6 +64,7 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
             ),
             const SizedBox(height: 32),
             OtpInputField(
+              key: ValueKey(_resendGeneration),
               onChanged: (val) {
                 _otp = val;
               },
@@ -64,7 +81,7 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
                 style: AppTextStyles.bodySmall,
               )
                   : TextButton(
-                onPressed: vm.resendOtp,
+                onPressed: _handleResend,
                 child: Text(AppStrings.resendOtp,
                     style: AppTextStyles.tealLink),
               ),

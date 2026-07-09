@@ -86,7 +86,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       children: [
                         Text('Total Balance', style: AppTextStyles.labelMedium),
                         const SizedBox(height: 4),
-                        Text(CurrencyFormatter.format(vm.user.walletBalance),
+                        Text(CurrencyFormatter.format(vm.walletBalance),
                             style: AppTextStyles.amountLarge),
                         const SizedBox(height: 12),
                         Align(

@@ -17,6 +17,7 @@ class KycViewModel extends ChangeNotifier {
   bool get panVerified => _panVerified;
   bool get selfieCapture => _selfieCapture;
   int get aadhaarCountdown => _aadhaarCountdown;
+  String get aadhaar => _aadhaar;
   String get pan => _pan;
 
   void setAadhaar(String v) { _aadhaar = v; notifyListeners(); }

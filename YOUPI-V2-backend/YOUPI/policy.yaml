@@ -1,0 +1,4 @@
+﻿name: projects/you-pi-55f85/policies/iam.allowedPolicyMemberDomains
+spec:
+  rules:
+  - allowAll: true

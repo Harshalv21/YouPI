@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import '../../data/repositories/auth_repository.dart';
+import '../../data/repositories/user_repository.dart';
 
 class AuthViewModel extends ChangeNotifier {
   final AuthRepository _repo = AuthRepository();
+  final UserRepository _userRepo = UserRepository();
 
   bool _isLoading = false;
   String? _error;
@@ -31,7 +33,7 @@ class AuthViewModel extends ChangeNotifier {
     _error = null;
     notifyListeners();
     try {
-      final ok = await _repo.sendOtp(_mobile);   // repository ko mobile pass
+      final ok = await _repo.sendOtp(_mobile);
       _otpSent = ok;
       if (ok) _startResendTimer();
       return ok;
@@ -73,7 +75,7 @@ class AuthViewModel extends ChangeNotifier {
   }
 
   Future<void> resendOtp() async {
-    await sendOtp();   // ab bina argument — theek
+    await sendOtp();
   }
 
   bool validateStep1() {
@@ -82,5 +84,33 @@ class AuthViewModel extends ChangeNotifier {
     final age = DateTime.now().year - _dob!.year;
     if (age < 18) return false;
     return true;
+  }
+
+  /// Saves the profile (name/DOB/email) to the backend.
+  /// Returns true on success so the screen knows it's safe to navigate on.
+  Future<bool> saveProfile() async {
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+    try {
+      final dobIso = _dob != null
+          ? '${_dob!.year.toString().padLeft(4, '0')}-'
+          '${_dob!.month.toString().padLeft(2, '0')}-'
+          '${_dob!.day.toString().padLeft(2, '0')}'
+          : null;
+
+      await _userRepo.updateProfile(
+        fullName: _name,
+        email: (_email != null && _email!.isNotEmpty) ? _email : null,
+        dateOfBirth: dobIso,
+      );
+      return true;
+    } catch (e) {
+      _error = e.toString().replaceFirst('Exception: ', '');
+      return false;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
   }
 }

@@ -37,3 +37,6 @@ local.properties
 
 # Postman collections may contain secrets
 *.postman_collection.json
+
+# Accidental backup zips
+*.zip

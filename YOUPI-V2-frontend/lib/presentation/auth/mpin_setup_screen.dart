@@ -6,6 +6,7 @@ import '../../core/constants/app_strings.dart';
 import '../../core/constants/app_text_styles.dart';
 import '../../core/services/storage_service.dart';
 import '../../data/repositories/auth_repository.dart';
+import 'package:local_auth/local_auth.dart';
 
 class MpinSetupScreen extends StatefulWidget {
   const MpinSetupScreen({super.key});
@@ -104,7 +105,14 @@ class _MpinSetupScreenState extends State<MpinSetupScreen> {
         debugPrint('MPIN backend sync failed: $e');
       }
 
-      if (mounted) context.go('/kyc/intro');
+      if (mounted) {
+        // Was previously never called anywhere in the app, so the
+        // biometric-first unlock already built into MpinEntryScreen never
+        // actually triggered for any user. Ask once, right after MPIN setup
+        // -- the natural moment, same as Google Pay/PhonePe do it.
+        await _maybeEnableBiometric();
+        if (mounted) context.go('/kyc/intro');
+      }
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -117,6 +125,66 @@ class _MpinSetupScreenState extends State<MpinSetupScreen> {
       }
     }
   }
+   // Offers to turn on fingerprint/face unlock if the device supports it.
+  /// MPIN remains the fallback either way -- this only ever makes unlock
+  /// faster, never removes the MPIN path
+  Future<void> _maybeEnableBiometric() async {
+    final localAuth = LocalAuthentication();
+    try {
+      final canCheck = await localAuth.canCheckBiometrics;
+      final deviceSupported = await localAuth.isDeviceSupported();
+      if (!canCheck || !deviceSupported || !mounted) return;
+
+      final wantsToEnable = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: AppColors.backgroundCard,
+          icon: const Icon(Icons.fingerprint_rounded,
+              color: AppColors.primary, size: 36),
+          title: Text('Enable fingerprint unlock?',
+              style: AppTextStyles.headlineSmall),
+          content: Text(
+            'Unlock YOUPI faster next time with your fingerprint or face '
+                'instead of typing your MPIN. You can always fall back to your '
+                'MPIN if it doesn\'t work.',
+            style: AppTextStyles.bodyMedium
+                .copyWith(color: AppColors.textSecondary),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text('Not now', style: AppTextStyles.tealLink),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text('Enable', style: AppTextStyles.tealLink),
+            ),
+          ],
+        ),
+      );
+
+      if (wantsToEnable != true || !mounted) return;
+
+      // Confirm it actually works on this device/finger before flipping the
+      // flag on -- avoids locking someone out with a setting that doesn't work.
+      final verified = await localAuth.authenticate(
+        localizedReason: 'Confirm to enable fingerprint unlock',
+        options: const AuthenticationOptions(
+          biometricOnly: true,
+          stickyAuth: true,
+        ),
+      );
+      if (verified) {
+        await StorageService.setBiometric(true);
+      }
+    } catch (e) {
+      debugPrint('Biometric enable check failed: $e');
+      // Non-fatal -- MPIN remains the unlock method either way.
+    }
+  }
+
+
 
   @override
   Widget build(BuildContext context) {

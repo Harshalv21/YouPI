@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import '../core/services/storage_service.dart';
 import '../presentation/splash/splash_screen.dart';
 import '../presentation/onboarding/welcome_screen.dart';
@@ -9,6 +10,7 @@ import '../presentation/auth/otp_verify_screen.dart';
 import '../presentation/auth/user_profile_setup_screen.dart';
 import '../presentation/auth/mpin_entry_screen.dart';
 import '../presentation/auth/mpin_setup_screen.dart';
+import '../presentation/kyc/kyc_viewmodel.dart';
 import '../presentation/kyc/kyc_intro_screen.dart';
 import '../presentation/kyc/aadhaar_verify_screen.dart';
 import '../presentation/kyc/pan_verify_screen.dart';
@@ -72,10 +74,22 @@ class AppRouter {
       GoRoute(path: '/auth/mpin-entry', builder: (c, s) => const MpinEntryScreen()),
       GoRoute(path: '/auth/profile-setup', builder: (c, s) => const UserProfileSetupScreen()),
       GoRoute(path: '/auth/mpin-setup', builder: (c, s) => const MpinSetupScreen()),
-      GoRoute(path: '/kyc/intro', builder: (c, s) => const KycIntroScreen()),
-      GoRoute(path: '/kyc/aadhaar', builder: (c, s) => const AadhaarVerifyScreen()),
-      GoRoute(path: '/kyc/pan', builder: (c, s) => const PanVerifyScreen()),
-      GoRoute(path: '/kyc/success', builder: (c, s) => const KycSuccessScreen()),
+      // Bug #5 fix: intro/aadhaar/pan/success used to each spin up their own
+      // `KycViewModel()`, so PAN verification never knew about the Aadhaar
+      // step and vice versa. A single ChangeNotifierProvider here, shared by
+      // the whole /kyc/* flow via ShellRoute, fixes that.
+      ShellRoute(
+        builder: (context, state, child) => ChangeNotifierProvider(
+          create: (_) => KycViewModel(),
+          child: child,
+        ),
+        routes: [
+          GoRoute(path: '/kyc/intro', builder: (c, s) => const KycIntroScreen()),
+          GoRoute(path: '/kyc/aadhaar', builder: (c, s) => const AadhaarVerifyScreen()),
+          GoRoute(path: '/kyc/pan', builder: (c, s) => const PanVerifyScreen()),
+          GoRoute(path: '/kyc/success', builder: (c, s) => const KycSuccessScreen()),
+        ],
+      ),
       GoRoute(path: '/plans/browse', builder: (c, s) => const BrowsePlansScreen()),
       GoRoute(path: '/plans/search', builder: (c, s) => const PlanSearchFilterScreen()),
       GoRoute(path: '/plans/smartsave', builder: (c, s) => const SmartSaveAdvantageScreen()),

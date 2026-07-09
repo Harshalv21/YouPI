@@ -48,86 +48,97 @@ class _UserProfileSetupScreenState extends State<UserProfileSetupScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => AuthViewModel(),
-      child: Consumer<AuthViewModel>(builder: (ctx, vm, _) {
-        return Scaffold(
-          backgroundColor: AppColors.backgroundPrimary,
-          appBar: AppBar(backgroundColor: AppColors.backgroundPrimary),
-          body: Padding(
-            padding: const EdgeInsets.all(AppDimensions.paddingPage),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+    // Same class of bug as #5 (KYC): this used to create its own throwaway
+    // AuthViewModel instead of using the single one already provided at the
+    // app root in main.dart, disconnecting it from mobile/OTP state.
+    final vm = context.watch<AuthViewModel>();
+    final ctx = context;
+    return Scaffold(
+      backgroundColor: AppColors.backgroundPrimary,
+      appBar: AppBar(backgroundColor: AppColors.backgroundPrimary),
+      body: Padding(
+        padding: const EdgeInsets.all(AppDimensions.paddingPage),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Progress
+            LinearProgressIndicator(value: 1 / 3, backgroundColor: AppColors.divider,
+                valueColor: const AlwaysStoppedAnimation(AppColors.primary)),
+            const SizedBox(height: 8),
+            Text('Step 1 of 3', style: AppTextStyles.labelMedium),
+            const SizedBox(height: 24),
+            Text(AppStrings.profileSetupTitle, style: AppTextStyles.displaySmall),
+            Text(AppStrings.profileSetupSubtitle,
+                style: AppTextStyles.bodyMedium.copyWith(color: AppColors.textSecondary)),
+            const SizedBox(height: 32),
+            YoupiInput(
+              label: AppStrings.fullName,
+              hint: 'e.g. Siddhant Verma',
+              controller: _nameCtrl,
+              onChanged: vm.setName,
+            ),
+            const SizedBox(height: 16),
+            // DOB picker
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Progress
-                LinearProgressIndicator(value: 1 / 3, backgroundColor: AppColors.divider,
-                    valueColor: const AlwaysStoppedAnimation(AppColors.primary)),
+                Text(AppStrings.dateOfBirth, style: AppTextStyles.inputLabel),
                 const SizedBox(height: 8),
-                Text('Step 1 of 3', style: AppTextStyles.labelMedium),
-                const SizedBox(height: 24),
-                Text(AppStrings.profileSetupTitle, style: AppTextStyles.displaySmall),
-                Text(AppStrings.profileSetupSubtitle,
-                    style: AppTextStyles.bodyMedium.copyWith(color: AppColors.textSecondary)),
-                const SizedBox(height: 32),
-                YoupiInput(
-                  label: AppStrings.fullName,
-                  hint: 'e.g. Siddhant Verma',
-                  controller: _nameCtrl,
-                  onChanged: vm.setName,
-                ),
-                const SizedBox(height: 16),
-                // DOB picker
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(AppStrings.dateOfBirth, style: AppTextStyles.inputLabel),
-                    const SizedBox(height: 8),
-                    GestureDetector(
-                      onTap: () => _pickDate(ctx, vm),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                        decoration: BoxDecoration(
-                          color: AppColors.backgroundCard,
-                          borderRadius: BorderRadius.circular(AppDimensions.radiusInput),
-                          border: Border.all(color: AppColors.divider),
-                        ),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                _selectedDob != null
-                                    ? '${_selectedDob!.day.toString().padLeft(2, '0')}/${_selectedDob!.month.toString().padLeft(2, '0')}/${_selectedDob!.year}'
-                                    : 'DD/MM/YYYY',
-                                style: _selectedDob != null
-                                    ? AppTextStyles.inputValue
-                                    : AppTextStyles.inputValue.copyWith(color: AppColors.textSecondary),
-                              ),
-                            ),
-                            const Icon(Icons.calendar_today_rounded, color: AppColors.textSecondary, size: 18),
-                          ],
-                        ),
-                      ),
+                GestureDetector(
+                  onTap: () => _pickDate(ctx, vm),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                    decoration: BoxDecoration(
+                      color: AppColors.backgroundCard,
+                      borderRadius: BorderRadius.circular(AppDimensions.radiusInput),
+                      border: Border.all(color: AppColors.divider),
                     ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                YoupiInput(
-                  label: '${AppStrings.emailAddress} (optional)',
-                  hint: 'your@email.com',
-                  controller: _emailCtrl,
-                  keyboardType: TextInputType.emailAddress,
-                  onChanged: vm.setEmail,
-                ),
-                const Spacer(),
-                YoupiButton(
-                  label: AppStrings.continueBtn,
-                  onPressed: vm.validateStep1() ? () => ctx.push('/auth/mpin-setup') : null,
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            _selectedDob != null
+                                ? '${_selectedDob!.day.toString().padLeft(2, '0')}/${_selectedDob!.month.toString().padLeft(2, '0')}/${_selectedDob!.year}'
+                                : 'DD/MM/YYYY',
+                            style: _selectedDob != null
+                                ? AppTextStyles.inputValue
+                                : AppTextStyles.inputValue.copyWith(color: AppColors.textSecondary),
+                          ),
+                        ),
+                        const Icon(Icons.calendar_today_rounded, color: AppColors.textSecondary, size: 18),
+                      ],
+                    ),
+                  ),
                 ),
               ],
             ),
-          ),
-        );
-      }),
+            const SizedBox(height: 16),
+            YoupiInput(
+              label: '${AppStrings.emailAddress} (optional)',
+              hint: 'your@email.com',
+              controller: _emailCtrl,
+              keyboardType: TextInputType.emailAddress,
+              onChanged: vm.setEmail,
+            ),
+            const Spacer(),
+            if (vm.error != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Text(vm.error!,
+                    style: AppTextStyles.errorText,
+                    textAlign: TextAlign.center),
+              ),
+            YoupiButton(
+              label: AppStrings.continueBtn,
+              isLoading: vm.isLoading,
+              onPressed: vm.validateStep1() ? () async {
+                final success = await vm.saveProfile();  // naya method, backend ko call kare
+                if (success && ctx.mounted) ctx.push('/auth/mpin-setup');
+              } : null,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

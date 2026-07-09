@@ -70,7 +70,14 @@ class AuthRouter(private val authService: AuthService) {
                 description = "Revokes the refresh token and logs out the user.",
                 tags = ["Auth"],
                 requestBody = SwaggerRequestBody(content = [Content(schema = Schema(implementation = RefreshTokenRequest::class))]),
-                responses = [SwaggerApiResponse(responseCode = "200", description = "Logged out successfully")]))
+                responses = [SwaggerApiResponse(responseCode = "200", description = "Logged out successfully")])),
+        RouterOperation(path = "/v1/auth/firebase/verify", method = [RequestMethod.POST],
+            operation = Operation(operationId = "verifyFirebaseToken", summary = "Verify Firebase ID token",
+                description = "Verifies a Firebase phone-auth ID token and issues access/refresh tokens. " +
+                        "This is the endpoint the Flutter app actually calls after Firebase OTP verification.",
+                tags = ["Auth"],
+                requestBody = SwaggerRequestBody(content = [Content(schema = Schema(implementation = FirebaseVerifyRequest::class))]),
+                responses = [SwaggerApiResponse(responseCode = "200", description = "Firebase token verified, tokens issued")]))
     )
     fun authRoutes() = coRouter {
         "/v1/auth".nest {
@@ -104,17 +111,17 @@ class AuthRouter(private val authService: AuthService) {
                 throw result.error
         }
     }
-    
-private suspend fun handleFirebaseVerify(request: ServerRequest): ServerResponse {
-    val body = request.awaitBody<FirebaseVerifyRequest>()
-    return when (val result = authService.verifyFirebaseToken(body.idToken, body.deviceId)) {
-        is `in`.youpi.core.Result.Success ->
-            ok().contentType(MediaType.APPLICATION_JSON)
-                .bodyValueAndAwait(ApiResponse.ok(result.value))
-        is `in`.youpi.core.Result.Failure ->
-            throw result.error
+
+    private suspend fun handleFirebaseVerify(request: ServerRequest): ServerResponse {
+        val body = request.awaitBody<FirebaseVerifyRequest>()
+        return when (val result = authService.verifyFirebaseToken(body.idToken, body.deviceId)) {
+            is `in`.youpi.core.Result.Success ->
+                ok().contentType(MediaType.APPLICATION_JSON)
+                    .bodyValueAndAwait(ApiResponse.ok(result.value))
+            is `in`.youpi.core.Result.Failure ->
+                throw result.error
+        }
     }
-}
 
     private suspend fun handleMpinSetup(request: ServerRequest): ServerResponse {
         val userId = request.currentUserId()

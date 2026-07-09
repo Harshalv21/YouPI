@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:dio/dio.dart';
 import '../../core/services/storage_service.dart';
+import 'package:flutter/foundation.dart';
 
 class AuthRepository {
   static final AuthRepository _instance = AuthRepository._internal();
@@ -20,9 +21,14 @@ class AuthRepository {
   }
 
   final FirebaseAuth _auth = FirebaseAuth.instance;
-  // final Dio _dio = Dio(BaseOptions(baseUrl: 'https://api.you-pi.in/api'));
-  final Dio _dio = Dio(BaseOptions(baseUrl: 'http://10.243.248.144:8082/api'));
+  // Same base URL as ApiService - keep these in sync. Configurable via
+  // --dart-define=API_BASE_URL=... for local testing; defaults to Cloud Run.
+  final Dio _dio = Dio(BaseOptions(baseUrl: const String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'https://youpi-api-887162129478.asia-south1.run.app/api',
+  )));
   String? _verificationId;
+  int? _resendToken;
 
   Future<bool> sendOtp(String mobile) async {
     final completer = Completer<bool>();
@@ -30,6 +36,9 @@ class AuthRepository {
     await _auth.verifyPhoneNumber(
       phoneNumber: '+91$mobile',
       timeout: const Duration(seconds: 60),
+      // Use Firebase's own resend token on repeat calls (i.e. "Resend OTP")
+      // instead of always starting a brand-new verification attempt.
+      forceResendingToken: _resendToken,
       verificationCompleted: (PhoneAuthCredential credential) async {
         print('🟢 verificationCompleted (auto)');
         await _auth.signInWithCredential(credential);
@@ -43,6 +52,7 @@ class AuthRepository {
       codeSent: (String verificationId, int? resendToken) {
         print('🟡 codeSent OK');
         _verificationId = verificationId;
+        _resendToken = resendToken;
         if (!completer.isCompleted) completer.complete(true);
       },
       codeAutoRetrievalTimeout: (String verificationId) {
@@ -70,6 +80,17 @@ class AuthRepository {
         'idToken': idToken,
         'deviceId': 'flutter_app',
       });
+
+      if (res.data is! Map) {
+        debugPrint('🔴 Unexpected response type: ${res.data.runtimeType}');
+        debugPrint('🔴 Raw response (first 300 chars): '
+            '${res.data.toString().substring(0, res.data.toString().length > 300 ? 300 : res.data.toString().length)}');
+        throw Exception(
+            'Server did not return a valid response. This usually means the '
+                'API is blocking unauthenticated requests (Cloud Run access '
+                'control) rather than a login problem.');
+      }
+
       if (res.data?['success'] == true) {
         final data = res.data['data'];
         // Save BOTH tokens now (access + refresh) for seamless sessions.
