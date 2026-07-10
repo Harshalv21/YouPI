@@ -46,14 +46,20 @@ class FirebaseAuthFilter(
     )
 
     override fun filter(exchange: ServerWebExchange, chain: WebFilterChain): Mono<Void> {
-        val path = exchange.request.uri.path
+    val path = exchange.request.uri.path
+    val method = exchange.request.method
 
-        // Skip filter for public endpoints
-        if (skipPaths.any { path.startsWith(it) }) {
-            return chain.filter(exchange)
-        }
+    // Allow CORS preflight requests
+    if (method?.name() == "OPTIONS") {
+        return chain.filter(exchange)
+    }
 
-        val authHeader = exchange.request.headers.getFirst("Authorization")
+    // Skip filter for public endpoints
+    if (skipPaths.any { path.startsWith(it) }) {
+        return chain.filter(exchange)
+    }
+
+    val authHeader = exchange.request.headers.getFirst("Authorization")
 
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             return writeUnauthorized(exchange, "Missing or invalid Authorization header")
