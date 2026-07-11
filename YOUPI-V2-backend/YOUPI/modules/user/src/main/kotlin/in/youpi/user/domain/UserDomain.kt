@@ -9,7 +9,7 @@ import java.util.UUID
 data class UpdateProfileRequest(
     val fullName: String,
     val email: String? = null,
-    val dateOfBirth: LocalDate
+    val dateOfBirth: LocalDate? = null
 )
 
 data class AadhaarOtpRequest(val aadhaarNumber: String) {

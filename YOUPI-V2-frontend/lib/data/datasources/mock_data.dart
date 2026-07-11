@@ -10,7 +10,7 @@ class MockData {
 
   static final UserModel mockUser = UserModel(
     id: 'user_001',
-    name: 'Siddhant Verma',
+    name: 'Tushar Sharma',
     mobile: '+91 9876543210',
     email: 'sid.v@example.com',
     kycStatus: 'verified',

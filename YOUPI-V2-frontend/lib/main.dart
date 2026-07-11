@@ -8,6 +8,7 @@ import 'presentation/splash/splash_viewmodel.dart';
 import 'presentation/dashboard/home_viewmodel.dart';
 import 'presentation/recharge/recharge_viewmodel.dart';
 import 'presentation/invest/invest_viewmodel.dart';
+import 'package:youpi/presentation/settings/settings_viewmodel.dart';
 import 'package:firebase_core/firebase_core.dart';
 
  Future<void> main() async {
@@ -32,6 +33,7 @@ class YoupiApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => RechargeViewModel()),
         ChangeNotifierProvider(create: (_) => InvestViewModel()),
         ChangeNotifierProvider(create: (_) => WalletViewModel()),
+        ChangeNotifierProvider(create: (_) => SettingsViewModel()),
       ],
       child: MaterialApp.router(
         title: 'YouPI',

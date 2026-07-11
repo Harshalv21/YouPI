@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import '../../data/datasources/mock_data.dart';
 import '../../data/models/gold_model.dart';
 import '../../data/models/loan_model.dart';
+import '../../data/models/transaction_model.dart';
 import '../../data/repositories/invest_repository.dart';
+import '../../data/repositories/wallet_repository.dart';
 
 class InvestViewModel extends ChangeNotifier {
   final InvestRepository _repo = InvestRepository();
@@ -74,16 +76,34 @@ class InvestViewModel extends ChangeNotifier {
 }
 
 class WalletViewModel extends ChangeNotifier {
+  final WalletRepository _repo = WalletRepository();
+
   bool _isLoading = false;
-  double _balance = MockData.mockUser.walletBalance;
+  String? _error;
+  double _balance = 0;
+  List<TransactionModel> _transactions = [];
 
   bool get isLoading => _isLoading;
+  String? get error => _error;
   double get balance => _balance;
-  List get transactions => MockData.mockTransactions;
+  List<TransactionModel> get transactions => _transactions;
 
   Future<void> loadWallet() async {
-    _isLoading = true; notifyListeners();
-    await Future.delayed(const Duration(milliseconds: 500));
-    _isLoading = false; notifyListeners();
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+    try {
+      final results = await Future.wait([
+        _repo.getNbfcBalance(),
+        _repo.getLedger(type: 'NBFC'),
+      ]);
+      _balance = results[0] as double;
+      _transactions = results[1] as List<TransactionModel>;
+    } catch (e) {
+      _error = e.toString().replaceFirst('Exception: ', '');
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
   }
 }

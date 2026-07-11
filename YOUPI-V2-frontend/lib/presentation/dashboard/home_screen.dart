@@ -17,6 +17,8 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  bool _balanceHidden = true;
+
   @override
   void initState() {
     super.initState();
@@ -109,10 +111,25 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Total Balance', style: AppTextStyles.labelMedium),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text('Total Balance', style: AppTextStyles.labelMedium),
+                            GestureDetector(
+                              onTap: () => setState(() => _balanceHidden = !_balanceHidden),
+                              child: Icon(
+                                _balanceHidden ? Icons.visibility_off_rounded : Icons.visibility_rounded,
+                                color: AppColors.textSecondary,
+                                size: 20,
+                              ),
+                            ),
+                          ],
+                        ),
                         const SizedBox(height: 4),
-                        Text(CurrencyFormatter.format(vm.walletBalance),
-                            style: AppTextStyles.amountLarge),
+                        Text(
+                          _balanceHidden ? '₹ • • • • • •' : CurrencyFormatter.format(vm.walletBalance),
+                          style: AppTextStyles.amountLarge,
+                        ),
                         const SizedBox(height: 12),
                         Align(
                           alignment: Alignment.centerRight,
@@ -183,32 +200,27 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SizedBox(height: 12),
                   YoupiCard(
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(children: [
-                          Container(
-                            width: 36, height: 36,
+                        const Icon(Icons.wifi_off_rounded, color: AppColors.textSecondary, size: 28),
+                        const SizedBox(height: 8),
+                        Text('No Active Recharge', style: AppTextStyles.labelLarge),
+                        const SizedBox(height: 4),
+                        Text('Recharge now to see your plan here',
+                            style: AppTextStyles.bodySmall.copyWith(color: AppColors.textSecondary)),
+                        const SizedBox(height: 12),
+                        GestureDetector(
+                          onTap: () => ctx.go('/dashboard/plans'),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                             decoration: BoxDecoration(
                               color: AppColors.primary.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(8),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: AppColors.primary),
                             ),
-                            child: const Center(child: Text('J', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold))),
+                            child: Text('Recharge Now',
+                                style: AppTextStyles.chipText.copyWith(color: AppColors.primary)),
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            Text('Jio ₹349 Plan', style: AppTextStyles.labelLarge),
-                            Text('Expires in 14 days', style: AppTextStyles.bodySmall),
-                          ])),
-                          Text('Paid 1/3', style: AppTextStyles.labelMedium.copyWith(color: AppColors.primary)),
-                        ]),
-                        const SizedBox(height: 12),
-                        LinearProgressIndicator(
-                          value: 0.7,
-                          backgroundColor: AppColors.divider,
-                          valueColor: const AlwaysStoppedAnimation(AppColors.primary),
                         ),
-                        const SizedBox(height: 8),
-                        Text('1.4GB / 2GB daily', style: AppTextStyles.bodySmall),
                       ],
                     ),
                   ),

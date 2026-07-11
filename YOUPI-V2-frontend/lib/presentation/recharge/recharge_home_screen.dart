@@ -57,7 +57,7 @@ class _RechargeHomeScreenState extends State<RechargeHomeScreen> {
                           ),
                           IconButton(
                             icon: const Icon(Icons.edit_rounded, color: AppColors.textSecondary, size: 18),
-                            onPressed: () {},
+                            onPressed: () => _showEditMobileDialog(context, vm),
                           ),
                         ],
                       ),
@@ -214,4 +214,42 @@ class _EmiChip extends StatelessWidget {
       ),
     );
   }
+}
+void _showEditMobileDialog(BuildContext context, RechargeViewModel vm) {
+  final ctrl = TextEditingController(text: vm.mobile);
+  showDialog(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: AppColors.backgroundCard,
+      title: Text('Recharge For', style: AppTextStyles.headlineSmall),
+      content: TextField(
+        controller: ctrl,
+        keyboardType: TextInputType.phone,
+        maxLength: 10,
+        style: AppTextStyles.bodyMedium,
+        decoration: const InputDecoration(
+          prefixText: '+91 ',
+          hintText: 'Enter mobile number',
+          counterText: '',
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(ctx).pop(),
+          child: Text('Cancel', style: AppTextStyles.bodyMedium.copyWith(color: AppColors.textSecondary)),
+        ),
+        TextButton(
+          onPressed: () {
+            final val = ctrl.text.trim();
+            if (val.length == 10) {
+              vm.setMobile(val);
+              vm.loadPlans();
+              Navigator.of(ctx).pop();
+            }
+          },
+          child: Text('Confirm', style: AppTextStyles.tealLink),
+        ),
+      ],
+    ),
+  );
 }

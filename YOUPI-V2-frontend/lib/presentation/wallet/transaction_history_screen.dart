@@ -1,24 +1,56 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_dimensions.dart';
 import '../../core/constants/app_text_styles.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../core/widgets/youpi_card.dart';
-import '../../data/datasources/mock_data.dart';
 import '../../data/models/transaction_model.dart';
+import '../invest/invest_viewmodel.dart';
 
-class TransactionHistoryScreen extends StatelessWidget {
+class TransactionHistoryScreen extends StatefulWidget {
   const TransactionHistoryScreen({super.key});
   @override
+  State<TransactionHistoryScreen> createState() => _TransactionHistoryScreenState();
+}
+
+class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Wallet tab already loads this on entry, but load fresh in case this
+    // screen is opened before the wallet tab ever ran.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final vm = context.read<WalletViewModel>();
+      if (vm.transactions.isEmpty && !vm.isLoading) {
+        vm.loadWallet();
+      }
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final vm = context.watch<WalletViewModel>();
+
     return Scaffold(
       backgroundColor: AppColors.backgroundPrimary,
       appBar: AppBar(title: const Text('Transaction History'), backgroundColor: AppColors.backgroundPrimary),
-      body: ListView.separated(
-        padding: const EdgeInsets.all(AppDimensions.paddingPage),
-        itemCount: MockData.mockTransactions.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 10),
-        itemBuilder: (ctx, i) => _TransactionTile(MockData.mockTransactions[i]),
+      body: vm.isLoading && vm.transactions.isEmpty
+          ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
+          : vm.transactions.isEmpty
+          ? Center(
+        child: Text('No transactions yet',
+            style: AppTextStyles.bodyMedium.copyWith(color: AppColors.textSecondary)),
+      )
+          : RefreshIndicator(
+        onRefresh: () => vm.loadWallet(),
+        child: ListView.separated(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(AppDimensions.paddingPage),
+          itemCount: vm.transactions.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 10),
+          itemBuilder: (ctx, i) => _TransactionTile(vm.transactions[i]),
+        ),
       ),
     );
   }

@@ -24,7 +24,7 @@ class AppStrings {
   static const String onboardingSkip = 'Skip';
   static const String onboardingNext = 'Next';
   static const String onboardingGetStarted = 'Get Started';
-  static const String slide1Title = 'Recharge on EMI';
+  static const String slide1Title = 'Recharge on YouPi';
   static const String slide1Body = 'Pay your annual recharge in easy EMIs. Save ₹147.';
   static const String slide2Title = 'Grow with Digital Gold';
   static const String slide2Body = 'Invest from ₹1. Your gold grows every day.';

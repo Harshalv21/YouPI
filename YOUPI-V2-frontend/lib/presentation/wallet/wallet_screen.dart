@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_dimensions.dart';
 import '../../core/constants/app_text_styles.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../core/widgets/youpi_button.dart';
 import '../../core/widgets/youpi_card.dart';
-import '../../data/datasources/mock_data.dart';
 import '../../data/models/transaction_model.dart';
 import '../invest/invest_viewmodel.dart';
 
@@ -26,47 +26,75 @@ class _InfoRow extends StatelessWidget {
 }
 
 // ─────────── Wallet ───────────
-class WalletScreen extends StatelessWidget {
+class WalletScreen extends StatefulWidget {
   const WalletScreen({super.key});
   @override
+  State<WalletScreen> createState() => _WalletScreenState();
+}
+
+class _WalletScreenState extends State<WalletScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<WalletViewModel>().loadWallet();
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final balance = MockData.mockUser.walletBalance;
+    final vm = context.watch<WalletViewModel>();
+
     return Scaffold(
       backgroundColor: AppColors.backgroundPrimary,
       appBar: AppBar(title: const Text('My Wallet'), backgroundColor: AppColors.backgroundPrimary),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(AppDimensions.paddingPage),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          YoupiGlassCard(
-            child: Column(children: [
-              const Icon(Icons.account_balance_wallet_rounded, color: AppColors.primary, size: 36),
-              const SizedBox(height: 8),
-              Text(CurrencyFormatter.format(balance), style: AppTextStyles.amountLarge),
-              Text('Available Balance', style: AppTextStyles.captionText),
-            ]),
-          ),
-          const SizedBox(height: 20),
-          Row(children: [
-            _WalletAction('Add Money', Icons.add_circle_rounded, () => context.push('/wallet/add')),
-            const SizedBox(width: 10),
-            _WalletAction('Send Money', Icons.send_rounded, () => context.push('/wallet/send')),
-            const SizedBox(width: 10),
-            _WalletAction('Withdraw', Icons.download_rounded, () => context.push('/wallet/withdraw')),
-          ]),
-          const SizedBox(height: 24),
-          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            Text('Recent Transactions', style: AppTextStyles.headlineSmall),
-            TextButton(
-              onPressed: () => context.push('/wallet/history'),
-              child: Text('View All', style: AppTextStyles.tealLink.copyWith(decoration: TextDecoration.none)),
+      body: vm.isLoading && vm.transactions.isEmpty
+          ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
+          : RefreshIndicator(
+        onRefresh: () => vm.loadWallet(),
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(AppDimensions.paddingPage),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            YoupiGlassCard(
+              child: Column(children: [
+                const Icon(Icons.account_balance_wallet_rounded, color: AppColors.primary, size: 36),
+                const SizedBox(height: 8),
+                Text(CurrencyFormatter.format(vm.balance), style: AppTextStyles.amountLarge),
+                Text('Available Balance', style: AppTextStyles.captionText),
+              ]),
             ),
+            const SizedBox(height: 20),
+            Row(children: [
+              _WalletAction('Add Money', Icons.add_circle_rounded, () => context.push('/wallet/add')),
+              const SizedBox(width: 10),
+              _WalletAction('Send Money', Icons.send_rounded, () => context.push('/wallet/send')),
+              const SizedBox(width: 10),
+              _WalletAction('Withdraw', Icons.download_rounded, () => context.push('/wallet/withdraw')),
+            ]),
+            const SizedBox(height: 24),
+            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+              Text('Recent Transactions', style: AppTextStyles.headlineSmall),
+              TextButton(
+                onPressed: () => context.push('/wallet/history'),
+                child: Text('View All', style: AppTextStyles.tealLink.copyWith(decoration: TextDecoration.none)),
+              ),
+            ]),
+            const SizedBox(height: 12),
+            if (vm.transactions.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 24),
+                child: Center(
+                  child: Text('No transactions yet', style: AppTextStyles.bodyMedium.copyWith(color: AppColors.textSecondary)),
+                ),
+              )
+            else
+              ...vm.transactions.take(6).map((tx) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _TransactionTile(tx),
+              )).toList(),
           ]),
-          const SizedBox(height: 12),
-          ...MockData.mockTransactions.take(6).map((tx) => Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: _TransactionTile(tx),
-          )).toList(),
-        ]),
+        ),
       ),
     );
   }
@@ -118,4 +146,3 @@ class _TransactionTile extends StatelessWidget {
     ]),
   );
 }
-

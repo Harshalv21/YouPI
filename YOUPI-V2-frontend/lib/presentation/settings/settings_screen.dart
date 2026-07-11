@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_dimensions.dart';
 import '../../core/constants/app_text_styles.dart';
@@ -7,18 +8,35 @@ import '../../core/services/storage_service.dart';
 import '../../core/widgets/youpi_button.dart';
 import '../../core/widgets/youpi_card.dart';
 import '../../core/widgets/youpi_input.dart';
-import '../../data/datasources/mock_data.dart';
+import 'settings_viewmodel.dart';
 
 // ─────────── Settings ───────────
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
   @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<SettingsViewModel>().loadProfile();
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final user = MockData.mockUser;
+    final vm = context.watch<SettingsViewModel>();
+    final user = vm.user;
+
     return Scaffold(
       backgroundColor: AppColors.backgroundPrimary,
       appBar: AppBar(title: const Text('Settings'), backgroundColor: AppColors.backgroundPrimary),
-      body: SingleChildScrollView(
+      body: vm.isLoading && user == null
+          ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
+          : SingleChildScrollView(
         padding: const EdgeInsets.all(AppDimensions.paddingPage),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           // Avatar row
@@ -30,13 +48,14 @@ class SettingsScreen extends StatelessWidget {
                     color: AppColors.primary, shape: BoxShape.circle,
                     boxShadow: [BoxShadow(color: AppColors.primaryGlow, blurRadius: 16)]),
                 child: Center(
-                    child: Text(user.initials,
+                    child: Text(user?.initials ?? 'Y',
                         style: AppTextStyles.displaySmall.copyWith(color: AppColors.backgroundPrimary))),
               ),
               const SizedBox(height: 8),
-              Text(user.name, style: AppTextStyles.headlineMedium),
-              Text(user.mobile, style: AppTextStyles.bodySmall),
-              if (user.isKycVerified)
+              Text(user?.name.isNotEmpty == true ? user!.name : 'Your Name',
+                  style: AppTextStyles.headlineMedium),
+              Text(user?.mobile ?? '', style: AppTextStyles.bodySmall),
+              if (user?.isKycVerified == true)
                 Chip(
                   label: Text('KYC Verified', style: AppTextStyles.chipText.copyWith(color: AppColors.success)),
                   backgroundColor: AppColors.success.withOpacity(0.1),
@@ -85,7 +104,6 @@ class SettingsScreen extends StatelessWidget {
   }
 }
 
-
 void _showComingSoon(BuildContext context, String feature) {
   showDialog(
     context: context,
@@ -123,28 +141,70 @@ class _SettingsTile extends StatelessWidget {
 }
 
 // ─────────── Edit Profile ───────────
-class EditProfileScreen extends StatelessWidget {
+class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key});
   @override
+  State<EditProfileScreen> createState() => _EditProfileScreenState();
+}
+
+class _EditProfileScreenState extends State<EditProfileScreen> {
+  final _nameCtrl = TextEditingController();
+  final _emailCtrl = TextEditingController();
+  bool _initialized = false;
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _emailCtrl.dispose();
+    super.dispose();
+  }
+
+  void _initFields(dynamic user) {
+    if (_initialized || user == null) return;
+    _nameCtrl.text = user.name;
+    _emailCtrl.text = user.email;
+    _initialized = true;
+  }
+
+  Future<void> _save(BuildContext context) async {
+    final vm = context.read<SettingsViewModel>();
+    final ok = await vm.updateProfile(
+      fullName: _nameCtrl.text.trim(),
+      email: _emailCtrl.text.trim(),
+    );
+    if (!context.mounted) return;
+    if (ok) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Profile updated!'), backgroundColor: AppColors.success));
+      context.pop();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(vm.error ?? 'Update failed'), backgroundColor: AppColors.error));
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final user = MockData.mockUser;
+    final vm = context.watch<SettingsViewModel>();
+    _initFields(vm.user);
+
     return Scaffold(
       backgroundColor: AppColors.backgroundPrimary,
       appBar: AppBar(title: const Text('Edit Profile'), backgroundColor: AppColors.backgroundPrimary),
       body: Padding(
         padding: const EdgeInsets.all(AppDimensions.paddingPage),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          YoupiInput(label: 'Full Name', hint: user.name, readOnly: false),
+          YoupiInput(label: 'Full Name', controller: _nameCtrl),
           const SizedBox(height: 16),
-          YoupiInput(label: 'Email', hint: user.email, keyboardType: TextInputType.emailAddress),
+          YoupiInput(label: 'Email', controller: _emailCtrl, keyboardType: TextInputType.emailAddress),
           const SizedBox(height: 16),
-          YoupiInput(label: 'Mobile', hint: user.mobile, readOnly: true),
+          YoupiInput(label: 'Mobile', hint: vm.user?.mobile ?? '', readOnly: true),
           const Spacer(),
-          YoupiButton(label: 'Save Changes', onPressed: () {
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                content: Text('Profile updated!'), backgroundColor: AppColors.success));
-            context.pop();
-          }),
+          YoupiButton(
+            label: 'Save Changes',
+            isLoading: vm.isLoading,
+            onPressed: () => _save(context),
+          ),
         ]),
       ),
     );
