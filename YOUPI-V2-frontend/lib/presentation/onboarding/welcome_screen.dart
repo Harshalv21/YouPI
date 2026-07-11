@@ -55,6 +55,9 @@ class WelcomeScreen extends StatelessWidget {
                 style: AppTextStyles.headlineLarge,
                 textAlign: TextAlign.center,
               ),
+
+              
+
               const SizedBox(height: 16),
               Container(
                 height: 2,
@@ -143,7 +146,20 @@ class WelcomeScreen extends StatelessWidget {
                 type: YoupiButtonType.ghost,
                 onPressed: () => context.go('/dashboard/home'),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 30),
+
+              Text(
+                  AppStrings.welcomeSubHeading,
+                  style: AppTextStyles.bodyMedium.copyWith(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white70,
+                    height: 1.4,
+                    letterSpacing: 0.3,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              const SizedBox(height: 26),
             ],
           ),
         ),

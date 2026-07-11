@@ -26,6 +26,7 @@ class ApiService {
   static Future<bool>? _ongoingRefresh;
 
   static void initialize() {
+    debugPrint('🔵 BASE URL: $_baseUrl');
     _dio.options = BaseOptions(
       baseUrl: _baseUrl,
       connectTimeout: const Duration(seconds: 30),

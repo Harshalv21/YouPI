@@ -16,12 +16,15 @@ import org.springdoc.core.annotations.RouterOperations
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.http.MediaType
+import org.slf4j.LoggerFactory
 import org.springframework.web.bind.annotation.RequestMethod
 import org.springframework.web.reactive.function.server.*
 
 @Configuration
 @Tag(name = "User")
 class UserRouter(private val userService: UserService) {
+    private val log = LoggerFactory.getLogger(javaClass)
+
 
     @Bean
     @RouterOperations(
@@ -84,14 +87,18 @@ class UserRouter(private val userService: UserService) {
         return ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
             .bodyValueAndAwait(ApiResponse.ok(profile))
     }
-
+    
     private suspend fun handleUpdateProfile(request: ServerRequest): ServerResponse {
-        val userId = request.currentUserId()
-        val body = request.awaitBody<UpdateProfileRequest>()
-        val profile = userService.updateProfile(userId, body)
-        return ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
-            .bodyValueAndAwait(ApiResponse.ok(profile))
-    }
+    log.info("🟢 handleUpdateProfile CALLED")
+    val userId = request.currentUserId()
+    log.info("🟢 userId = $userId")
+    val body = request.awaitBody<UpdateProfileRequest>()
+    log.info("🟢 body received = $body")
+    val profile = userService.updateProfile(userId, body)
+    log.info("🟢 profile computed = $profile")
+    return ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
+        .bodyValueAndAwait(ApiResponse.ok(profile))
+}
 
     private suspend fun handleKycStatus(request: ServerRequest): ServerResponse {
         val userId = request.currentUserId()

@@ -4,8 +4,8 @@
 
 -- ── Gold Holdings ──
 CREATE TABLE gold_holdings (
-    id               CHAR(36) NOT NULL DEFAULT gen_random_uuid()::text,
-    user_id          CHAR(36) NOT NULL,
+    id               UUID NOT NULL DEFAULT gen_random_uuid(),
+    user_id          UUID NOT NULL,
     total_grams      DECIMAL(14,6) NOT NULL DEFAULT 0.000000,
     total_invested   DECIMAL(15,2) NOT NULL DEFAULT 0.00,
     gold_provider    VARCHAR(30) NOT NULL DEFAULT 'SAFEGOLD',
@@ -19,8 +19,8 @@ CREATE TABLE gold_holdings (
 
 -- ── Gold Transactions ──
 CREATE TABLE gold_transactions (
-    id                CHAR(36) NOT NULL DEFAULT gen_random_uuid()::text,
-    user_id           CHAR(36) NOT NULL,
+    id                UUID NOT NULL DEFAULT gen_random_uuid(),
+    user_id           UUID NOT NULL,
     txn_type          VARCHAR(20) NOT NULL,
     amount_inr        DECIMAL(12,2) NOT NULL,
     grams             DECIMAL(14,6) NOT NULL,
@@ -28,7 +28,7 @@ CREATE TABLE gold_transactions (
     provider_txn_id   VARCHAR(100),
     status            VARCHAR(20) NOT NULL DEFAULT 'PENDING',
     triggered_by      VARCHAR(30) NOT NULL,
-    recharge_order_id CHAR(36),
+    recharge_order_id UUID,
     idempotency_key   VARCHAR(100) NOT NULL,
     created_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
@@ -57,8 +57,8 @@ CREATE INDEX idx_gold_price_time ON gold_price_snapshots(recorded_at);
 
 -- ── Fixed Deposits ──
 CREATE TABLE fixed_deposits (
-    id              CHAR(36) NOT NULL DEFAULT gen_random_uuid()::text,
-    user_id         CHAR(36) NOT NULL,
+    id              UUID NOT NULL DEFAULT gen_random_uuid(),
+    user_id         UUID NOT NULL,
     principal       DECIMAL(12,2) NOT NULL,
     interest_rate   DECIMAL(5,2) NOT NULL,
     tenure_months   SMALLINT NOT NULL,

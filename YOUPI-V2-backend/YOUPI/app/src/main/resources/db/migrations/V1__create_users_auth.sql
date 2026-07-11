@@ -6,7 +6,7 @@
 
 -- ── Users ──
 CREATE TABLE users (
-    id              CHAR(36) NOT NULL DEFAULT gen_random_uuid()::text,
+    id              UUID NOT NULL DEFAULT gen_random_uuid(),
     mobile          VARCHAR(13) NOT NULL,
     full_name       VARCHAR(100),
     email           VARCHAR(150),
@@ -28,7 +28,7 @@ CREATE INDEX idx_users_firebase ON users(firebase_uid);
 
 -- ── OTP Sessions (audit trail) ──
 CREATE TABLE otp_sessions (
-    id           CHAR(36) NOT NULL DEFAULT gen_random_uuid()::text,
+    id           UUID NOT NULL DEFAULT gen_random_uuid(),
     mobile       VARCHAR(13) NOT NULL,
     otp_hash     VARCHAR(64) NOT NULL,
     purpose      VARCHAR(40) NOT NULL,
@@ -45,8 +45,8 @@ CREATE INDEX idx_otp_mobile_purpose ON otp_sessions(mobile, purpose, created_at)
 
 -- ── Refresh Tokens ──
 CREATE TABLE refresh_tokens (
-    id          CHAR(36) NOT NULL DEFAULT gen_random_uuid()::text,
-    user_id     CHAR(36) NOT NULL,
+    id          UUID NOT NULL DEFAULT gen_random_uuid(),
+    user_id     UUID NOT NULL,
     token_hash  VARCHAR(64) NOT NULL,
     device_id   VARCHAR(100),
     device_name VARCHAR(100),
@@ -63,7 +63,7 @@ CREATE INDEX idx_refresh_token_hash ON refresh_tokens(token_hash);
 
 -- ── User MPIN ──
 CREATE TABLE user_mpin (
-    user_id      CHAR(36) NOT NULL,
+    user_id      UUID NOT NULL,
     mpin_hash    VARCHAR(64) NOT NULL,
     attempts     SMALLINT NOT NULL DEFAULT 0,
     locked_until TIMESTAMP NULL,

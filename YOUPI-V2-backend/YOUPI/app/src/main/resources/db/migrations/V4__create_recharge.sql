@@ -3,8 +3,8 @@
 -- ═══════════════════════════════════════════════════════════
 
 CREATE TABLE recharge_orders (
-    id                   CHAR(36) NOT NULL DEFAULT gen_random_uuid()::text,
-    user_id              CHAR(36) NOT NULL,
+    id                   UUID NOT NULL DEFAULT gen_random_uuid(),
+    user_id              UUID NOT NULL,
     mobile_number        VARCHAR(13) NOT NULL,
     operator             VARCHAR(30) NOT NULL,
     circle               VARCHAR(50),
@@ -22,7 +22,7 @@ CREATE TABLE recharge_orders (
     a1topup_raw_response JSONB,
     failure_reason       TEXT,
     gold_auto_invest     BOOLEAN NOT NULL DEFAULT false,
-    gold_txn_id          CHAR(36),
+    gold_txn_id          UUID,
     idempotency_key      VARCHAR(100) NOT NULL,
     created_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -40,9 +40,9 @@ CREATE INDEX idx_recharge_status ON recharge_orders(status);
 CREATE INDEX idx_recharge_a1topup ON recharge_orders(a1topup_txn_id);
 
 CREATE TABLE recharge_emi_schedules (
-    id                  CHAR(36) NOT NULL DEFAULT gen_random_uuid()::text,
-    recharge_id         CHAR(36) NOT NULL,
-    user_id             CHAR(36) NOT NULL,
+    id                  UUID NOT NULL DEFAULT gen_random_uuid(),
+    recharge_id         UUID NOT NULL,
+    user_id             UUID NOT NULL,
     instalment_no       SMALLINT NOT NULL,
     due_date            DATE NOT NULL,
     amount              DECIMAL(8,2) NOT NULL,

@@ -11,7 +11,8 @@ class AppStrings {
   static const String splashPowered = 'Powered by Nexospendz Finothrive';
 
   // Welcome
-  static const String welcomeHeadline = "India's smartest fintech for Tier 2 & 3 users";
+  static const String welcomeHeadline = 'Finance That Gets You';
+  static const String welcomeSubHeading = 'Built with ❤️\nFor Young India';
   static const String welcomeRegisterTitle = 'New User? Register';
   static const String welcomeRegisterSubtitle = 'Create account in 2 minutes';
   static const String welcomeLoginTitle = 'Existing User? Login';

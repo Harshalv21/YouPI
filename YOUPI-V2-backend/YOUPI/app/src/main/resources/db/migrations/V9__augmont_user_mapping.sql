@@ -5,8 +5,8 @@
 -- ── Augmont User Mappings ──
 -- Maps each YouPI user to their Augmont merchant-user identity
 CREATE TABLE augmont_user_mappings (
-    id                  CHAR(36) NOT NULL DEFAULT gen_random_uuid()::text,
-    user_id             CHAR(36) NOT NULL,
+    id                  UUID NOT NULL DEFAULT gen_random_uuid(),
+    user_id             UUID NOT NULL,
     augmont_unique_id   VARCHAR(100) NOT NULL,  -- Augmont uniqueId returned on user creation
     augmont_user_name   VARCHAR(200),
     kyc_status          VARCHAR(30) NOT NULL DEFAULT 'PENDING',

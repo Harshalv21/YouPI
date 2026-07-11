@@ -3,8 +3,8 @@
 -- ═══════════════════════════════════════════════════════════
 
 CREATE TABLE kyc_records (
-    id                  CHAR(36) NOT NULL DEFAULT gen_random_uuid()::text,
-    user_id             CHAR(36) NOT NULL,
+    id                  UUID NOT NULL DEFAULT gen_random_uuid(),
+    user_id             UUID NOT NULL,
     aadhaar_encrypted   BYTEA,
     aadhaar_last4       VARCHAR(4),
     aadhaar_verified    BOOLEAN NOT NULL DEFAULT false,
@@ -36,13 +36,13 @@ CREATE INDEX idx_kyc_user ON kyc_records(user_id);
 CREATE INDEX idx_kyc_status ON kyc_records(kyc_status);
 
 CREATE TABLE smart_saver_documents (
-    id               CHAR(36) NOT NULL DEFAULT gen_random_uuid()::text,
-    user_id          CHAR(36) NOT NULL,
+    id               UUID NOT NULL DEFAULT gen_random_uuid(),
+    user_id          UUID NOT NULL,
     doc_type         VARCHAR(50) NOT NULL,
     gcs_path         VARCHAR(500) NOT NULL,
     status           VARCHAR(20) NOT NULL DEFAULT 'PENDING',
     rejection_reason TEXT,
-    reviewed_by      CHAR(36),
+    reviewed_by      UUID,
     reviewed_at      TIMESTAMP NULL,
     created_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),

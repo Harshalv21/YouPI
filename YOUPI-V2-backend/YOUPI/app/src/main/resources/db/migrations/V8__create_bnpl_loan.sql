@@ -4,8 +4,8 @@
 
 -- ── BNPL Applications ──
 CREATE TABLE bnpl_applications (
-    id               CHAR(36) NOT NULL DEFAULT gen_random_uuid()::text,
-    user_id          CHAR(36) NOT NULL,
+    id               UUID NOT NULL DEFAULT gen_random_uuid(),
+    user_id          UUID NOT NULL,
     employment_type  VARCHAR(30),
     monthly_income   DECIMAL(12,2),
     cibil_score      SMALLINT,
@@ -15,7 +15,7 @@ CREATE TABLE bnpl_applications (
     approved_limit   DECIMAL(10,2),
     status           VARCHAR(30) NOT NULL DEFAULT 'SUBMITTED',
     rejection_reason TEXT,
-    reviewed_by      CHAR(36),
+    reviewed_by      UUID,
     reviewed_at      TIMESTAMP NULL,
     created_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -31,9 +31,9 @@ CREATE INDEX idx_bnpl_app_status ON bnpl_applications(status);
 
 -- ── BNPL Accounts ──
 CREATE TABLE bnpl_accounts (
-    id              CHAR(36) NOT NULL DEFAULT gen_random_uuid()::text,
-    user_id         CHAR(36) NOT NULL,
-    application_id  CHAR(36) NOT NULL,
+    id              UUID NOT NULL DEFAULT gen_random_uuid(),
+    user_id         UUID NOT NULL,
+    application_id  UUID NOT NULL,
     total_limit     DECIMAL(10,2) NOT NULL,
     used_limit      DECIMAL(10,2) NOT NULL DEFAULT 0.00,
     available_limit DECIMAL(10,2) GENERATED ALWAYS AS (total_limit - used_limit) STORED,
@@ -51,8 +51,8 @@ CREATE TABLE bnpl_accounts (
 
 -- ── Loan Applications ──
 CREATE TABLE loan_applications (
-    id               CHAR(36) NOT NULL DEFAULT gen_random_uuid()::text,
-    user_id          CHAR(36) NOT NULL,
+    id               UUID NOT NULL DEFAULT gen_random_uuid(),
+    user_id          UUID NOT NULL,
     full_name        VARCHAR(100) NOT NULL,
     date_of_birth    DATE NOT NULL,
     pan_number       VARCHAR(10) NOT NULL,
@@ -79,7 +79,7 @@ CREATE TABLE loan_applications (
     tenure_months    SMALLINT,
     status           VARCHAR(30) NOT NULL DEFAULT 'SUBMITTED',
     rejection_reason TEXT,
-    reviewed_by      CHAR(36),
+    reviewed_by      UUID,
     reviewed_at      TIMESTAMP NULL,
     created_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -96,9 +96,9 @@ CREATE INDEX idx_loan_app_status ON loan_applications(status);
 
 -- ── Loan Accounts ──
 CREATE TABLE loan_accounts (
-    id                  CHAR(36) NOT NULL DEFAULT gen_random_uuid()::text,
-    user_id             CHAR(36) NOT NULL,
-    application_id      CHAR(36) NOT NULL,
+    id                  UUID NOT NULL DEFAULT gen_random_uuid(),
+    user_id             UUID NOT NULL,
+    application_id      UUID NOT NULL,
     principal           DECIMAL(12,2) NOT NULL,
     interest_rate       DECIMAL(5,2) NOT NULL,
     tenure_months       SMALLINT NOT NULL,
@@ -122,8 +122,8 @@ CREATE TABLE loan_accounts (
 
 -- ── Loan EMI Schedule ──
 CREATE TABLE loan_emi_schedule (
-    id             CHAR(36) NOT NULL DEFAULT gen_random_uuid()::text,
-    loan_id        CHAR(36) NOT NULL,
+    id             UUID NOT NULL DEFAULT gen_random_uuid(),
+    loan_id        UUID NOT NULL,
     emi_number     SMALLINT NOT NULL,
     due_date       DATE NOT NULL,
     principal_part DECIMAL(10,2) NOT NULL,

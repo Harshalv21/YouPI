@@ -3,8 +3,8 @@
 -- ═══════════════════════════════════════════════════════════
 
 CREATE TABLE wallets (
-    id          CHAR(36) NOT NULL DEFAULT gen_random_uuid()::text,
-    user_id     CHAR(36) NOT NULL,
+    id          UUID NOT NULL DEFAULT gen_random_uuid(),
+    user_id     UUID NOT NULL,
     wallet_type VARCHAR(20) NOT NULL,
     balance     DECIMAL(15,2) NOT NULL DEFAULT 0.00,
     currency    VARCHAR(5) NOT NULL DEFAULT 'INR',
@@ -22,14 +22,14 @@ CREATE INDEX idx_wallet_user ON wallets(user_id, wallet_type);
 
 /* Immutable double-entry ledger — NEVER UPDATE, only INSERT */
 CREATE TABLE ledger_entries (
-    id              CHAR(36) NOT NULL DEFAULT gen_random_uuid()::text,
-    wallet_id       CHAR(36) NOT NULL,
+    id              UUID NOT NULL DEFAULT gen_random_uuid(),
+    wallet_id       UUID NOT NULL,
     txn_direction   VARCHAR(6) NOT NULL,
     amount          DECIMAL(15,2) NOT NULL,
     balance_before  DECIMAL(15,2) NOT NULL,
     balance_after   DECIMAL(15,2) NOT NULL,
     reference_type  VARCHAR(40) NOT NULL,
-    reference_id    CHAR(36),
+    reference_id    UUID,
     description     TEXT,
     idempotency_key VARCHAR(100),
     created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

@@ -4,8 +4,8 @@
 -- ═══════════════════════════════════════════════════════════
 
 CREATE TABLE smart_saver_allocations (
-    id                CHAR(36) NOT NULL DEFAULT gen_random_uuid()::text,
-    user_id           CHAR(36) NOT NULL,
+    id                UUID NOT NULL DEFAULT gen_random_uuid(),
+    user_id           UUID NOT NULL,
     deposit_amount    DECIMAL(10,2) NOT NULL DEFAULT 0.00,
     admin_seed_amount DECIMAL(10,2) NOT NULL DEFAULT 1000.00,
     total_collateral  DECIMAL(10,2) GENERATED ALWAYS AS (deposit_amount + admin_seed_amount) STORED,
@@ -13,7 +13,7 @@ CREATE TABLE smart_saver_allocations (
     used_credit       DECIMAL(10,2) NOT NULL DEFAULT 0.00,
     available_credit  DECIMAL(10,2) GENERATED ALWAYS AS (((deposit_amount + admin_seed_amount) * 0.80) - used_credit) STORED,
     status            VARCHAR(20) NOT NULL DEFAULT 'PENDING_ACTIVATION',
-    activated_by      CHAR(36),
+    activated_by      UUID,
     activated_at      TIMESTAMP NULL,
     notes             TEXT,
     created_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

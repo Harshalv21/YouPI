@@ -13,12 +13,6 @@ import org.springframework.web.server.WebFilter
 import org.springframework.web.server.WebFilterChain
 import reactor.core.publisher.Mono
 
-/**
- * WebFlux filter that verifies Firebase Auth Bearer tokens.
- * On success: injects FirebasePrincipal into exchange attributes.
- * On failure: returns 401 with ApiResponse error.
- * Skips: public auth endpoints, webhooks, and actuator health.
- */
 @Component
 class FirebaseAuthFilter(
     private val mpinJwtService: MpinJwtService
@@ -46,20 +40,21 @@ class FirebaseAuthFilter(
     )
 
     override fun filter(exchange: ServerWebExchange, chain: WebFilterChain): Mono<Void> {
-    val path = exchange.request.uri.path
-    val method = exchange.request.method
+        log.info("🔵 FirebaseAuthFilter HIT: ${exchange.request.method} ${exchange.request.uri.path}")
+        val path = exchange.request.uri.path
+        val normalizedPath = path.replace(Regex("/+"), "/")
+        val method = exchange.request.method
 
-    // Allow CORS preflight requests
-    if (method?.name() == "OPTIONS") {
-        return chain.filter(exchange)
-    }
+        if (method?.name() == "OPTIONS") {
+            return chain.filter(exchange)
+        }
 
-    // Skip filter for public endpoints
-    if (skipPaths.any { path.startsWith(it) }) {
-        return chain.filter(exchange)
-    }
+        if (skipPaths.any { normalizedPath.startsWith(it) }) {
+            return chain.filter(exchange)
+        }
 
-    val authHeader = exchange.request.headers.getFirst("Authorization")
+        val authHeader = exchange.request.headers.getFirst("Authorization")
+        log.info("🔵 authHeader present: ${authHeader != null}, starts with Bearer: ${authHeader?.startsWith("Bearer ")}")
 
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             return writeUnauthorized(exchange, "Missing or invalid Authorization header")
@@ -69,8 +64,9 @@ class FirebaseAuthFilter(
 
         return mono {
             try {
-                // Try parsing as MPIN JWT first
+                log.info("🔵 Attempting MPIN JWT verify")
                 val mpinClaims = mpinJwtService.verifyToken(token)
+                log.info("🔵 MPIN JWT verify SUCCESS: userId=${mpinClaims.userId}")
                 val principal = FirebasePrincipal(
                     uid = mpinClaims.userId.toString(),
                     mobile = mpinClaims.mobile,
@@ -80,9 +76,9 @@ class FirebaseAuthFilter(
                 exchange.attributes["firebase.principal"] = principal
                 exchange.attributes["auth.userId"] = mpinClaims.userId
                 exchange.attributes["auth.userType"] = mpinClaims.userType
-                null // success
+                ""
             } catch (jwtException: Exception) {
-                // Fallback to Firebase verify
+                log.warn("🔵 MPIN JWT verify FAILED: ${jwtException.message}")
                 try {
                     val firebaseToken = withContext(Dispatchers.IO) {
                         FirebaseAuth.getInstance().verifyIdToken(token)
@@ -94,16 +90,18 @@ class FirebaseAuthFilter(
                         claims = firebaseToken.claims
                     )
                     exchange.attributes["firebase.principal"] = principal
-                    null // success
+                    ""
                 } catch (e: Exception) {
                     log.warn("Both MPIN JWT and Firebase token verification failed: {}", e.message)
                     "TOKEN_INVALID"
                 }
             }
         }.flatMap { error ->
-            if (error != null) {
+            log.info("🔵 flatMap reached, error='$error'")
+            if (error == "TOKEN_INVALID") {
                 writeUnauthorized(exchange, "Invalid or expired token")
             } else {
+                log.info("🔵 Calling chain.filter()")
                 chain.filter(exchange)
             }
         }
@@ -118,9 +116,6 @@ class FirebaseAuthFilter(
     }
 }
 
-/**
- * Principal extracted from a verified Firebase token.
- */
 data class FirebasePrincipal(
     val uid: String,
     val mobile: String?,

@@ -3,15 +3,15 @@
 -- ═══════════════════════════════════════════════════════════
 
 CREATE TABLE payment_orders (
-    id                  CHAR(36) NOT NULL DEFAULT gen_random_uuid()::text,
-    user_id             CHAR(36) NOT NULL,
+    id                  UUID NOT NULL DEFAULT gen_random_uuid(),
+    user_id             UUID NOT NULL,
     razorpay_order_id   VARCHAR(100) NOT NULL,
     razorpay_payment_id VARCHAR(100),
     razorpay_signature  VARCHAR(300),
     amount_paise        BIGINT NOT NULL,
     currency            VARCHAR(5) NOT NULL DEFAULT 'INR',
     purpose             VARCHAR(40) NOT NULL,
-    reference_id        CHAR(36),
+    reference_id        UUID,
     status              VARCHAR(20) NOT NULL DEFAULT 'CREATED',
     webhook_event       VARCHAR(60),
     webhook_payload     JSONB,

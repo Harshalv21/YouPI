@@ -21,6 +21,7 @@ class RequestIdFilter : WebFilter {
     private val log = LoggerFactory.getLogger(javaClass)
 
     override fun filter(exchange: ServerWebExchange, chain: WebFilterChain): Mono<Void> {
+        log.info("🟡 RequestIdFilter HIT: ${exchange.request.method} ${exchange.request.uri.path}")
         val incomingId = exchange.request.headers.getFirst("X-Request-ID")
         val requestId = incomingId ?: UUID.randomUUID().toString()
 

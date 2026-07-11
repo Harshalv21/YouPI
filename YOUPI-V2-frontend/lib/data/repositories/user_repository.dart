@@ -9,6 +9,7 @@
 import 'package:dio/dio.dart';
 import '../../core/services/api_service.dart';
 import '../models/user_model.dart';
+import 'package:flutter/foundation.dart';
 
 class UserRepository {
   final Dio _dio = ApiService.instance;
@@ -36,6 +37,7 @@ class UserRepository {
         if (email != null) 'email': email,
         if (dateOfBirth != null) 'dateOfBirth': dateOfBirth,
       });
+      debugPrint('RAW RESPONSE: ${res.data}');
       final data = ApiService.unwrap(res);
       return UserModel.fromJson(data as Map<String, dynamic>);
     } on DioException catch (e) {
