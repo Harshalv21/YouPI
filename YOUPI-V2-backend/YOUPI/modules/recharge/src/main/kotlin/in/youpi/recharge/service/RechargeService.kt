@@ -1,6 +1,8 @@
 package `in`.youpi.recharge.service
 
 import `in`.youpi.core.Result
+import `in`.youpi.core.razorpay.RazorpayClient
+import `in`.youpi.core.razorpay.RazorpayOrderCreationException
 import `in`.youpi.invest.service.InvestService
 import `in`.youpi.recharge.domain.*
 import `in`.youpi.recharge.repository.RechargeEmiEntity
@@ -32,6 +34,7 @@ class RechargeService(
     private val objectMapper: ObjectMapper,
     private val webClient: WebClient,                          // ← bean inject karo, direct build nahi
     private val investService: InvestService,                   // ← recharge → auto gold-invest ke liye
+    private val razorpayClient: RazorpayClient,
     @Value("\${mplan.api.key}") private val mplanApiKey: String,
     @Value("\${mplan.api.plans-url}") private val mplanPlansUrl: String,
     @Value("\${mplan.api.mobile-plans-url}") private val mplanMobilePlansUrl: String,
@@ -138,6 +141,26 @@ class RechargeService(
             req.planAmount.divide(BigDecimal(it.toInt()), 2, java.math.RoundingMode.CEILING)
         }
 
+        // Call Razorpay BEFORE writing anything to the DB. Previously the
+        // order (and EMI schedule rows) were saved first, then patched with
+        // a fake razorpayOrderId -- meaning a real API failure here would
+        // leave an orphaned "INITIATED" order with no way to actually pay it.
+        val amountPaise = req.planAmount.multiply(BigDecimal(100)).toLong()
+        val razorpayOrderId = try {
+            razorpayClient.createOrder(
+                amountPaise = amountPaise,
+                receipt = req.idempotencyKey,
+                notes = mapOf(
+                    "userId" to userId.toString(),
+                    "mobileNumber" to req.mobileNumber,
+                    "operator" to req.operator
+                )
+            ).id
+        } catch (e: RazorpayOrderCreationException) {
+            log.error("Razorpay order creation failed for user={}: {}", userId, e.message)
+            return Result.failure(RechargeApiException(e.message ?: "Razorpay order creation failed"))
+        }
+
         val order = rechargeRepo.save(
             RechargeOrderEntity(
                 userId = userId,
@@ -149,7 +172,8 @@ class RechargeService(
                 paymentMode = req.paymentMode.name,
                 emiMonths = emiMonths,
                 emiAmount = emiAmount,
-                idempotencyKey = req.idempotencyKey
+                idempotencyKey = req.idempotencyKey,
+                razorpayOrderId = razorpayOrderId
             )
         )
 
@@ -167,17 +191,12 @@ class RechargeService(
             }
         }
 
-        // TODO: Real Razorpay order create karo SDK se
-        val razorpayOrderId = "rzp_order_${UUID.randomUUID().toString().take(12)}"
-        val savedOrder = rechargeRepo.save(
-            order.copy(razorpayOrderId = razorpayOrderId, updatedAt = Instant.now())
-        )
-
-        log.info("Recharge order created: orderId={}, amount={}, mode={}", savedOrder.id, req.planAmount, req.paymentMode)
+        log.info("Recharge order created: orderId={}, amount={}, mode={}, razorpayOrderId={}",
+            order.id, req.planAmount, req.paymentMode, razorpayOrderId)
 
         return Result.success(
             RechargeOrderResponse(
-                orderId = savedOrder.id!!,
+                orderId = order.id!!,
                 razorpayOrderId = razorpayOrderId,
                 amount = req.planAmount,
                 status = "INITIATED",
@@ -332,9 +351,10 @@ class RechargeService(
     // ── HMAC Verification (same pattern as PaymentService) ──
 
     private fun verifyHmacSignature(payload: String, expectedSignature: String, secret: String): Boolean {
+        // Same fix as PaymentService: fail closed, not open, when unconfigured.
         if (secret.isBlank()) {
-            log.warn("Razorpay HMAC secret not configured — skipping verification (dev mode)")
-            return true
+            log.error("Razorpay HMAC secret not configured -- rejecting signature verification")
+            return false
         }
 
         return try {

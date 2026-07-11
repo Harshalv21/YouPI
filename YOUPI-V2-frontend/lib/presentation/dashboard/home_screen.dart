@@ -43,6 +43,31 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Was previously invisible: if the real profile fetch
+                  // failed, the screen silently showed mock data with no
+                  // indication anything was wrong. This banner makes that
+                  // state visible instead of looking like "the app is just
+                  // showing wrong numbers for no reason."
+                  if (vm.isShowingMockProfile)
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppColors.error.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppColors.error.withOpacity(0.4)),
+                      ),
+                      child: Row(children: [
+                        const Icon(Icons.warning_amber_rounded, color: AppColors.error, size: 16),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Could not load your real profile -- showing placeholder data. Pull to refresh to retry.',
+                            style: AppTextStyles.bodySmall.copyWith(color: AppColors.error),
+                          ),
+                        ),
+                      ]),
+                    ),
                   // Header
                   Row(
                     children: [

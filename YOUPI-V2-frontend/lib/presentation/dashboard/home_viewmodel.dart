@@ -12,6 +12,7 @@ class HomeViewModel extends ChangeNotifier {
 
   bool _isLoading = false;
   String? _error;
+  bool _profileLoadFailed = false;
 
   // Falls back to mock until the real profile loads.
   UserModel _user = MockData.mockUser;
@@ -22,6 +23,7 @@ class HomeViewModel extends ChangeNotifier {
 
   bool get isLoading => _isLoading;
   String? get error => _error;
+  bool get isShowingMockProfile => _profileLoadFailed;
   UserModel get user => _user;
   List<Map<String, String>> get offers => _offers;
 
@@ -56,7 +58,11 @@ class HomeViewModel extends ChangeNotifier {
     try {
       _user = await _userRepo.getProfile();
     } catch (e) {
-      debugPrint('Home: profile load failed: $e');
+      // Was completely silent before -- falls back to mock data with zero
+      // visible trace of why. Now logs loudly so "why is it showing mock
+      // data" has an answer in the console instead of being a mystery.
+      debugPrint('🔴 Home: profile load failed, showing MOCK data instead: $e');
+      _profileLoadFailed = true;
     }
   }
 

@@ -40,3 +40,6 @@ local.properties
 
 # Accidental backup zips
 *.zip
+
+# Accidental backup zips
+*.zip

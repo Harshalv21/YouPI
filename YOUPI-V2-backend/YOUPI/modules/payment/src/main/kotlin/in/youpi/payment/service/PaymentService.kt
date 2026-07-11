@@ -1,6 +1,8 @@
 package `in`.youpi.payment.service
 
 import `in`.youpi.core.Result
+import `in`.youpi.core.razorpay.RazorpayClient
+import `in`.youpi.core.razorpay.RazorpayOrderCreationException
 import `in`.youpi.events.PubSubPublisher
 import `in`.youpi.payment.domain.*
 import `in`.youpi.payment.repository.PaymentOrderEntity
@@ -20,6 +22,7 @@ class PaymentService(
     private val paymentRepo: PaymentOrderRepository,
     private val pubSubPublisher: PubSubPublisher,          // ← TODO replace: Pub/Sub event publish
     private val objectMapper: ObjectMapper,                // ← webhook JSON parse ke liye
+    private val razorpayClient: RazorpayClient,
     @Value("\${youpi.razorpay.key-id:}") private val razorpayKeyId: String,
     @Value("\${youpi.razorpay.key-secret:}") private val razorpayKeySecret: String,
     @Value("\${youpi.razorpay.webhook-secret:}") private val webhookSecret: String
@@ -37,8 +40,16 @@ class PaymentService(
 
         val amountPaise = req.amount.multiply(java.math.BigDecimal(100)).toLong()
 
-        // TODO: Real Razorpay API call — replace stub with Razorpay SDK
-        val razorpayOrderId = "order_${UUID.randomUUID().toString().take(14)}"
+        val razorpayOrderId = try {
+            razorpayClient.createOrder(
+                amountPaise = amountPaise,
+                receipt = req.idempotencyKey,
+                notes = mapOf("purpose" to req.purpose.name, "userId" to userId.toString())
+            ).id
+        } catch (e: RazorpayOrderCreationException) {
+            log.error("Razorpay order creation failed for user={}: {}", userId, e.message)
+            return Result.failure(PaymentOrderCreationFailedException(e.message ?: "unknown error"))
+        }
 
         val order = paymentRepo.save(
             PaymentOrderEntity(
@@ -202,9 +213,14 @@ class PaymentService(
     // ── HMAC Verification ──
 
     private fun verifyHmacSignature(payload: String, expectedSignature: String, secret: String): Boolean {
+        // Security fix: this used to return true (skip verification entirely)
+        // when the secret wasn't configured, meaning an unset env var made
+        // every payment signature check pass automatically -- anyone could
+        // forge a "payment captured" call and get free credit. Now an
+        // unconfigured secret fails closed instead of open.
         if (secret.isBlank()) {
-            log.warn("HMAC secret not configured — skipping verification (dev mode)")
-            return true
+            log.error("HMAC secret not configured -- rejecting signature verification")
+            return false
         }
 
         return try {

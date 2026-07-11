@@ -59,3 +59,6 @@ class PaymentAlreadyCaptured(val orderId: UUID) : PaymentException(
 class WebhookSignatureInvalidException : PaymentException(
     "WEBHOOK_SIGNATURE_INVALID", "Webhook HMAC signature verification failed.", 401
 )
+class PaymentOrderCreationFailedException(detail: String) : PaymentException(
+    "PAYMENT_ORDER_CREATION_FAILED", "Could not create payment order: $detail", 502
+)

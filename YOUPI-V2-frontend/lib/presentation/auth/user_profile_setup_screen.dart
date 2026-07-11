@@ -56,7 +56,12 @@ class _UserProfileSetupScreenState extends State<UserProfileSetupScreen> {
     return Scaffold(
       backgroundColor: AppColors.backgroundPrimary,
       appBar: AppBar(backgroundColor: AppColors.backgroundPrimary),
-      body: Padding(
+      // Fix: body used a fixed Column with a Spacer(), which assumes
+      // unlimited vertical room. When the keyboard opens (shrinking the
+      // available height), there was nowhere for the extra content to go,
+      // causing a "BOTTOM OVERFLOWED BY N PIXELS" error. Wrapping in a
+      // SingleChildScrollView lets the form scroll instead of overflowing.
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(AppDimensions.paddingPage),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -120,7 +125,11 @@ class _UserProfileSetupScreenState extends State<UserProfileSetupScreen> {
               keyboardType: TextInputType.emailAddress,
               onChanged: vm.setEmail,
             ),
-            const Spacer(),
+            const SizedBox(height: 40),
+            // Was missing entirely: if saveProfile() failed (expired token,
+            // network error, backend rejects the update, etc.) there was no
+            // error shown and no loading indicator — tapping Continue would
+            // just silently do nothing, looking like a hang.
             if (vm.error != null)
               Padding(
                 padding: const EdgeInsets.only(bottom: 12),

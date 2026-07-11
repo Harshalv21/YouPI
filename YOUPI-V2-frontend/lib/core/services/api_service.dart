@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'storage_service.dart';
 
 /// Central HTTP client for all YOUPI backend calls.
@@ -42,7 +43,15 @@ class ApiService {
     if (body is Map && body['success'] == true) {
       return body['data'];
     }
-    throw Exception(_extractError(res.data) ?? 'Request failed');
+    // Was previously a silent, generic "Request failed" with no way to tell
+    // what actually went wrong. This logs the real status/body so the cause
+    // (auth issue, validation error, unexpected response shape, etc.) is
+    // visible in the console on the next occurrence instead of guessing.
+    debugPrint('🔴 unwrap() fallback -- statusCode: ${res.statusCode}, '
+        'bodyType: ${body.runtimeType}');
+    debugPrint('🔴 unwrap() raw body: $body');
+    throw Exception(_extractError(res.data) ??
+        'Request failed (status ${res.statusCode})');
   }
 
   static String? _extractError(dynamic data) {
@@ -53,6 +62,9 @@ class ApiService {
   }
 
   static Exception toException(DioException e) {
+    debugPrint('🔴 DioException -- status: ${e.response?.statusCode}, '
+        'path: ${e.requestOptions.path}');
+    debugPrint('🔴 DioException raw body: ${e.response?.data}');
     final msg =
         _extractError(e.response?.data) ?? e.message ?? 'Network error';
     return Exception(msg);

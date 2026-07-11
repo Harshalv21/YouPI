@@ -112,9 +112,10 @@ youpi:
   sms:
     msg91-auth-key: ${MSG91_AUTH_KEY:}
     otp-template-id: ${MSG91_TEMPLATE_ID:}
-  youpi:
-    recharge:
+
+  recharge:
     gold-invest-percentage: 1.0
+
   razorpay:
     key-id: ${RAZORPAY_KEY_ID:}
     key-secret: ${RAZORPAY_KEY_SECRET:}
