@@ -77,9 +77,15 @@ class _HomeScreenState extends State<HomeScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('Welcome back, ${vm.user.name.split(' ').first}! 👋',
+                            Text(
+                                vm.isGuest
+                                    ? 'Welcome, Guest! 👋'
+                                    : 'Welcome back, ${vm.user.name.split(' ').first}! 👋',
                                 style: AppTextStyles.headlineMedium),
-                            Text('Your financial snapshot is ready.',
+                            Text(
+                                vm.isGuest
+                                    ? 'Register to unlock your full account.'
+                                    : 'Your financial snapshot is ready.',
                                 style: AppTextStyles.bodySmall),
                           ],
                         ),

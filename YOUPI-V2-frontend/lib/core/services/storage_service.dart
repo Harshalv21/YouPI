@@ -1,6 +1,7 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:crypto/crypto.dart';
 import 'dart:convert';
+import 'dart:math';
 
 class StorageService {
   static const _storage = FlutterSecureStorage(
@@ -14,6 +15,9 @@ class StorageService {
   static const _keyKycStatus = 'kyc_status';
   static const _keyFirstLaunch = 'first_launch';
   static const _keyBiometric = 'biometric_enabled';
+  static const _keyGuestMode = 'guest_mode';
+  static const _keyDeviceId = 'device_id';
+  static const _keyLastMobile = 'last_mobile';
 
   // ── Access token ──
   static Future<void> saveToken(String token) async =>
@@ -87,6 +91,70 @@ class StorageService {
   static Future<bool> isBiometricEnabled() async =>
       (await _storage.read(key: _keyBiometric)) == 'true';
 
+  // ── Guest mode ──
+  // Set when the user taps "Continue as Guest" on the Welcome screen. No
+  // token exists for a guest, so the router redirect must special-case this
+  // flag to avoid bouncing them straight back to /auth/mobile. Any screen
+  // that performs a real operation (wallet, BNPL, KYC, etc.) should check
+  // this via GuestGuard.requireAuth() before proceeding.
+  static Future<void> setGuestMode(bool value) async =>
+      await _storage.write(key: _keyGuestMode, value: value.toString());
+
+  static Future<bool> isGuestMode() async =>
+      (await _storage.read(key: _keyGuestMode)) == 'true';
+
+  static Future<void> clearGuestMode() async =>
+      await _storage.delete(key: _keyGuestMode);
+
+  // ── Device ID ──
+  // A stable, random per-install identifier -- NOT tied to hardware serials
+  // or Android/iOS IDs (no extra permissions/packages needed for that).
+  // Generated once and persisted in secure storage; a fresh app install
+  // (or clearing app data) generates a new one, which correctly means that
+  // "install" has to earn device-trust again via OTP. Sent as `deviceId` on
+  // every /mpin/verify and /firebase/verify call so the backend can tell
+  // devices apart for the trusted-device check.
+  static Future<String> getOrCreateDeviceId() async {
+    final existing = await _storage.read(key: _keyDeviceId);
+    if (existing != null) return existing;
+
+    final random = Random.secure();
+    final seed = List<int>.generate(32, (_) => random.nextInt(256));
+    final id = sha256.convert(seed).toString();
+    await _storage.write(key: _keyDeviceId, value: id);
+    return id;
+  }
+
+  // ── Last known mobile number ──
+  // Remembered after any successful login/registration so the "Existing
+  // User" screen can skip straight to the MPIN pad on this device instead
+  // of asking for the mobile number every single time. Only the mobile
+  // -entry (recovery) step re-asks for it -- on 5 wrong MPIN attempts or a
+  // "Forgot MPIN?" tap -- so it can be corrected if this device is ever
+  // shared/reused for a different account.
+  static Future<void> saveLastMobile(String mobile) async =>
+      await _storage.write(key: _keyLastMobile, value: mobile);
+
+  static Future<String?> getLastMobile() async =>
+      await _storage.read(key: _keyLastMobile);
+
+  static Future<void> clearLastMobile() async =>
+      await _storage.delete(key: _keyLastMobile);
+
   // ── Clear all (sign out) ──
-  static Future<void> clearAll() async => await _storage.deleteAll();
+  // Deliberately preserves device_id AND last_mobile -- signing out
+  // shouldn't un-trust this device or make it forget which account it's
+  // for. Only a genuine reinstall/app-data-clear should reset these (which
+  // wipes secure storage at the OS level, outside our control anyway).
+  static Future<void> clearAll() async {
+    final deviceId = await _storage.read(key: _keyDeviceId);
+    final lastMobile = await _storage.read(key: _keyLastMobile);
+    await _storage.deleteAll();
+    if (deviceId != null) {
+      await _storage.write(key: _keyDeviceId, value: deviceId);
+    }
+    if (lastMobile != null) {
+      await _storage.write(key: _keyLastMobile, value: lastMobile);
+    }
+  }
 }

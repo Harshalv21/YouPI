@@ -9,7 +9,13 @@ import '../../data/repositories/auth_repository.dart';
 import 'package:local_auth/local_auth.dart';
 
 class MpinSetupScreen extends StatefulWidget {
-  const MpinSetupScreen({super.key});
+  // True when this screen is reached via the MPIN-recovery path (existing,
+  // already-onboarded user who forgot/locked their MPIN) rather than fresh
+  // registration. Changes where we navigate after saving -- straight to the
+  // dashboard instead of KYC intro, since a returning user has already been
+  // through onboarding.
+  final bool isReset;
+  const MpinSetupScreen({super.key, this.isReset = false});
   @override
   State<MpinSetupScreen> createState() => _MpinSetupScreenState();
 }
@@ -111,7 +117,9 @@ class _MpinSetupScreenState extends State<MpinSetupScreen> {
         // actually triggered for any user. Ask once, right after MPIN setup
         // -- the natural moment, same as Google Pay/PhonePe do it.
         await _maybeEnableBiometric();
-        if (mounted) context.go('/kyc/intro');
+        if (mounted) {
+          context.go(widget.isReset ? '/dashboard/home' : '/kyc/intro');
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -125,7 +133,7 @@ class _MpinSetupScreenState extends State<MpinSetupScreen> {
       }
     }
   }
-   // Offers to turn on fingerprint/face unlock if the device supports it.
+  // Offers to turn on fingerprint/face unlock if the device supports it.
   /// MPIN remains the fallback either way -- this only ever makes unlock
   /// faster, never removes the MPIN path
   Future<void> _maybeEnableBiometric() async {
@@ -197,13 +205,18 @@ class _MpinSetupScreenState extends State<MpinSetupScreen> {
         child: Column(
           children: [
             const SizedBox(height: 20),
-            Text(_isConfirming ? 'Confirm MPIN' : AppStrings.mpinSetupTitle,
+            Text(
+                _isConfirming
+                    ? 'Confirm MPIN'
+                    : (widget.isReset ? 'Set a New MPIN' : AppStrings.mpinSetupTitle),
                 style: AppTextStyles.displaySmall, textAlign: TextAlign.center),
             const SizedBox(height: 8),
             Text(
                 _isConfirming
                     ? 'Re-enter your 4-digit MPIN'
-                    : AppStrings.mpinSetupSubtitle,
+                    : (widget.isReset
+                    ? 'Your identity is verified. Create a new 4-digit MPIN for future logins.'
+                    : AppStrings.mpinSetupSubtitle),
                 style: AppTextStyles.bodyMedium
                     .copyWith(color: AppColors.textSecondary),
                 textAlign: TextAlign.center),

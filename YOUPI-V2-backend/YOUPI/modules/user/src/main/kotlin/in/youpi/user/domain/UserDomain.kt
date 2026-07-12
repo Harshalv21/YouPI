@@ -7,7 +7,7 @@ import java.util.UUID
 // ── Request DTOs ──
 
 data class UpdateProfileRequest(
-    val fullName: String,
+    val fullName: String? = null,
     val email: String? = null,
     val dateOfBirth: LocalDate? = null
 )

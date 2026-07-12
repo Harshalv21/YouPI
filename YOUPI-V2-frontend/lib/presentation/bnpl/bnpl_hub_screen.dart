@@ -6,6 +6,7 @@ import '../../core/constants/app_text_styles.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../core/widgets/youpi_button.dart';
 import '../../core/widgets/youpi_card.dart';
+import '../../core/utils/guest_guard.dart';
 import '../../data/datasources/mock_data.dart';
 
 class BnplHubScreen extends StatelessWidget {
@@ -56,9 +57,15 @@ class BnplHubScreen extends StatelessWidget {
             Text('Quick Actions', style: AppTextStyles.headlineSmall),
             const SizedBox(height: 12),
             Row(children: [
-              _BnplAction('Apply for Limit Increase', Icons.upgrade_rounded, () => context.push('/bnpl/apply/step1')),
+              _BnplAction('Apply for Limit Increase', Icons.upgrade_rounded, () async {
+                if (!await GuestGuard.requireAuth(context, actionLabel: 'apply for BNPL')) return;
+                if (context.mounted) context.push('/bnpl/apply/step1');
+              }),
               const SizedBox(width: 12),
-              _BnplAction('Smart Deposit', Icons.savings_rounded, () => context.push('/bnpl/smart-deposit')),
+              _BnplAction('Smart Deposit', Icons.savings_rounded, () async {
+                if (!await GuestGuard.requireAuth(context, actionLabel: 'use Smart Deposit')) return;
+                if (context.mounted) context.push('/bnpl/smart-deposit');
+              }),
             ]),
             const SizedBox(height: 24),
             Text('Where to Use BNPL', style: AppTextStyles.headlineSmall),
@@ -68,11 +75,11 @@ class BnplHubScreen extends StatelessWidget {
               runSpacing: 8,
               children: ['Mobile Recharge', 'Gold Purchase', 'Online Shopping', 'Bill Payments', 'Travel']
                   .map((s) => Chip(
-                    label: Text(s, style: AppTextStyles.chipText),
-                    backgroundColor: AppColors.backgroundCard,
-                    side: const BorderSide(color: AppColors.divider),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                  )).toList(),
+                label: Text(s, style: AppTextStyles.chipText),
+                backgroundColor: AppColors.backgroundCard,
+                side: const BorderSide(color: AppColors.divider),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              )).toList(),
             ),
             const SizedBox(height: 24),
             Container(
@@ -91,7 +98,10 @@ class BnplHubScreen extends StatelessWidget {
                 YoupiButton(
                   label: 'Enable SmartDeposit',
                   height: 40,
-                  onPressed: () => context.push('/bnpl/smart-deposit'),
+                  onPressed: () async {
+                    if (!await GuestGuard.requireAuth(context, actionLabel: 'use Smart Deposit')) return;
+                    if (context.mounted) context.push('/bnpl/smart-deposit');
+                  },
                 ),
               ]),
             ),

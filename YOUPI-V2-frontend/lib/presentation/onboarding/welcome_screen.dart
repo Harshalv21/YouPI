@@ -6,6 +6,7 @@ import '../../core/constants/app_strings.dart';
 import '../../core/constants/app_text_styles.dart';
 import '../../core/widgets/youpi_button.dart';
 import '../../core/widgets/youpi_card.dart';
+import '../../core/services/storage_service.dart';
 
 class WelcomeScreen extends StatelessWidget {
   const WelcomeScreen({super.key});
@@ -56,7 +57,7 @@ class WelcomeScreen extends StatelessWidget {
                 textAlign: TextAlign.center,
               ),
 
-              
+
 
               const SizedBox(height: 16),
               Container(
@@ -96,9 +97,10 @@ class WelcomeScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 12),
-              // Login card
+              // Login card -- now MPIN-first (mobile + MPIN, no OTP wait).
+              // OTP is only used as a recovery path from inside that screen.
               YoupiCard(
-                onTap: () => context.push('/auth/mobile'),
+                onTap: () => context.push('/auth/login-mpin'),
                 child: Row(
                   children: [
                     Container(
@@ -144,21 +146,28 @@ class WelcomeScreen extends StatelessWidget {
               YoupiButton(
                 label: AppStrings.welcomeGuestBtn,
                 type: YoupiButtonType.ghost,
-                onPressed: () => context.go('/dashboard/home'),
+                onPressed: () async {
+                  // Mark guest mode BEFORE navigating -- the router's redirect
+                  // checks this flag on every navigation, so it must already
+                  // be set by the time GoRouter evaluates the /dashboard/home
+                  // route, otherwise it bounces straight back to /auth/mobile.
+                  await StorageService.setGuestMode(true);
+                  if (context.mounted) context.go('/dashboard/home');
+                },
               ),
               const SizedBox(height: 30),
 
               Text(
-                  AppStrings.welcomeSubHeading,
-                  style: AppTextStyles.bodyMedium.copyWith(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white70,
-                    height: 1.4,
-                    letterSpacing: 0.3,
-                  ),
-                  textAlign: TextAlign.center,
+                AppStrings.welcomeSubHeading,
+                style: AppTextStyles.bodyMedium.copyWith(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white70,
+                  height: 1.4,
+                  letterSpacing: 0.3,
                 ),
+                textAlign: TextAlign.center,
+              ),
               const SizedBox(height: 26),
             ],
           ),

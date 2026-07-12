@@ -5,6 +5,7 @@ import '../../core/constants/app_dimensions.dart';
 import '../../core/constants/app_strings.dart';
 import '../../core/constants/app_text_styles.dart';
 import '../../core/widgets/youpi_button.dart';
+import '../../core/utils/guest_guard.dart';
 
 class KycIntroScreen extends StatelessWidget {
   const KycIntroScreen({super.key});
@@ -75,7 +76,10 @@ class KycIntroScreen extends StatelessWidget {
             const SizedBox(height: 12),
             YoupiButton(
               label: AppStrings.kycStartBtn,
-              onPressed: () => context.push('/kyc/aadhaar'),
+              onPressed: () async {
+                if (!await GuestGuard.requireAuth(context, actionLabel: 'complete KYC')) return;
+                if (context.mounted) context.push('/kyc/aadhaar');
+              },
             ),
             const SizedBox(height: 10),
             YoupiButton(

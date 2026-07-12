@@ -5,6 +5,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_dimensions.dart';
 import '../../core/constants/app_text_styles.dart';
 import '../../core/utils/currency_formatter.dart';
+import '../../core/utils/guest_guard.dart';
 import '../../core/widgets/youpi_button.dart';
 import '../../core/widgets/youpi_card.dart';
 import '../../data/models/transaction_model.dart';
@@ -66,11 +67,20 @@ class _WalletScreenState extends State<WalletScreen> {
             ),
             const SizedBox(height: 20),
             Row(children: [
-              _WalletAction('Add Money', Icons.add_circle_rounded, () => context.push('/wallet/add')),
+              _WalletAction('Add Money', Icons.add_circle_rounded, () async {
+                if (!await GuestGuard.requireAuth(context, actionLabel: 'add money')) return;
+                if (context.mounted) context.push('/wallet/add');
+              }),
               const SizedBox(width: 10),
-              _WalletAction('Send Money', Icons.send_rounded, () => context.push('/wallet/send')),
+              _WalletAction('Send Money', Icons.send_rounded, () async {
+                if (!await GuestGuard.requireAuth(context, actionLabel: 'send money')) return;
+                if (context.mounted) context.push('/wallet/send');
+              }),
               const SizedBox(width: 10),
-              _WalletAction('Withdraw', Icons.download_rounded, () => context.push('/wallet/withdraw')),
+              _WalletAction('Withdraw', Icons.download_rounded, () async {
+                if (!await GuestGuard.requireAuth(context, actionLabel: 'withdraw money')) return;
+                if (context.mounted) context.push('/wallet/withdraw');
+              }),
             ]),
             const SizedBox(height: 24),
             Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
@@ -141,7 +151,7 @@ class _TransactionTile extends StatelessWidget {
       Text(
         '${tx.isCredit ? '+' : '-'}${CurrencyFormatter.format(tx.amount)}',
         style: AppTextStyles.labelLarge.copyWith(
-          color: tx.isCredit ? AppColors.success : AppColors.error),
+            color: tx.isCredit ? AppColors.success : AppColors.error),
       ),
     ]),
   );

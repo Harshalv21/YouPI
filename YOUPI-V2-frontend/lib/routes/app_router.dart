@@ -10,6 +10,7 @@ import '../presentation/auth/otp_verify_screen.dart';
 import '../presentation/auth/user_profile_setup_screen.dart';
 import '../presentation/auth/mpin_entry_screen.dart';
 import '../presentation/auth/mpin_setup_screen.dart';
+import '../presentation/auth/login_mpin_screen.dart';
 import '../presentation/kyc/kyc_viewmodel.dart';
 import '../presentation/kyc/kyc_intro_screen.dart';
 import '../presentation/kyc/aadhaar_verify_screen.dart';
@@ -53,6 +54,7 @@ class AppRouter {
     initialLocation: '/splash',
     redirect: (context, state) async {
       final hasToken = await StorageService.hasToken();
+      final isGuest = await StorageService.isGuestMode();
       final path = state.matchedLocation;
 
       if (path.startsWith('/splash') ||
@@ -61,7 +63,11 @@ class AppRouter {
         return null;
       }
 
-      if (!hasToken) return '/auth/mobile';
+      // Guests get to browse (dashboard/home, plans, invest, wallet screen
+      // itself, etc.) without a token. GuestGuard.requireAuth() is what
+      // actually blocks *operations* (Add Money, Apply for BNPL, KYC start,
+      // etc.) at the point of use -- not this route-level redirect.
+      if (!hasToken && !isGuest) return '/auth/mobile';
 
       return null;
     },
@@ -72,8 +78,15 @@ class AppRouter {
       GoRoute(path: '/auth/mobile', builder: (c, s) => const MobileEntryScreen()),
       GoRoute(path: '/auth/otp', builder: (c, s) => OtpVerifyScreen(mobile: s.extra as String? ?? '')),
       GoRoute(path: '/auth/mpin-entry', builder: (c, s) => const MpinEntryScreen()),
+      GoRoute(path: '/auth/login-mpin', builder: (c, s) => const LoginMpinScreen()),
       GoRoute(path: '/auth/profile-setup', builder: (c, s) => const UserProfileSetupScreen()),
-      GoRoute(path: '/auth/mpin-setup', builder: (c, s) => const MpinSetupScreen()),
+      GoRoute(
+        path: '/auth/mpin-setup',
+        builder: (c, s) {
+          final extra = s.extra as Map<String, dynamic>?;
+          return MpinSetupScreen(isReset: extra?['isReset'] == true);
+        },
+      ),
       // Bug #5 fix: intro/aadhaar/pan/success used to each spin up their own
       // `KycViewModel()`, so PAN verification never knew about the Aadhaar
       // step and vice versa. A single ChangeNotifierProvider here, shared by

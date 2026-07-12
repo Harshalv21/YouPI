@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -8,6 +9,7 @@ import '../../core/services/storage_service.dart';
 import '../../core/widgets/youpi_button.dart';
 import '../../core/widgets/youpi_card.dart';
 import '../../core/widgets/youpi_input.dart';
+import '../dashboard/home_viewmodel.dart';
 import 'settings_viewmodel.dart';
 
 // ─────────── Settings ───────────
@@ -174,6 +176,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     );
     if (!context.mounted) return;
     if (ok) {
+      // SettingsViewModel now has the fresh name/email, but HomeViewModel
+      // (drives "Welcome back, {name}" on the dashboard) is a *separate*
+      // cached instance that has no idea this just changed. Without this,
+      // the save genuinely succeeds but looks like it "didn't update"
+      // because Home still shows the old name until the app is fully
+      // restarted or the user pulls-to-refresh there manually.
+      unawaited(context.read<HomeViewModel>().loadHome());
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Profile updated!'), backgroundColor: AppColors.success));
       context.pop();

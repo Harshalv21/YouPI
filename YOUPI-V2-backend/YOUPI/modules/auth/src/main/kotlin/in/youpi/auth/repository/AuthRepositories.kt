@@ -74,6 +74,13 @@ interface RefreshTokenRepository : CoroutineCrudRepository<RefreshTokenEntity, U
 }
 
 // ── User MPIN Entity ──
+// Implements Persistable<UUID> deliberately: userId is a client-assigned
+// (not DB-generated) primary key, so Spring Data R2DBC's default isNew()
+// heuristic can't tell "freshly constructed, needs INSERT" apart from
+// "loaded from DB, needs UPDATE" -- without this, EVERY .save() call
+// (including the attempts-reset after a correct MPIN in verifyMpin())
+// was attempted as an INSERT, throwing DuplicateKeyException on any row
+// that already existed.
 @Table("user_mpin")
 data class UserMpinEntity(
     val userId: UUID,
@@ -88,4 +95,52 @@ data class UserMpinEntity(
 
 interface UserMpinRepository : CoroutineCrudRepository<UserMpinEntity, UUID> {
     suspend fun findByUserId(userId: UUID): UserMpinEntity?
+
+    // Deliberately NOT using .save() for writes to this table. userId is a
+    // client-assigned (not DB-generated) primary key, so Spring Data R2DBC
+    // can't reliably infer INSERT-vs-UPDATE from the entity alone --
+    // Persistable<UUID> with a @Transient "isNew" constructor flag was tried
+    // and fails with "No property isNewRecord found ... to bind constructor
+    // parameter to" (Spring Data's constructor-based instantiator requires
+    // every primary-constructor parameter to resolve to a known persistent
+    // property, which @Transient explicitly excludes it from). A native
+    // Postgres UPSERT sidesteps the whole problem -- it's correct whether or
+    // not the row already exists, with no ambiguity for Spring to get wrong.
+    @Query("""
+        INSERT INTO user_mpin (user_id, mpin_hash, attempts, locked_until, updated_at)
+        VALUES (:userId, :mpinHash, :attempts, :lockedUntil, :updatedAt)
+        ON CONFLICT (user_id) DO UPDATE SET
+            mpin_hash = EXCLUDED.mpin_hash,
+            attempts = EXCLUDED.attempts,
+            locked_until = EXCLUDED.locked_until,
+            updated_at = EXCLUDED.updated_at
+    """)
+    suspend fun upsert(
+        userId: UUID,
+        mpinHash: String,
+        attempts: Int,
+        lockedUntil: Instant?,
+        updatedAt: Instant
+    )
+}
+
+// ── User Trusted Device Entity ──
+// Backs MPIN-only login's device-binding check. A row here means this
+// device_id has already proven phone-number possession via OTP/Firebase
+// verification for this user, so it's allowed to use MPIN-only login
+// without repeating OTP. See AuthService.verifyMpin / trustDevice().
+@Table("user_trusted_devices")
+data class UserTrustedDeviceEntity(
+    @Id val id: UUID? = null,
+    val userId: UUID,
+    val deviceId: String,
+    val firstTrustedAt: Instant = Instant.now(),
+    val lastUsedAt: Instant = Instant.now()
+)
+
+interface UserTrustedDeviceRepository : CoroutineCrudRepository<UserTrustedDeviceEntity, UUID> {
+    suspend fun findByUserIdAndDeviceId(userId: UUID, deviceId: String): UserTrustedDeviceEntity?
+
+    @Query("UPDATE user_trusted_devices SET last_used_at = NOW() WHERE user_id = :userId AND device_id = :deviceId")
+    suspend fun touch(userId: UUID, deviceId: String)
 }

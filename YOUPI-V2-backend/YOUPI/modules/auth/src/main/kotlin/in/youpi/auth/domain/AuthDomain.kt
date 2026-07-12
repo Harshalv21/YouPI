@@ -27,7 +27,8 @@ data class MpinSetupRequest(val mpin: String) {
 
 data class MpinVerifyRequest(
     val mobile: String,
-    val mpin: String
+    val mpin: String,
+    val deviceId: String
 )
 
 data class RefreshTokenRequest(val refreshToken: String)
@@ -79,6 +80,9 @@ class MpinLockedOutException(val unlocksAt: Instant) : AuthException(
     "MPIN_LOCKED", "MPIN locked. Try again after ${unlocksAt}.", 429
 )
 class MpinNotSetException : AuthException("MPIN_NOT_SET", "MPIN not configured for this user.")
+class DeviceNotTrustedException : AuthException(
+    "DEVICE_NOT_TRUSTED", "This device isn't recognized. Please verify via OTP to continue.", 403
+)
 class TokenExpiredException : AuthException("TOKEN_EXPIRED", "Token has expired.", 401)
 class TokenRevokedException : AuthException("TOKEN_REVOKED", "Token has been revoked.", 401)
 class UserNotFoundException : AuthException("USER_NOT_FOUND", "User not found.", 404)

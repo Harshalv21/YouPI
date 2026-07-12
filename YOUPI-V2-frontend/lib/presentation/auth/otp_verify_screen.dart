@@ -106,7 +106,14 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
                   if (isNew || !profileDone) {
                     context.go('/auth/profile-setup');
                   } else {
-                    context.go('/dashboard/home');
+                    // Reaching here as an *existing* user with a complete
+                    // profile only happens now via the MPIN-recovery path
+                    // (LoginMpinScreen falls back to OTP after 5 wrong
+                    // attempts, an unset MPIN, or an unrecognised mobile).
+                    // So instead of going straight to the dashboard, make
+                    // them set a new MPIN first -- that's the whole point
+                    // of this recovery step.
+                    context.go('/auth/mpin-setup', extra: {'isReset': true});
                   }
                 }
               },

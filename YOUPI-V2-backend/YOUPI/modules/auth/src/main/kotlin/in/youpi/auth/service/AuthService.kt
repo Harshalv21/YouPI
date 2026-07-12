@@ -29,6 +29,7 @@ class AuthService(
     private val otpSessionRepo: OtpSessionRepository,
     private val refreshTokenRepo: RefreshTokenRepository,
     private val mpinRepo: UserMpinRepository,
+    private val trustedDeviceRepo: UserTrustedDeviceRepository,
     private val pubSubPublisher: PubSubPublisher,      // ← WalletService hata, PubSub aaya
     private val otpService: OtpService,
     private val mpinJwtService: MpinJwtService,
@@ -45,6 +46,21 @@ class AuthService(
         private const val MPIN_MAX_ATTEMPTS = 5
         private val MPIN_LOCKOUT_DURATION = Duration.ofMinutes(30)
         private val REFRESH_TOKEN_TTL = Duration.ofDays(30)
+    }
+
+    // Marks a device as trusted for a user right after it proves phone-number
+    // possession via OTP/Firebase verification. Called from verifyOtp() and
+    // verifyFirebaseToken() -- never from verifyMpin(), since MPIN alone
+    // doesn't prove device identity (that's the whole point of this check).
+    private suspend fun trustDevice(userId: UUID, deviceId: String?) {
+        if (deviceId.isNullOrBlank()) return
+        val existing = trustedDeviceRepo.findByUserIdAndDeviceId(userId, deviceId)
+        if (existing == null) {
+            trustedDeviceRepo.save(UserTrustedDeviceEntity(userId = userId, deviceId = deviceId))
+            log.info("Device trusted for user {} (deviceId=****)", userId)
+        } else {
+            trustedDeviceRepo.touch(userId, deviceId)
+        }
     }
 
     // ─────────── OTP Flow ───────────
@@ -81,7 +97,7 @@ class AuthService(
 
         return Result.success(OtpSentResponse())
     }
-         // ─────────── OTP  Verify Flow ───────────
+    // ─────────── OTP  Verify Flow ───────────
 
     suspend fun verifyOtp(req: VerifyOtpRequest): Result<AuthResponse, AuthException> {
         val normalized = "+91${req.mobile.takeLast(10)}"
@@ -131,6 +147,7 @@ class AuthService(
         }
 
         val userId = user!!.id!!
+        trustDevice(userId, req.deviceId)
         val accessToken = mpinJwtService.issueToken(userId, normalized, user.userType)
         val refreshToken = generateRefreshToken(userId, req.deviceId)
         val profileComplete = user.fullName != null && user.dateOfBirth != null
@@ -149,82 +166,84 @@ class AuthService(
         )
     }
 
-      // ─────────── OTP verify Flow In Firebase Token───────────
+    // ─────────── OTP verify Flow In Firebase Token───────────
     suspend fun verifyFirebaseToken(
-    idToken: String,
-    deviceId: String?
-): Result<AuthResponse, AuthException> {
-    // 1. Verify the Firebase ID token
-    val decoded = try {
-        withContext(Dispatchers.IO) {
-            com.google.firebase.auth.FirebaseAuth.getInstance().verifyIdToken(idToken)
-        }
-    } catch (e: Exception) {
-        log.warn("Firebase ID token verification failed: {}", e.message)
-        return Result.failure(FirebaseTokenInvalidException())
-    }
-
-    // 2. Extract phone number from the verified token
-    val phone = decoded.claims["phone_number"] as? String
-        ?: return Result.failure(FirebaseTokenInvalidException())
-    val normalized = "+91${phone.takeLast(10)}"
-    val firebaseUid = decoded.uid
-
-    // 3. Find or create the user
-    var user = userRepo.findByMobile(normalized)
-    val isNewUser = user == null
-
-    if (isNewUser) {
-        user = userRepo.save(UserEntity(mobile = normalized, firebaseUid = firebaseUid))
-        log.info("New user created via Firebase (userId={})", user.id)
-        try {
-            pubSubPublisher.publish(
-                "user-created",
-                mapOf(
-                    "userId" to user.id.toString(),
-                    "mobile" to normalized,
-                    "walletType" to "NBFC"
-                )
-            )
+        idToken: String,
+        deviceId: String?
+    ): Result<AuthResponse, AuthException> {
+        // 1. Verify the Firebase ID token
+        val decoded = try {
+            withContext(Dispatchers.IO) {
+                com.google.firebase.auth.FirebaseAuth.getInstance().verifyIdToken(idToken)
+            }
         } catch (e: Exception) {
-            log.error("Failed to publish user-created event: {}", e.message)
+            log.warn("Firebase ID token verification failed: {}", e.message)
+            return Result.failure(FirebaseTokenInvalidException())
         }
-    } else if (user!!.firebaseUid == null) {
-        // Link firebaseUid to an existing user created earlier via OTP
-        user = userRepo.save(user.copy(firebaseUid = firebaseUid))
-    }
 
-    // 4. Issue app tokens (same as verifyOtp)
-    val userId = user!!.id!!
-    val accessToken = mpinJwtService.issueToken(userId, normalized, user.userType)
-    val refreshToken = generateRefreshToken(userId, deviceId)
-    val profileComplete = user.fullName != null && user.dateOfBirth != null
-    val kycStatus = if (user.isKycVerified) "VERIFIED" else "PENDING"
+        // 2. Extract phone number from the verified token
+        val phone = decoded.claims["phone_number"] as? String
+            ?: return Result.failure(FirebaseTokenInvalidException())
+        val normalized = "+91${phone.takeLast(10)}"
+        val firebaseUid = decoded.uid
 
-    return Result.success(
-        AuthResponse(
-            accessToken = accessToken,
-            refreshToken = refreshToken,
-            userId = userId,
-            isNewUser = isNewUser,
-            profileComplete = profileComplete,
-            kycStatus = kycStatus,
-            userType = user.userType
+        // 3. Find or create the user
+        var user = userRepo.findByMobile(normalized)
+        val isNewUser = user == null
+
+        if (isNewUser) {
+            user = userRepo.save(UserEntity(mobile = normalized, firebaseUid = firebaseUid))
+            log.info("New user created via Firebase (userId={})", user.id)
+            try {
+                pubSubPublisher.publish(
+                    "user-created",
+                    mapOf(
+                        "userId" to user.id.toString(),
+                        "mobile" to normalized,
+                        "walletType" to "NBFC"
+                    )
+                )
+            } catch (e: Exception) {
+                log.error("Failed to publish user-created event: {}", e.message)
+            }
+        } else if (user!!.firebaseUid == null) {
+            // Link firebaseUid to an existing user created earlier via OTP
+            user = userRepo.save(user.copy(firebaseUid = firebaseUid))
+        }
+
+        // 4. Issue app tokens (same as verifyOtp)
+        val userId = user!!.id!!
+        trustDevice(userId, deviceId)
+        val accessToken = mpinJwtService.issueToken(userId, normalized, user.userType)
+        val refreshToken = generateRefreshToken(userId, deviceId)
+        val profileComplete = user.fullName != null && user.dateOfBirth != null
+        val kycStatus = if (user.isKycVerified) "VERIFIED" else "PENDING"
+
+        return Result.success(
+            AuthResponse(
+                accessToken = accessToken,
+                refreshToken = refreshToken,
+                userId = userId,
+                isNewUser = isNewUser,
+                profileComplete = profileComplete,
+                kycStatus = kycStatus,
+                userType = user.userType
+            )
         )
-    )
-}
+    }
 
     // ─────────── MPIN Flow ───────────
 
     suspend fun setupMpin(userId: UUID, mpin: String) {
         val hash = BCrypt.withDefaults().hashToString(12, mpin.toCharArray())
 
-        val existing = mpinRepo.findByUserId(userId)
-        if (existing != null) {
-            mpinRepo.save(existing.copy(mpinHash = hash, attempts = 0, lockedUntil = null, updatedAt = Instant.now()))
-        } else {
-            mpinRepo.save(UserMpinEntity(userId = userId, mpinHash = hash))
-        }
+        mpinRepo.upsert(
+            userId = userId,
+            mpinHash = hash,
+            attempts = 0,
+            lockedUntil = null,
+            updatedAt = Instant.now()
+        )
 
         log.info("MPIN set for user {}", userId)
     }
@@ -249,7 +268,13 @@ class AuthService(
                 Instant.now().plus(MPIN_LOCKOUT_DURATION)
             } else null
 
-            mpinRepo.save(mpinRecord.copy(attempts = newAttempts, lockedUntil = lockedUntil, updatedAt = Instant.now()))
+            mpinRepo.upsert(
+                userId = userId,
+                mpinHash = mpinRecord.mpinHash,
+                attempts = newAttempts,
+                lockedUntil = lockedUntil,
+                updatedAt = Instant.now()
+            )
 
             return if (lockedUntil != null) {
                 Result.failure(MpinLockedOutException(lockedUntil))
@@ -258,10 +283,27 @@ class AuthService(
             }
         }
 
-        mpinRepo.save(mpinRecord.copy(attempts = 0, lockedUntil = null, updatedAt = Instant.now()))
+        mpinRepo.upsert(
+            userId = userId,
+            mpinHash = mpinRecord.mpinHash,
+            attempts = 0,
+            lockedUntil = null,
+            updatedAt = Instant.now()
+        )
+
+        // MPIN was correct -- but that alone doesn't prove *this device* is
+        // the account owner's. Only a device that already completed an OTP
+        // verification (trustDevice() in verifyOtp/verifyFirebaseToken) is
+        // allowed to log in via MPIN alone. Anything else gets bounced back
+        // to OTP, same as an expired/locked MPIN would.
+        val trustedDevice = trustedDeviceRepo.findByUserIdAndDeviceId(userId, req.deviceId)
+        if (trustedDevice == null) {
+            return Result.failure(DeviceNotTrustedException())
+        }
+        trustedDeviceRepo.touch(userId, req.deviceId)
 
         val accessToken = mpinJwtService.issueToken(userId, normalized, user.userType)
-        val refreshToken = generateRefreshToken(userId, null)
+        val refreshToken = generateRefreshToken(userId, req.deviceId)
 
         return Result.success(
             AuthResponse(

@@ -52,7 +52,7 @@ class UserService(
 
         val updated = userRepo.save(
             user.copy(
-                fullName = req.fullName,
+                fullName = req.fullName ?: user.fullName,
                 email = req.email ?: user.email,
                 dateOfBirth = req.dateOfBirth ?: user.dateOfBirth,
                 updatedAt = Instant.now()

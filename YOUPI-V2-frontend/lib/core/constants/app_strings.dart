@@ -25,11 +25,11 @@ class AppStrings {
   static const String onboardingNext = 'Next';
   static const String onboardingGetStarted = 'Get Started';
   static const String slide1Title = 'Recharge on YouPi';
-  static const String slide1Body = 'Pay your annual recharge in easy EMIs. Save ₹147.';
+  static const String slide1Body = 'Recharge with YouPi and earn up to 5% in Digital Gold 🪙 on every recharge..';
   static const String slide2Title = 'Grow with Digital Gold';
-  static const String slide2Body = 'Invest from ₹1. Your gold grows every day.';
+  static const String slide2Body = 'Start investing in Digital Gold from just ₹1. Watch your wealth grow every day.';
   static const String slide3Title = 'BNPL Shop & FD Invest';
-  static const String slide3Body = 'Shop now, pay later. Earn 7.5% p.a. on FDs.';
+  static const String slide3Body = 'Flexible spending meets smarter saving—Shop Now, Pay Later, plus up to 7.5% p.a. on FDs.';
 
   // Auth
   static const String mobileTitle = 'Enter Your Mobile';
