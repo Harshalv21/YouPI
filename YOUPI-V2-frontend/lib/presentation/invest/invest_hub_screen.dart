@@ -36,6 +36,21 @@ class _InvestHubScreenState extends State<InvestHubScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              if (vm.error != null)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppColors.error.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppColors.error.withOpacity(0.3)),
+                  ),
+                  child: Row(children: [
+                    const Icon(Icons.error_outline_rounded, color: AppColors.error, size: 16),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text(vm.error!, style: AppTextStyles.bodySmall.copyWith(color: AppColors.error))),
+                  ]),
+                ),
               // Gold price card
               YoupiGlassCard(
                 child: Row(children: [

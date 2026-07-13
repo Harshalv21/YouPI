@@ -5,6 +5,7 @@ import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_dimensions.dart';
 import '../../core/constants/app_text_styles.dart';
 import '../../core/utils/currency_formatter.dart';
+import '../../core/widgets/coming_soon_overlay.dart';
 import '../../core/widgets/shimmer_loader.dart';
 import '../../core/widgets/youpi_card.dart';
 import 'home_viewmodel.dart';
@@ -112,48 +113,53 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   ),
                   const SizedBox(height: 20),
-                  // Balance card
-                  YoupiGlassCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text('Total Balance', style: AppTextStyles.labelMedium),
-                            GestureDetector(
-                              onTap: () => setState(() => _balanceHidden = !_balanceHidden),
-                              child: Icon(
-                                _balanceHidden ? Icons.visibility_off_rounded : Icons.visibility_rounded,
-                                color: AppColors.textSecondary,
-                                size: 20,
+                  // Balance card -- locked: this card is being repositioned as
+                  // "Credit Limit" (NBFC-backed) per director direction, not
+                  // ready yet. See conversation notes.
+                  ComingSoonOverlay(
+                    iconSize: 26,
+                    child: YoupiGlassCard(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text('Total Balance', style: AppTextStyles.labelMedium),
+                              GestureDetector(
+                                onTap: () => setState(() => _balanceHidden = !_balanceHidden),
+                                child: Icon(
+                                  _balanceHidden ? Icons.visibility_off_rounded : Icons.visibility_rounded,
+                                  color: AppColors.textSecondary,
+                                  size: 20,
+                                ),
                               ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          _balanceHidden ? '₹ • • • • • •' : CurrencyFormatter.format(vm.walletBalance),
-                          style: AppTextStyles.amountLarge,
-                        ),
-                        const SizedBox(height: 12),
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: GestureDetector(
-                            onTap: () => context.go('/dashboard/wallet'),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                              decoration: BoxDecoration(
-                                color: AppColors.primary.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(20),
-                                border: Border.all(color: AppColors.primary),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            _balanceHidden ? '₹ • • • • • •' : CurrencyFormatter.format(vm.walletBalance),
+                            style: AppTextStyles.amountLarge,
+                          ),
+                          const SizedBox(height: 12),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: GestureDetector(
+                              onTap: () => context.go('/dashboard/wallet'),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: AppColors.primary.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(color: AppColors.primary),
+                                ),
+                                child: Text('View Wallet',
+                                    style: AppTextStyles.chipText.copyWith(color: AppColors.primary)),
                               ),
-                              child: Text('View Wallet',
-                                  style: AppTextStyles.chipText.copyWith(color: AppColors.primary)),
                             ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                   const SizedBox(height: 24),
@@ -166,12 +172,12 @@ class _HomeScreenState extends State<HomeScreen> {
                       scrollDirection: Axis.horizontal,
                       children: [
                         _QuickAction('Recharge', Icons.wifi_rounded, () => ctx.go('/dashboard/plans')),
-                        _QuickAction('Smart Saver', Icons.savings_rounded, () => ctx.push('/plans/smartsave')),
+                        _QuickAction('Smart Saver', Icons.savings_rounded, () => ctx.push('/plans/smartsave'), locked: true),
                         _QuickAction('Wallet', Icons.account_balance_wallet_rounded, () => ctx.go('/dashboard/wallet')),
-                        _QuickAction('Gold', Icons.monetization_on_rounded, () => ctx.push('/invest/gold')),
-                        _QuickAction('FD Invest', Icons.trending_up_rounded, () => ctx.push('/invest/fd')),
-                        _QuickAction('BNPL Shop', Icons.credit_card_rounded, () => ctx.go('/dashboard/bnpl')),
-                        _QuickAction('Loan', Icons.account_balance_rounded, () => ctx.push('/loan/apply/step1')),
+                        _QuickAction('Gold', Icons.monetization_on_rounded, () => ctx.push('/invest/gold'), locked: true),
+                        _QuickAction('FD Invest', Icons.trending_up_rounded, () => ctx.push('/invest/fd'), locked: true),
+                        _QuickAction('BNPL Shop', Icons.credit_card_rounded, () => ctx.go('/dashboard/bnpl'), locked: true),
+                        _QuickAction('Loan', Icons.account_balance_rounded, () => ctx.push('/loan/apply/step1'), locked: true),
                       ],
                     ),
                   ),
@@ -194,10 +200,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       _PortfolioMetric('Digital Gold',
                           CurrencyFormatter.format(vm.user.goldBalanceGrams * 6842), AppColors.secondary),
                       const SizedBox(width: 12),
-                      _PortfolioMetric('FD Return', '7.5% p.a.', AppColors.primary),
+                      _PortfolioMetric('FD Return', '7.5% p.a.', AppColors.primary, locked: true),
                       const SizedBox(width: 12),
                       _PortfolioMetric('BNPL Limit',
-                          CurrencyFormatter.formatNoDecimal(vm.user.bnplLimit - vm.user.bnplUsed), AppColors.primary),
+                          CurrencyFormatter.formatNoDecimal(vm.user.bnplLimit - vm.user.bnplUsed), AppColors.primary,
+                          locked: true),
                     ],
                   ),
                   const SizedBox(height: 24),
@@ -258,27 +265,40 @@ class _QuickAction extends StatelessWidget {
   final String label;
   final IconData icon;
   final VoidCallback onTap;
-  const _QuickAction(this.label, this.icon, this.onTap);
+  final bool locked;
+  const _QuickAction(this.label, this.icon, this.onTap, {this.locked = false});
 
   @override
   Widget build(BuildContext context) {
+    final iconCircle = Container(
+      width: 52,
+      height: 52,
+      decoration: BoxDecoration(
+        color: AppColors.backgroundCard,
+        shape: BoxShape.circle,
+        border: Border.all(color: AppColors.divider),
+      ),
+      child: Icon(icon, color: AppColors.primary, size: 22),
+    );
+
     return GestureDetector(
-      onTap: onTap,
+      onTap: locked
+          ? () => ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Coming soon — this feature isn't live yet."),
+          backgroundColor: AppColors.backgroundCard,
+        ),
+      )
+          : onTap,
       child: Container(
         width: 72,
         margin: const EdgeInsets.only(right: 12),
         child: Column(
           children: [
-            Container(
-              width: 52,
-              height: 52,
-              decoration: BoxDecoration(
-                color: AppColors.backgroundCard,
-                shape: BoxShape.circle,
-                border: Border.all(color: AppColors.divider),
-              ),
-              child: Icon(icon, color: AppColors.primary, size: 22),
-            ),
+            locked
+                ? ComingSoonOverlay(
+                shape: BoxShape.circle, showLabel: false, iconSize: 18, interactive: false, child: iconCircle)
+                : iconCircle,
             const SizedBox(height: 6),
             Text(label, style: AppTextStyles.labelSmall, textAlign: TextAlign.center, maxLines: 2),
           ],
@@ -292,22 +312,24 @@ class _PortfolioMetric extends StatelessWidget {
   final String label;
   final String value;
   final Color color;
-  const _PortfolioMetric(this.label, this.value, this.color);
+  final bool locked;
+  const _PortfolioMetric(this.label, this.value, this.color, {this.locked = false});
 
   @override
   Widget build(BuildContext context) {
-    return Expanded(
-      child: YoupiCard(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(label, style: AppTextStyles.labelSmall),
-            const SizedBox(height: 4),
-            Text(value, style: AppTextStyles.labelLarge.copyWith(color: color), maxLines: 1, overflow: TextOverflow.ellipsis),
-          ],
-        ),
+    final card = YoupiCard(
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: AppTextStyles.labelSmall),
+          const SizedBox(height: 4),
+          Text(value, style: AppTextStyles.labelLarge.copyWith(color: color), maxLines: 1, overflow: TextOverflow.ellipsis),
+        ],
       ),
+    );
+    return Expanded(
+      child: locked ? ComingSoonOverlay(iconSize: 16, showLabel: false, child: card) : card,
     );
   }
 }

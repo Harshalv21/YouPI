@@ -9,6 +9,7 @@ import '../../data/repositories/wallet_repository.dart';
 class InvestViewModel extends ChangeNotifier {
   final InvestRepository _repo = InvestRepository();
   bool _isLoading = false;
+  String? _error;
   GoldModel _gold = MockData.mockGold;
   double _buyAmount = 500;
   double _fdAmount = 10000;
@@ -18,6 +19,7 @@ class InvestViewModel extends ChangeNotifier {
   bool _transactionSuccess = false;
 
   bool get isLoading => _isLoading;
+  String? get error => _error;
   GoldModel get gold => _gold;
   double get buyAmount => _buyAmount;
   double get fdAmount => _fdAmount;
@@ -25,7 +27,8 @@ class InvestViewModel extends ChangeNotifier {
   double get fdRate => _fdRate;
   bool get isGoldBuy => _isGoldBuy;
   bool get transactionSuccess => _transactionSuccess;
-  double get gramsForBuyAmount => _buyAmount / _gold.pricePerGram;
+  double get gramsForBuyAmount =>
+      _buyAmount / (_isGoldBuy ? _gold.pricePerGram : _gold.sellRatePerGram);
   double get fdMaturity => FdModel.calculateMaturity(_fdAmount, _fdRate, _fdMonths);
   double get interestEarned => fdMaturity - _fdAmount;
 
@@ -35,10 +38,22 @@ class InvestViewModel extends ChangeNotifier {
   void setFdMonths(int v) { _fdMonths = v; notifyListeners(); }
   void setFdRate(double v) { _fdRate = v; notifyListeners(); }
 
+  Future<void> ensureAugmontUser({required String name, required String email, required String mobile}) =>
+      _repo.ensureAugmontUser(name: name, email: email, mobile: mobile);
+
   Future<void> loadGold() async {
     _isLoading = true;
+    _error = null;
     notifyListeners();
-    _gold = await _repo.getGoldPrice();
+    try {
+      final price = await _repo.getGoldPrice();
+      _gold = await _repo.getGoldHoldings(price);
+    } catch (e) {
+      // Keep whatever we had (mock fallback on first load) rather than
+      // blanking the screen -- but don't hide the failure either, a caller
+      // may want to show a small inline notice via vm.error.
+      _error = 'Could not refresh live gold price. Pull to retry.';
+    }
     _isLoading = false;
     notifyListeners();
   }
@@ -47,13 +62,20 @@ class InvestViewModel extends ChangeNotifier {
     _isLoading = true;
     notifyListeners();
     bool ok;
-    if (_isGoldBuy) {
-      ok = await _repo.buyGold(_buyAmount);
-    } else {
-      ok = await _repo.sellGold(gramsForBuyAmount);
+    try {
+      if (_isGoldBuy) {
+        ok = await _repo.buyGold(_buyAmount);
+      } else {
+        ok = await _repo.sellGold(gramsForBuyAmount);
+      }
+    } catch (_) {
+      ok = false;
     }
     _transactionSuccess = ok;
     if (ok) {
+      // Optimistic local update for instant feedback -- loadGold() (called
+      // again by the screen after a successful transact) will overwrite
+      // this with the real server-confirmed balance right after.
       _gold = _gold.copyWith(
         balanceGrams: _gold.balanceGrams + (isGoldBuy ? gramsForBuyAmount : -gramsForBuyAmount),
         balanceValue: _gold.balanceValue + (isGoldBuy ? buyAmount : -buyAmount),
@@ -64,15 +86,12 @@ class InvestViewModel extends ChangeNotifier {
     return ok;
   }
 
-  Future<bool> openFd() async {
-    _isLoading = true;
-    notifyListeners();
-    final ok = await _repo.openFd(_fdAmount, _fdMonths);
-    _transactionSuccess = ok;
-    _isLoading = false;
-    notifyListeners();
-    return ok;
-  }
+// Note: "Open FD Now" is intentionally locked (ComingSoonOverlay) in
+// fd_calculator_screen.dart and never calls into the ViewModel -- there's
+// no real cash-based FD creation endpoint on the backend to call (only
+// weight-based Gold FD exists, see invest_repository.dart header). No
+// openFd() method here on purpose; add one back only once a real
+// create-FD call exists to wire it to.
 }
 
 class WalletViewModel extends ChangeNotifier {
