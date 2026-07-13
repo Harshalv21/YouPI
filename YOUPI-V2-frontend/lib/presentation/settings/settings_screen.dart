@@ -6,9 +6,11 @@ import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_dimensions.dart';
 import '../../core/constants/app_text_styles.dart';
 import '../../core/services/storage_service.dart';
+import '../../core/utils/guest_guard.dart';
 import '../../core/widgets/youpi_button.dart';
 import '../../core/widgets/youpi_card.dart';
 import '../../core/widgets/youpi_input.dart';
+import '../../data/repositories/auth_repository.dart';
 import '../dashboard/home_viewmodel.dart';
 import 'settings_viewmodel.dart';
 
@@ -70,8 +72,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Text('Account', style: AppTextStyles.labelMedium.copyWith(color: AppColors.textSecondary)),
           const SizedBox(height: 8),
           ...[
-            _SettingsTile('Edit Profile', Icons.person_outline_rounded, () => context.push('/settings/edit-profile')),
-            _SettingsTile('Change MPIN', Icons.lock_outline_rounded, () => context.push('/settings/change-mpin')),
+            _SettingsTile('Edit Profile', Icons.person_outline_rounded, () async {
+              if (!await GuestGuard.requireAuth(context, actionLabel: 'edit your profile')) return;
+              if (context.mounted) context.push('/settings/edit-profile');
+            }),
+            _SettingsTile('Change MPIN', Icons.lock_outline_rounded, () async {
+              if (!await GuestGuard.requireAuth(context, actionLabel: 'change your MPIN')) return;
+              if (context.mounted) context.push('/settings/change-mpin');
+            }),
             _SettingsTile('Notifications', Icons.notifications_none_rounded, () => context.push('/settings/notifications')),
           ],
           const SizedBox(height: 16),
@@ -271,13 +279,19 @@ class ChangeMpinScreen extends StatefulWidget {
 }
 
 class _ChangeMpinScreenState extends State<ChangeMpinScreen> {
+  final AuthRepository _authRepo = AuthRepository();
+
   String _currentMpin = '';
   String _newMpin = '';
   String _step = 'verify'; // verify | new | confirm
   String _confirmNew = '';
+  bool _isVerifying = false;
+  String? _errorText;
 
   void _onDigit(String d) {
+    if (_isVerifying) return;
     setState(() {
+      _errorText = null;
       if (_step == 'verify' && _currentMpin.length < 4) {
         _currentMpin += d;
         if (_currentMpin.length == 4) _verifyAndProceed();
@@ -292,6 +306,7 @@ class _ChangeMpinScreenState extends State<ChangeMpinScreen> {
   }
 
   void _onDelete() {
+    if (_isVerifying) return;
     setState(() {
       if (_step == 'verify' && _currentMpin.isNotEmpty) _currentMpin = _currentMpin.substring(0, _currentMpin.length - 1);
       else if (_step == 'new' && _newMpin.isNotEmpty) _newMpin = _newMpin.substring(0, _newMpin.length - 1);
@@ -299,19 +314,63 @@ class _ChangeMpinScreenState extends State<ChangeMpinScreen> {
     });
   }
 
+  /// Verifies the current MPIN against the BACKEND (not a local hash) —
+  /// this ensures attempt-limits/lockout are enforced server-side and can't
+  /// be bypassed by offline brute-forcing a locally stored hash.
   Future<void> _verifyAndProceed() async {
-    final ok = await StorageService.verifyMpin(_currentMpin);
-    setState(() => _step = ok ? 'new' : 'verify');
-    if (!ok) setState(() => _currentMpin = '');
+    final mobile = context.read<SettingsViewModel>().user?.mobile;
+    if (mobile == null || mobile.isEmpty) {
+      setState(() {
+        _currentMpin = '';
+        _errorText = 'Could not verify — profile not loaded. Try again.';
+      });
+      return;
+    }
+
+    setState(() => _isVerifying = true);
+    final result = await _authRepo.loginWithMpin(mobile, _currentMpin);
+    if (!mounted) return;
+
+    if (result.success) {
+      setState(() {
+        _isVerifying = false;
+        _step = 'new';
+      });
+    } else {
+      setState(() {
+        _isVerifying = false;
+        _currentMpin = '';
+        _errorText = result.attemptsRemaining != null
+            ? 'Wrong MPIN. ${result.attemptsRemaining} attempt(s) left.'
+            : (result.message ?? 'Incorrect MPIN. Try again.');
+      });
+    }
   }
 
   Future<void> _saveMpin() async {
     if (_newMpin != _confirmNew) {
-      setState(() { _confirmNew = ''; _step = 'new'; });
+      setState(() {
+        _confirmNew = '';
+        _step = 'new';
+        _errorText = 'MPINs do not match. Try again.';
+      });
       return;
     }
-    await StorageService.saveMpin(_newMpin);
-    if (mounted) context.pop();
+    setState(() => _isVerifying = true);
+    try {
+      // Update on the backend (source of truth) — local hash kept only
+      // as a convenience cache for any local-only checks elsewhere.
+      await _authRepo.setupMpin(_newMpin);
+      await StorageService.saveMpin(_newMpin);
+      if (mounted) context.pop();
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isVerifying = false;
+          _errorText = 'Could not update MPIN. Try again.';
+        });
+      }
+    }
   }
 
   @override
@@ -335,6 +394,14 @@ class _ChangeMpinScreenState extends State<ChangeMpinScreen> {
                   color: i < dots.length ? AppColors.primary : AppColors.divider,
                 ),
               ))),
+          const SizedBox(height: 16),
+          if (_isVerifying)
+            const CircularProgressIndicator(color: AppColors.primary),
+          if (_errorText != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(_errorText!, style: AppTextStyles.errorText, textAlign: TextAlign.center),
+            ),
           const Spacer(),
           for (final row in [['1','2','3'],['4','5','6'],['7','8','9'],['','0','⌫']])
             Row(mainAxisAlignment: MainAxisAlignment.center,
