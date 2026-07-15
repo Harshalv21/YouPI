@@ -283,12 +283,7 @@ class _QuickAction extends StatelessWidget {
 
     return GestureDetector(
       onTap: locked
-          ? () => ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Coming soon — this feature isn't live yet."),
-          backgroundColor: AppColors.backgroundCard,
-        ),
-      )
+          ? () => ComingSoonOverlay.showComingSoonSnack(context)
           : onTap,
       child: Container(
         width: 72,

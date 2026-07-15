@@ -25,6 +25,12 @@ class _DigitalGoldScreenState extends State<DigitalGoldScreen> {
       final investVm = context.read<InvestViewModel>();
       await investVm.loadGold();
 
+      // The user can navigate away (hardware back, etc.) while loadGold()
+      // is still in flight -- using context after that await without
+      // checking mounted throws "widget has been unmounted" exactly as
+      // seen in the crash log. Bail out cleanly instead.
+      if (!mounted) return;
+
       // One-time (idempotent on the backend) mapping so buy/sell doesn't
       // fail with "Augmont user not mapped" for accounts that have never
       // transacted before -- nothing else in the app does this yet.

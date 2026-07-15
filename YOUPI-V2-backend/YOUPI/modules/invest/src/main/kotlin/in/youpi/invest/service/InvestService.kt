@@ -197,10 +197,18 @@ class InvestService(
         // Fetch live from Augmont
         return try {
             val response = augmontClient.getRates()
+            log.info("Augmont: raw rates response = {}", response)
             val data = response.result?.data
-                ?: return Result.failure(GoldRateStaledException())
+            if (data == null) {
+                log.warn("Augmont: rates response had no result.data (message={})", response.message)
+                return Result.failure(GoldRateStaledException())
+            }
 
-            val goldBuy = data.goldBuy ?: return Result.failure(GoldRateStaledException())
+            val goldBuy = data.goldBuy
+            if (goldBuy == null) {
+                log.warn("Augmont: result.data present but goldBuy was null. Full data = {}", data)
+                return Result.failure(GoldRateStaledException())
+            }
             val blockId = data.blockId ?: ""
 
             // Cache rates in Redis hash
