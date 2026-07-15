@@ -83,6 +83,7 @@ services:
       # ── Auth dummy (LOCAL ONLY — must be empty in prod) ──
       AUTH_DUMMY_MOBILE: "${AUTH_DUMMY_MOBILE:-}"
       AUTH_DUMMY_OTP: "${AUTH_DUMMY_OTP:-}"
+      AUTH_DUMMY_ENABLED: "${AUTH_DUMMY_ENABLED:-false}"
 
       # ── JWT / Encryption ──
       JWT_PRIVATE_KEY: "${JWT_PRIVATE_KEY}"

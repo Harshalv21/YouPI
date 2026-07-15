@@ -36,10 +36,28 @@ class AuthService(
     @org.springframework.beans.factory.annotation.Value("\${youpi.auth.dummy.mobile:+919369016664}")
     private val dummyAuthMobile: String,
     @org.springframework.beans.factory.annotation.Value("\${youpi.auth.dummy.otp:123456}")
-    private val dummyAuthOtp: String
+    private val dummyAuthOtp: String,
+    // Deliberately its OWN dedicated flag, NOT tied to spring.profiles.active.
+    // Local dev and Cloud Run production both run with profile "gcp" (same
+    // Cloud SQL/Redis via the proxy), so a profile-name check couldn't tell
+    // them apart -- it ended up disabling dummy-auth locally too, breaking
+    // Swagger testing. This flag defaults to false everywhere and is only
+    // ever true where someone explicitly sets AUTH_DUMMY_ENABLED=true in
+    // THAT environment's own .env -- Cloud Run's env vars never have it, so
+    // production stays permanently closed regardless of AUTH_DUMMY_MOBILE.
+    @org.springframework.beans.factory.annotation.Value("\${youpi.auth.dummy.enabled:false}")
+    private val dummyAuthAllowed: Boolean
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
+
+    init {
+        if (!dummyAuthAllowed) {
+            log.info("Dummy auth is disabled (AUTH_DUMMY_ENABLED is not 'true' in this environment).")
+        } else {
+            log.warn("Dummy auth is ENABLED in this environment -- this must NEVER be true on Cloud Run production.")
+        }
+    }
     private val secureRandom = SecureRandom()
 
     companion object {
@@ -68,7 +86,7 @@ class AuthService(
     suspend fun sendOtp(mobile: String): Result<OtpSentResponse, AuthException> {
         val normalized = "+91${mobile.takeLast(10)}"
 
-        if (normalized == dummyAuthMobile || dummyAuthMobile == "ALL" || dummyAuthMobile == "") {
+        if (dummyAuthAllowed && (normalized == dummyAuthMobile || dummyAuthMobile == "ALL" || dummyAuthMobile == "")) {
             log.info("Bypassing OTP send for test mobile: {}", normalized)
             return Result.success(OtpSentResponse())
         }
@@ -101,7 +119,7 @@ class AuthService(
 
     suspend fun verifyOtp(req: VerifyOtpRequest): Result<AuthResponse, AuthException> {
         val normalized = "+91${req.mobile.takeLast(10)}"
-        val isDummyAuth = (req.otp == dummyAuthOtp) && (normalized == dummyAuthMobile || dummyAuthMobile == "ALL" || dummyAuthMobile == "")
+        val isDummyAuth = dummyAuthAllowed && (req.otp == dummyAuthOtp) && (normalized == dummyAuthMobile || dummyAuthMobile == "ALL" || dummyAuthMobile == "")
 
         if (!isDummyAuth) {
             if (otpService.isLockedOut("LOGIN", normalized)) {

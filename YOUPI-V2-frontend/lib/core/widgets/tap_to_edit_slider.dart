@@ -84,7 +84,17 @@ class TapToEditSlider extends StatelessWidget {
       // Clamp to the slider's valid range -- a typed value outside min/max
       // would otherwise desync the slider or crash it.
       final clamped = result.clamp(min, max);
-      onChanged(isInteger ? clamped.roundToDouble() : clamped);
+      final finalValue = isInteger ? clamped.roundToDouble() : clamped;
+
+      // Defer the actual state change (which triggers a full Provider
+      // rebuild via notifyListeners()) to the next frame, AFTER this
+      // dialog's pop transition has fully settled. Calling onChanged
+      // synchronously right after Navigator.pop() can race with the
+      // dialog route still being torn down, which is what was throwing
+      // "'_dependents.isEmpty': is not true" -- a Flutter Element still
+      // being deactivated at the exact moment the Provider rebuild tore
+      // out its ancestor subtree.
+      WidgetsBinding.instance.addPostFrameCallback((_) => onChanged(finalValue));
     }
   }
 
