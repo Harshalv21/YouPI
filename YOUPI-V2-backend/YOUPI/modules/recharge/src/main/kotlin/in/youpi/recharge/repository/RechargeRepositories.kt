@@ -1,7 +1,5 @@
 package `in`.youpi.recharge.repository
 
-import io.r2dbc.postgresql.codec.Json
-
 import org.springframework.data.annotation.Id
 import org.springframework.data.r2dbc.repository.Query
 import org.springframework.data.relational.core.mapping.Table
@@ -20,7 +18,7 @@ data class RechargeOrderEntity(
     val circle: String? = null,
     val planId: String? = null,
     val planAmount: BigDecimal,
-    val planDetails: Json = Json.of("{}"),          // 👈 changed from String
+    val planDetails: String = "{}",
     val paymentMode: String,
     val emiMonths: Short? = null,
     val emiAmount: BigDecimal? = null,
@@ -29,7 +27,7 @@ data class RechargeOrderEntity(
     val razorpayPaymentId: String? = null,
     val a1topupTxnId: String? = null,
     val a1topupStatus: String? = null,
-    val a1topupRawResponse: Json? = null,            // 👈 changed from String
+    val a1topupRawResponse: String? = null,
     val failureReason: String? = null,
     val goldAutoInvest: Boolean = false,
     val goldTxnId: UUID? = null,
@@ -40,6 +38,62 @@ data class RechargeOrderEntity(
 
 interface RechargeOrderRepository : CoroutineCrudRepository<RechargeOrderEntity, UUID> {
     suspend fun findByIdempotencyKey(idempotencyKey: String): RechargeOrderEntity?
+
+    // Custom insert with explicit ::jsonb cast — Spring Data's auto-generated
+    // save() can't reliably bind a plain String into a JSONB column without
+    // a registered converter, and a global converter caused type mismatches
+    // on unrelated VARCHAR columns (see MPIN verify bug). This scopes the
+    // JSONB handling to just this one column.
+    @Query("""
+        INSERT INTO recharge_orders 
+        (user_id, mobile_number, operator, circle, plan_id, plan_amount, plan_details, 
+         payment_mode, emi_months, emi_amount, status, razorpay_order_id, gold_auto_invest, idempotency_key)
+        VALUES 
+        (:userId, :mobileNumber, :operator, :circle, :planId, :planAmount, CAST(:planDetails AS jsonb),
+         :paymentMode, :emiMonths, :emiAmount, :status, :razorpayOrderId, :goldAutoInvest, :idempotencyKey)
+        RETURNING *
+    """)
+    suspend fun insertOrder(
+        userId: UUID,
+        mobileNumber: String,
+        operator: String,
+        circle: String?,
+        planId: String?,
+        planAmount: BigDecimal,
+        planDetails: String,
+        paymentMode: String,
+        emiMonths: Short?,
+        emiAmount: BigDecimal?,
+        status: String,
+        razorpayOrderId: String?,
+        goldAutoInvest: Boolean,
+        idempotencyKey: String
+    ): RechargeOrderEntity
+
+    // Same reasoning — a1topup_raw_response is JSONB, needs explicit cast on write.
+    @Query("""
+        UPDATE recharge_orders 
+        SET status = :status, 
+            razorpay_payment_id = :razorpayPaymentId,
+            a1topup_status = :a1topupStatus,
+            a1topup_raw_response = CAST(:a1topupRawResponse AS jsonb),
+            gold_auto_invest = :goldAutoInvest,
+            gold_txn_id = :goldTxnId,
+            updated_at = NOW()
+        WHERE id = :id
+        RETURNING *
+    """)
+    suspend fun updateAfterConfirm(
+        id: UUID,
+        status: String,
+        razorpayPaymentId: String?,
+        a1topupStatus: String?,
+        a1topupRawResponse: String?,
+        goldAutoInvest: Boolean,
+        goldTxnId: UUID?
+    ): RechargeOrderEntity
+
+    suspend fun findById(id: UUID): RechargeOrderEntity?
 
     @Query("SELECT * FROM recharge_orders WHERE user_id = :userId ORDER BY created_at DESC LIMIT :limit OFFSET :offset")
     suspend fun findByUserId(userId: UUID, limit: Int = 20, offset: Int = 0): List<RechargeOrderEntity>

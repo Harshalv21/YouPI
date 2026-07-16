@@ -118,7 +118,7 @@ class PaymentService(
             val event = parsed["event"] as? String ?: return true
 
             when (event) {
-                "payment.captured" -> handleWebhookCaptured(parsed)
+                "payment.captured" -> handleWebhookCaptured(parsed, rawPayload)
                 "payment.failed"   -> handleWebhookFailed(parsed)
                 else -> {
                     log.info("Unhandled webhook event: {}", event)
@@ -131,7 +131,7 @@ class PaymentService(
         }
     }
 
-    private suspend fun handleWebhookCaptured(parsed: Map<String, Any>): Boolean {
+    private suspend fun handleWebhookCaptured(parsed: Map<String, Any>, rawPayload: String): Boolean {
         val paymentObj = (parsed["payload"] as? Map<*, *>)
             ?.get("payment") as? Map<*, *>
             ?: return true
@@ -151,14 +151,12 @@ class PaymentService(
             return true
         }
 
-        val updated = paymentRepo.save(
-            order.copy(
-                razorpayPaymentId = razorpayPaymentId,
-                status = "CAPTURED",
-                webhookEvent = "payment.captured",
-                webhookPayload = razorpayOrderId,
-                updatedAt = Instant.now()
-            )
+        val updated = paymentRepo.updateWebhookCaptured(
+            id = order.id!!,
+            razorpayPaymentId = razorpayPaymentId,
+            status = "CAPTURED",
+            webhookEvent = "payment.captured",
+            webhookPayload = rawPayload
         )
 
         log.info("Webhook: payment captured orderId={}, paymentId={}", updated.id, razorpayPaymentId)

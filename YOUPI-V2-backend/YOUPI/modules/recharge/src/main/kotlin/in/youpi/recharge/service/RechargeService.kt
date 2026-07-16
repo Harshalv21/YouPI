@@ -220,20 +220,21 @@ class RechargeService(
             return Result.failure(RechargeApiException(e.message ?: "Razorpay order creation failed"))
         }
 
-        val order = rechargeRepo.save(
-            RechargeOrderEntity(
-                userId = userId,
-                mobileNumber = req.mobileNumber,
-                operator = req.operator,
-                circle = req.circle,
-                planId = req.planId,
-                planAmount = req.planAmount,
-                paymentMode = req.paymentMode.name,
-                emiMonths = emiMonths,
-                emiAmount = emiAmount,
-                idempotencyKey = req.idempotencyKey,
-                razorpayOrderId = razorpayOrderId
-            )
+        val order = rechargeRepo.insertOrder(
+            userId = userId,
+            mobileNumber = req.mobileNumber,
+            operator = req.operator,
+            circle = req.circle,
+            planId = req.planId,
+            planAmount = req.planAmount,
+            planDetails = "{}",
+            paymentMode = req.paymentMode.name,
+            emiMonths = emiMonths,
+            emiAmount = emiAmount,
+            status = "INITIATED",
+            razorpayOrderId = razorpayOrderId,
+            goldAutoInvest = false,
+            idempotencyKey = req.idempotencyKey
         )
 
         if (emiMonths != null && emiAmount != null) {
@@ -298,13 +299,14 @@ class RechargeService(
         // ── Mark order SUCCESS ──
         // TODO: Real A1Topup API call yahan aayega (actual mobile recharge delivery).
         // Abhi ke liye status seedha SUCCESS maan rahe hain payment-capture ke baad.
-        var updatedOrder = rechargeRepo.save(
-            order.copy(
-                razorpayPaymentId = req.razorpayPaymentId,
-                status = "SUCCESS",
-                a1topupStatus = "SUCCESS",
-                updatedAt = Instant.now()
-            )
+        var updatedOrder = rechargeRepo.updateAfterConfirm(
+            id = order.id!!,
+            status = "SUCCESS",
+            razorpayPaymentId = req.razorpayPaymentId,
+            a1topupStatus = "SUCCESS",
+            a1topupRawResponse = order.a1topupRawResponse ?: "null",
+            goldAutoInvest = order.goldAutoInvest,
+            goldTxnId = order.goldTxnId
         )
 
         log.info("Recharge confirmed: orderId={}, amount={}", updatedOrder.id, updatedOrder.planAmount)
@@ -330,12 +332,14 @@ class RechargeService(
                     is Result.Success -> {
                         goldTxnId = goldResult.value.txnId
                         goldAutoInvest = true
-                        updatedOrder = rechargeRepo.save(
-                            updatedOrder.copy(
-                                goldAutoInvest = true,
-                                goldTxnId = goldTxnId,
-                                updatedAt = Instant.now()
-                            )
+                        updatedOrder = rechargeRepo.updateAfterConfirm(
+                            id = updatedOrder.id!!,
+                            status = updatedOrder.status,
+                            razorpayPaymentId = updatedOrder.razorpayPaymentId,
+                            a1topupStatus = updatedOrder.a1topupStatus,
+                            a1topupRawResponse = updatedOrder.a1topupRawResponse ?: "null",
+                            goldAutoInvest = true,
+                            goldTxnId = goldTxnId
                         )
                         log.info("Auto gold-invest succeeded: orderId={}, goldTxnId={}, amount={}",
                             updatedOrder.id, goldTxnId, goldAmount)

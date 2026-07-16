@@ -32,4 +32,24 @@ interface PaymentOrderRepository : CoroutineCrudRepository<PaymentOrderEntity, U
 
     @Query("SELECT * FROM payment_orders WHERE user_id = :userId ORDER BY created_at DESC LIMIT :limit OFFSET :offset")
     suspend fun findByUserId(userId: UUID, limit: Int = 20, offset: Int = 0): List<PaymentOrderEntity>
+
+    // webhook_payload JSONB column me explicit cast — same reasoning as
+    // recharge_orders.plan_details (see RechargeOrderRepository).
+    @Query("""
+        UPDATE payment_orders
+        SET razorpay_payment_id = :razorpayPaymentId,
+            status = :status,
+            webhook_event = :webhookEvent,
+            webhook_payload = CAST(:webhookPayload AS jsonb),
+            updated_at = NOW()
+        WHERE id = :id
+        RETURNING *
+    """)
+    suspend fun updateWebhookCaptured(
+        id: UUID,
+        razorpayPaymentId: String?,
+        status: String,
+        webhookEvent: String?,
+        webhookPayload: String
+    ): PaymentOrderEntity
 }
