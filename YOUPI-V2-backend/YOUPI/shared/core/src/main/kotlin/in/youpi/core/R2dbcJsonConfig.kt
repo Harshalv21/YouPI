@@ -1,30 +1,15 @@
 package `in`.youpi.config
 
-import io.r2dbc.postgresql.codec.Json
-import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
-import org.springframework.core.convert.converter.Converter
-import org.springframework.data.convert.ReadingConverter
-import org.springframework.data.convert.WritingConverter
-import org.springframework.data.r2dbc.convert.R2dbcCustomConversions
-import org.springframework.data.r2dbc.dialect.PostgresDialect
 
-@WritingConverter
-class StringToJsonConverter : Converter<String, Json> {
-    override fun convert(source: String): Json = Json.of(source)
-}
-
-@ReadingConverter
-class JsonToStringConverter : Converter<Json, String> {
-    override fun convert(source: Json): String = source.asString()
-}
-
+// Global String<->Json converters removed — they were converting every
+// String property (including plain VARCHAR fields like mobile, operator,
+// status) into JSONB, causing "operator does not exist: character varying = jsonb"
+// errors across unrelated queries (e.g. MPIN verify).
+//
+// JSONB fields now use io.r2dbc.postgresql.codec.Json directly as their
+// Kotlin type (see RechargeOrderEntity.planDetails, a1topupRawResponse) —
+// the r2dbc-postgresql driver handles this natively without needing a
+// custom converter.
 @Configuration
-class R2dbcJsonConfig {
-    @Bean
-    fun r2dbcCustomConversions(): R2dbcCustomConversions =
-        R2dbcCustomConversions.of(
-            PostgresDialect.INSTANCE,
-            listOf(StringToJsonConverter(), JsonToStringConverter())
-        )
-}
+class R2dbcJsonConfig
