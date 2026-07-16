@@ -1,5 +1,7 @@
 package `in`.youpi.recharge.repository
 
+import io.r2dbc.postgresql.codec.Json
+
 import org.springframework.data.annotation.Id
 import org.springframework.data.r2dbc.repository.Query
 import org.springframework.data.relational.core.mapping.Table
@@ -18,7 +20,7 @@ data class RechargeOrderEntity(
     val circle: String? = null,
     val planId: String? = null,
     val planAmount: BigDecimal,
-    val planDetails: String = "{}",
+    val planDetails: Json = Json.of("{}"),          // 👈 changed from String
     val paymentMode: String,
     val emiMonths: Short? = null,
     val emiAmount: BigDecimal? = null,
@@ -27,7 +29,7 @@ data class RechargeOrderEntity(
     val razorpayPaymentId: String? = null,
     val a1topupTxnId: String? = null,
     val a1topupStatus: String? = null,
-    val a1topupRawResponse: String? = null,
+    val a1topupRawResponse: Json? = null,            // 👈 changed from String
     val failureReason: String? = null,
     val goldAutoInvest: Boolean = false,
     val goldTxnId: UUID? = null,

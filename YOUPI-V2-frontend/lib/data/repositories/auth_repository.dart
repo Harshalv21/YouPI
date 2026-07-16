@@ -136,6 +136,8 @@ class AuthRepository {
           accessToken: data['accessToken'],
           refreshToken: data['refreshToken'],
         );
+        debugPrint('🔑 ACCESS TOKEN: ${data['accessToken']}');
+
         // Remember this number so LoginMpinScreen can skip straight to the
         // MPIN pad next time instead of asking for it again on this device.
         await StorageService.saveLastMobile(mobile);

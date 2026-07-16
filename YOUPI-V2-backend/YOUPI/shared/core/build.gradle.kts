@@ -10,6 +10,8 @@ dependencies {
     api(libs.spring.boot.starter.actuator)
     api(libs.springdoc.openapi.webflux.ui)
     api(libs.spring.boot.starter.data.redis.reactive)
+    api(libs.spring.boot.starter.data.r2dbc)
+    api(libs.r2dbc.postgresql)
     api(libs.kotlinx.coroutines.core)
     api(libs.kotlinx.coroutines.reactor)
     api(libs.jackson.module.kotlin)

@@ -49,7 +49,50 @@ class RechargeService(
         private const val PLAN_CACHE_PREFIX = "plans:"
     }
 
-    // ── Plan Fetching (Redis Cached) ──
+   // ── Plan Fetching (Redis Cached) ──
+
+    // mPlan requires numeric operator_code / circle_code, not free-text names.
+    // These mappings come from mPlan's dashboard (Operator Codes / Circle
+    // Codes tables) — update here if mPlan adds/changes codes.
+    private val operatorCodeMap = mapOf(
+        "VI" to 1,
+        "AIRTEL" to 2,
+        "MTNL" to 3,
+        "BSNL" to 4,
+        "JIO" to 5
+    )
+
+    private val circleCodeMap = mapOf(
+        "ANDHRA PRADESH" to 2,
+        "ASSAM" to 3,
+        "BIHAR JHARKHAND" to 4,
+        "DELHI NCR" to 5,
+        "GUJARAT" to 6,
+        "HIMACHAL PRADESH" to 7,
+        "HARYANA" to 8,
+        "JAMMU KASHMIR" to 9,
+        "KERALA" to 10,
+        "KARNATAKA" to 11,
+        "KOLKATA" to 12,
+        "MAHARASHTRA" to 13,
+        "MADHYA PRADESH CHHATTISGARH" to 14,
+        "MUMBAI" to 15,
+        "NORTH EAST" to 16,
+        "ORISSA" to 17,
+        "PUNJAB" to 18,
+        "RAJASTHAN" to 19,
+        "TAMIL NADU" to 20,
+        "UP EAST" to 21,
+        "UP WEST" to 22,
+        "WEST BENGAL" to 23,
+        "CHENNAI" to 25
+    )
+
+    // Normalizes "UP-East", "up_east", "  UP East " etc. into the map's
+    // canonical "UP EAST" form so callers don't have to match punctuation
+    // exactly.
+    private fun normalizeKey(s: String): String =
+        s.trim().uppercase().replace("-", " ").replace("_", " ").replace(Regex("\\s+"), " ")
 
     suspend fun fetchPlans(operator: String, circle: String): Result<List<PlanResponse>, RechargeException> {
         val cacheKey = "$PLAN_CACHE_PREFIX${operator.uppercase()}:${circle.uppercase()}"
@@ -74,30 +117,46 @@ class RechargeService(
         circle: String,
         cacheKey: String
     ): Result<List<PlanResponse>, RechargeException> {
+        val operatorCode = operatorCodeMap[normalizeKey(operator)]
+            ?: return Result.failure(RechargeApiException("Unknown operator: $operator"))
+        val circleCode = circleCodeMap[normalizeKey(circle)]
+            ?: return Result.failure(RechargeApiException("Unknown circle: $circle"))
+
         return try {
             val response = webClient.get()
-                .uri("$mplanMobilePlansUrl?apikey=$mplanApiKey&offer=$operator&circle=$circle")
+                .uri("$mplanMobilePlansUrl?apikey=$mplanApiKey&operator_code=$operatorCode&circle_code=$circleCode")
                 .retrieve()
                 .bodyToMono(String::class.java)
                 .awaitSingle()
 
             val root = objectMapper.readTree(response)
-            val plans = mutableListOf<PlanResponse>()
 
-            root.fields().forEach { (category, plansNode) ->
+            // mPlan returns {"status": 0, "records": {"msg": "..."}} on
+            // failure (bad key, bad IP, bad params) and {"status": 1,
+            // "records": {<category>: [...plans]}, ...} on success.
+            if (root.path("status").asInt(0) != 1) {
+                val errorMsg = root.path("records").path("msg").asText("Unknown mPlan API error")
+                log.error("mPlan API returned failure status: operator={}, circle={}, msg={}", operator, circle, errorMsg)
+                return Result.failure(RechargeApiException("mPlan error: $errorMsg"))
+            }
+
+            val plans = mutableListOf<PlanResponse>()
+            val recordsNode = root.path("records")
+
+            recordsNode.fields().forEach { (category, plansNode) ->
                 if (plansNode.isArray) {
                     plansNode.forEach { plan ->
                         plans.add(PlanResponse(
-                            planId = plan.path("planId").asText(UUID.randomUUID().toString().take(8)),
+                            planId = UUID.randomUUID().toString().take(8),
                             operator = operator,
                             circle = circle,
                             amount = BigDecimal(plan.path("rs").asText("0")),
                             validity = plan.path("validity").asText(""),
                             description = plan.path("desc").asText(""),
                             category = category.uppercase(),
-                            data = plan.path("data").asText(null),
-                            talktime = plan.path("talktime").asText(null),
-                            sms = plan.path("sms").asText(null)
+                            data = null,
+                            talktime = null,
+                            sms = null
                         ))
                     }
                 }

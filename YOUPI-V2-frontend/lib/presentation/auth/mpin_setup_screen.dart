@@ -118,7 +118,7 @@ class _MpinSetupScreenState extends State<MpinSetupScreen> {
         // -- the natural moment, same as Google Pay/PhonePe do it.
         await _maybeEnableBiometric();
         if (mounted) {
-          context.go(widget.isReset ? '/dashboard/home' : '/kyc/intro');
+          context.go('/dashboard/home');
         }
       }
     } catch (e) {
