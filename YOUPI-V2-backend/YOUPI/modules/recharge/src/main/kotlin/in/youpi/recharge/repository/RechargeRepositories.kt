@@ -93,8 +93,6 @@ interface RechargeOrderRepository : CoroutineCrudRepository<RechargeOrderEntity,
         goldTxnId: UUID?
     ): RechargeOrderEntity
 
-    suspend fun findById(id: UUID): RechargeOrderEntity?
-
     @Query("SELECT * FROM recharge_orders WHERE user_id = :userId ORDER BY created_at DESC LIMIT :limit OFFSET :offset")
     suspend fun findByUserId(userId: UUID, limit: Int = 20, offset: Int = 0): List<RechargeOrderEntity>
 
