@@ -40,14 +40,16 @@ class RechargeRouter(private val rechargeService: RechargeService) {
                 requestBody = SwaggerRequestBody(content = [Content(schema = Schema(implementation = CreateRechargeRequest::class))]),
                 responses = [SwaggerApiResponse(responseCode = "201", description = "Order created with Razorpay order ID")])),
         RouterOperation(path = "/v1/recharge/order/{orderId}/confirm", method = [RequestMethod.POST],
-            operation = Operation(operationId = "confirmRechargeOrder", summary = "Confirm recharge after payment",
-                description = "Verifies Razorpay payment signature, marks the recharge as successful, and " +
-                        "auto-invests a small percentage of the recharge amount into gold. Gold-invest failure " +
-                        "does not fail the recharge — check goldWarning in the response.",
+            operation = Operation(operationId = "confirmRechargeOrder", summary = "Check recharge order status (post-checkout)",
+                description = "Reports the recharge order's CURRENT state after Razorpay Checkout closes. " +
+                        "Does NOT verify a signature or mutate order state anymore — SUCCESS + gold auto-invest are " +
+                        "granted only by the Razorpay webhook (POST /webhooks/razorpay), which is the sole trusted " +
+                        "source for payment confirmation. If the order still shows INITIATED here, poll again after " +
+                        "a few seconds; the webhook is usually near-instant but isn't guaranteed to beat this call.",
                 tags = ["Recharge"],
                 parameters = [Parameter(name = "orderId", description = "UUID of the recharge order", required = true)],
                 requestBody = SwaggerRequestBody(content = [Content(schema = Schema(implementation = ConfirmRechargeRequest::class))]),
-                responses = [SwaggerApiResponse(responseCode = "200", description = "Recharge confirmed, with gold auto-invest outcome")])),
+                responses = [SwaggerApiResponse(responseCode = "200", description = "Current order status, with gold auto-invest outcome if already SUCCESS")])),
         RouterOperation(path = "/v1/recharge/order/{orderId}", method = [RequestMethod.GET],
             operation = Operation(operationId = "getOrderStatus", summary = "Get recharge order status",
                 description = "Returns the current status of a recharge order including A1Topup processing status.",
@@ -94,7 +96,11 @@ class RechargeRouter(private val rechargeService: RechargeService) {
     private suspend fun handleConfirmOrder(request: ServerRequest): ServerResponse {
         val userId = request.currentUserId()
         val body = request.awaitBody<ConfirmRechargeRequest>()
-        return when (val result = rechargeService.confirmRecharge(userId, body)) {
+        // This no longer mutates order state (see RechargeService docs) --
+        // the Razorpay webhook is the only writer now. This just reports
+        // whatever the webhook has already recorded, so the app can show
+        // the right screen right after checkout closes.
+        return when (val result = rechargeService.getConfirmationStatus(userId, body.rechargeOrderId)) {
             is Result.Success -> ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
                 .bodyValueAndAwait(ApiResponse.ok(result.value))
             is Result.Failure -> throw result.error

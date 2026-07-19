@@ -39,6 +39,10 @@ data class RechargeOrderEntity(
 interface RechargeOrderRepository : CoroutineCrudRepository<RechargeOrderEntity, UUID> {
     suspend fun findByIdempotencyKey(idempotencyKey: String): RechargeOrderEntity?
 
+    // Needed by the Razorpay webhook handler -- the webhook only knows the
+    // razorpay_order_id, not our internal recharge order UUID.
+    suspend fun findByRazorpayOrderId(razorpayOrderId: String): RechargeOrderEntity?
+
     // Custom insert with explicit ::jsonb cast — Spring Data's auto-generated
     // save() can't reliably bind a plain String into a JSONB column without
     // a registered converter, and a global converter caused type mismatches

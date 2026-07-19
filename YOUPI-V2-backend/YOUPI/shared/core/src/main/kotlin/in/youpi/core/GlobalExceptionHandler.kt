@@ -58,10 +58,16 @@ class GlobalExceptionHandler(
                 )
             }
             is org.springframework.web.server.ServerWebInputException -> {
-                log.warn("Validation error: {} (requestId={})", throwable.message, requestId)
+                // throwable.message is Spring's generic wrapper text (always
+                // "400 BAD_REQUEST \"Failed to read HTTP message\""), not the
+                // actual reason. The real cause (e.g. the specific Jackson
+                // parse error) is one level down in .cause -- log that too,
+                // and pass `throwable` itself so the stack trace shows up.
+                val rootCause = throwable.cause?.message ?: throwable.message
+                log.warn("Validation error: {} (requestId={})", rootCause, requestId, throwable)
                 buildResponse(
                     status = HttpStatus.BAD_REQUEST,
-                    body = ApiResponse.error("VALIDATION_ERROR", throwable.message ?: "Invalid input", requestId = requestId)
+                    body = ApiResponse.error("VALIDATION_ERROR", rootCause ?: "Invalid input", requestId = requestId)
                 )
             }
             else -> {

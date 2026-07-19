@@ -7,6 +7,7 @@ import `in`.youpi.events.PubSubPublisher
 import `in`.youpi.payment.domain.*
 import `in`.youpi.payment.repository.PaymentOrderEntity
 import `in`.youpi.payment.repository.PaymentOrderRepository
+import `in`.youpi.recharge.service.RechargeService
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
 import org.slf4j.LoggerFactory
@@ -23,6 +24,7 @@ class PaymentService(
     private val pubSubPublisher: PubSubPublisher,          // ← TODO replace: Pub/Sub event publish
     private val objectMapper: ObjectMapper,                // ← webhook JSON parse ke liye
     private val razorpayClient: RazorpayClient,
+    private val rechargeService: RechargeService,          // ← webhook.captured → recharge completion
     @Value("\${youpi.razorpay.key-id:}") private val razorpayKeyId: String,
     @Value("\${youpi.razorpay.key-secret:}") private val razorpayKeySecret: String,
     @Value("\${youpi.razorpay.webhook-secret:}") private val webhookSecret: String
@@ -140,6 +142,17 @@ class PaymentService(
         val razorpayOrderId = entity["order_id"] as? String ?: return true
         val razorpayPaymentId = entity["id"] as? String ?: return true
 
+        // Recharge creates its own Razorpay order directly (not through
+        // PaymentService.createOrder), so it lives in recharge_orders, not
+        // payment_orders. Check there first -- if RechargeService recognizes
+        // the order, it owns completion (A1Topup delivery + the ₹249 gold
+        // gate) and we're done. If it returns false, this order_id belongs
+        // to some other purpose and we fall through to the generic path
+        // below, same as before.
+        if (rechargeService.handleWebhookCaptured(razorpayOrderId, razorpayPaymentId)) {
+            return true
+        }
+
         val order = paymentRepo.findByRazorpayOrderId(razorpayOrderId) ?: run {
             log.warn("Webhook: order not found for razorpayOrderId={}", razorpayOrderId)
             return true  // idempotent — naya order nahi banate webhook se
@@ -226,7 +239,20 @@ class PaymentService(
             mac.init(SecretKeySpec(secret.toByteArray(), "HmacSHA256"))
             val computedHex = mac.doFinal(payload.toByteArray())
                 .joinToString("") { "%02x".format(it) }
-            computedHex.equals(expectedSignature, ignoreCase = true)
+            val matches = computedHex.equals(expectedSignature, ignoreCase = true)
+            if (!matches) {
+                // Temporary diagnostic logging -- never log the secret itself,
+                // but length/payload-size/computed-vs-received signature is
+                // enough to pinpoint a mismatch (wrong secret loaded, wrong
+                // payload bytes, encoding difference, etc.) without repeated
+                // blind guessing. Remove once webhook signing is confirmed
+                // working end-to-end.
+                log.warn(
+                    "Webhook signature mismatch: secretLength={}, payloadLength={}, computed={}, received={}",
+                    secret.length, payload.length, computedHex, expectedSignature
+                )
+            }
+            matches
         } catch (e: Exception) {
             log.error("HMAC verification error", e)
             false

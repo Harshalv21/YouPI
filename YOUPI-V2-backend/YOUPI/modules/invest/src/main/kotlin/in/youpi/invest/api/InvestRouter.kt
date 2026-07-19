@@ -42,24 +42,24 @@ class InvestRouter(private val investService: InvestService) {
                 tags = ["Gold"],
                 responses = [SwaggerApiResponse(responseCode = "200", description = "Gold holdings")])),
         RouterOperation(path = "/v1/gold/buy", method = [RequestMethod.POST],
-        operation = Operation(
-    operationId = "buyGold",
-    summary = "Buy digital gold/silver",
-    description = "Purchases digital gold/silver for the given amount in INR via Augmont. Idempotent via idempotencyKey. Uses locked blockId and rate.",
-    tags = ["Gold"],
+            operation = Operation(
+                operationId = "buyGold",
+                summary = "Buy digital gold/silver",
+                description = "Purchases digital gold/silver for the given amount in INR via Augmont. Idempotent via idempotencyKey. Uses locked blockId and rate.",
+                tags = ["Gold"],
 
-    requestBody = SwaggerRequestBody(
-    content = [
-        Content(
-            schema = Schema(
-                implementation = BuyGoldRequest::class
-    ))]),
+                requestBody = SwaggerRequestBody(
+                    content = [
+                        Content(
+                            schema = Schema(
+                                implementation = BuyGoldRequest::class
+                            ))]),
 
-     responses = [
-            SwaggerApiResponse(
-                responseCode = "201",
-                description = "Gold purchase confirmation"
-    )])),  
+                responses = [
+                    SwaggerApiResponse(
+                        responseCode = "201",
+                        description = "Gold purchase confirmation"
+                    )])),
         RouterOperation(path = "/v1/gold/sell", method = [RequestMethod.POST],
             operation = Operation(
                 operationId = "sellGold",
@@ -72,13 +72,13 @@ class InvestRouter(private val investService: InvestService) {
                         Content(
                             schema = Schema(
                                 implementation = SellGoldRequest::class
-        ))]),
+                            ))]),
 
                 responses = [
                     SwaggerApiResponse(
                         responseCode = "201",
                         description = "Gold sell confirmation"
-        )])),
+                    )])),
         RouterOperation(path = "/v1/gold/passbook", method = [RequestMethod.GET],
             operation = Operation(operationId = "getPassbook", summary = "Get Augmont passbook",
                 description = "Returns the user's real gold/silver balance directly from Augmont.",
@@ -185,28 +185,38 @@ class InvestRouter(private val investService: InvestService) {
             .bodyValueAndAwait(ApiResponse.ok(holdings))
     }
 
-   private suspend fun handleGoldBuy(request: ServerRequest): ServerResponse {
-    return ServerResponse.ok()
-        .contentType(MediaType.TEXT_PLAIN)
-        .bodyValueAndAwait("REACHED GOLD BUY")
-}
+    private suspend fun handleGoldBuy(request: ServerRequest): ServerResponse {
+        val userId = request.currentUserId()
+        val body = request.awaitBody<BuyGoldRequest>()
+        return when (
+            val result = investService.buyGold(
+                userId = userId,
+                amountInr = body.amount,
+                idempotencyKey = body.idempotencyKey,
+                metalType = body.metalType
+            )) {
+            is Result.Success -> ServerResponse.status(201)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValueAndAwait(ApiResponse.created(result.value))
+            is Result.Failure -> throw result.error
+        }}
 
     private suspend fun handleGoldSell(request: ServerRequest): ServerResponse {
         val userId = request.currentUserId()
         val body = request.awaitBody<SellGoldRequest>()
-    return when (
-    val result = investService.sellGold(
-            userId = userId,
-            grams = body.grams,
-            idempotencyKey = body.idempotencyKey,
-            metalType = body.metalType,
-            bankAccountId = body.bankAccountId
-        )) {
-        is Result.Success ->ServerResponse.status(201)
-            .contentType(MediaType.APPLICATION_JSON)
-            .bodyValueAndAwait(ApiResponse.created(result.value))
-        is Result.Failure -> throw result.error
-}}
+        return when (
+            val result = investService.sellGold(
+                userId = userId,
+                grams = body.grams,
+                idempotencyKey = body.idempotencyKey,
+                metalType = body.metalType,
+                bankAccountId = body.bankAccountId
+            )) {
+            is Result.Success ->ServerResponse.status(201)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValueAndAwait(ApiResponse.created(result.value))
+            is Result.Failure -> throw result.error
+        }}
 
     private suspend fun handlePassbook(request: ServerRequest): ServerResponse {
         val userId = request.currentUserId()
@@ -248,12 +258,12 @@ class InvestRouter(private val investService: InvestService) {
         val userId = request.currentUserId()
         val body = request.awaitBody<CreateAugmontUserRequest>()
         val uniqueId =
-        investService.ensureAugmontUser(
-            userId = userId,
-            userName = body.userName,
-            userEmail = body.userEmail,
-            userMobile = body.userMobile
-        )
+            investService.ensureAugmontUser(
+                userId = userId,
+                userName = body.userName,
+                userEmail = body.userEmail,
+                userMobile = body.userMobile
+            )
         return ServerResponse.status(201).contentType(MediaType.APPLICATION_JSON)
             .bodyValueAndAwait(ApiResponse.created(mapOf("augmontUniqueId" to uniqueId)))
     }

@@ -118,19 +118,29 @@ class _ComingSoonOverlayState extends State<ComingSoonOverlay>
             // increasingly-blurred shadow layers in the same color
             // stacked on top of each other, so the glow spreads
             // outward from the letterforms like a lit-up sign.
-            child: Text(
-              'Coming Soon',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 0.5,
-                color: AppColors.secondary,
-                shadows: [
-                  Shadow(color: AppColors.secondary, blurRadius: 6),
-                  Shadow(color: AppColors.secondary, blurRadius: 14),
-                  Shadow(color: AppColors.secondary.withOpacity(0.85), blurRadius: 26),
-                ],
+            // Wrapped in Padding + FittedBox so it auto-shrinks to fit
+            // tiny containers (e.g. the 52px quick-action circles)
+            // without overflowing.
+            child: Padding(
+              padding: const EdgeInsets.all(4),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  'Coming Soon',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.5,
+                    height: 1.05,
+                    color: AppColors.secondary,
+                    shadows: [
+                      Shadow(color: AppColors.secondary, blurRadius: 6),
+                      Shadow(color: AppColors.secondary, blurRadius: 14),
+                      Shadow(color: AppColors.secondary.withOpacity(0.85), blurRadius: 26),
+                    ],
+                  ),
+                ),
               ),
             ),
           ),

@@ -3,6 +3,7 @@ package `in`.youpi.security
 import `in`.youpi.core.UnauthorizedException
 import io.jsonwebtoken.Jwts
 import io.jsonwebtoken.security.Keys
+import jakarta.annotation.PostConstruct
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
@@ -24,12 +25,37 @@ import java.util.*
 class MpinJwtService(
     @Value("\${youpi.jwt.private-key:}") private val privateKeyBase64: String,
     @Value("\${youpi.jwt.public-key:}") private val publicKeyBase64: String,
-    @Value("\${youpi.jwt.access-token-ttl:15m}") private val accessTokenTtl: Duration
+    @Value("\${youpi.jwt.access-token-ttl:15m}") private val accessTokenTtl: Duration,
+    @Value("\${spring.profiles.active:}") private val activeProfiles: String
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
 
+    @PostConstruct
+    fun validateKeysAtStartup() {
+        // Touch the lazy delegates now so a missing/misconfigured key fails
+        // the deploy immediately, instead of surfacing only on the first
+        // login/token-verify request in production.
+        privateKey
+        publicKey
+        log.info("MpinJwtService: signing keys initialized (profiles='$activeProfiles')")
+    }
+
+    // Ephemeral keys are ONLY acceptable for local/dev work where no secret
+    // is configured. In gcp/prod, a missing key must fail startup loudly --
+    // silently falling back here would mean every restart mints a fresh
+    // keypair and invalidates every previously-issued session token without
+    // anyone noticing, and worse, would let the service "look healthy" while
+    // running on a non-persisted, non-audited signing key.
+    private val isProdLikeProfile: Boolean
+        get() = activeProfiles.split(",").map { it.trim() }.any { it == "gcp" || it == "prod" || it == "production" }
+
     private val keyPair: java.security.KeyPair by lazy {
+        check(!isProdLikeProfile) {
+            "FATAL: youpi.jwt.private-key/public-key not configured in profile(s) '$activeProfiles'. " +
+                    "Refusing to start with an ephemeral JWT signing key in a production-like environment."
+        }
+        log.warn("JWT keys not configured, generating ephemeral key pair (dev/local only)")
         val generator = java.security.KeyPairGenerator.getInstance("RSA")
         generator.initialize(2048)
         generator.generateKeyPair()
@@ -46,7 +72,6 @@ class MpinJwtService(
 
     private val privateKey: PrivateKey by lazy {
         if (privateKeyBase64.isBlank()) {
-            log.warn("JWT private key not configured, using ephemeral generated key")
             keyPair.private
         } else {
             val keyBytes = Base64.getDecoder().decode(cleanPem(privateKeyBase64))
@@ -56,7 +81,6 @@ class MpinJwtService(
 
     private val publicKey: PublicKey by lazy {
         if (publicKeyBase64.isBlank()) {
-            log.warn("JWT public key not configured, using ephemeral generated key")
             keyPair.public
         } else {
             val keyBytes = Base64.getDecoder().decode(cleanPem(publicKeyBase64))

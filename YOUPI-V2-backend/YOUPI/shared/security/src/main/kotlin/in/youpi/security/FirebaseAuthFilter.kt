@@ -27,8 +27,9 @@ class FirebaseAuthFilter(
         "/api/v1/auth/token/refresh",
         "/api/v1/gold/price",
         "/webhooks/",
+        "/api/webhooks/",
         "/actuator/",
-	    "/api/actuator/",
+        "/api/actuator/",
         "/swagger-ui",
         "/swagger-ui.html",
         "/v3/api-docs",
@@ -40,7 +41,6 @@ class FirebaseAuthFilter(
     )
 
     override fun filter(exchange: ServerWebExchange, chain: WebFilterChain): Mono<Void> {
-        log.info("🔵 FirebaseAuthFilter HIT: ${exchange.request.method} ${exchange.request.uri.path}")
         val path = exchange.request.uri.path
         val normalizedPath = path.replace(Regex("/+"), "/")
         val method = exchange.request.method
@@ -54,19 +54,19 @@ class FirebaseAuthFilter(
         }
 
         val authHeader = exchange.request.headers.getFirst("Authorization")
-        log.info("🔵 authHeader present: ${authHeader != null}, starts with Bearer: ${authHeader?.startsWith("Bearer ")}")
 
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             return writeUnauthorized(exchange, "Missing or invalid Authorization header")
         }
 
+        // Never log the raw token or Authorization header value anywhere below
+        // this point -- it's a live bearer credential, and log entries are
+        // readable by anyone with log-viewer IAM, not just admins.
         val token = authHeader.removePrefix("Bearer ").trim()
 
         return mono {
             try {
-                log.info("🔵 Attempting MPIN JWT verify")
                 val mpinClaims = mpinJwtService.verifyToken(token)
-                log.info("🔵 MPIN JWT verify SUCCESS: userId=${mpinClaims.userId}")
                 val principal = FirebasePrincipal(
                     uid = mpinClaims.userId.toString(),
                     mobile = mpinClaims.mobile,
@@ -78,7 +78,6 @@ class FirebaseAuthFilter(
                 exchange.attributes["auth.userType"] = mpinClaims.userType
                 ""
             } catch (jwtException: Exception) {
-                log.warn("🔵 MPIN JWT verify FAILED: ${jwtException.message}")
                 try {
                     val firebaseToken = withContext(Dispatchers.IO) {
                         FirebaseAuth.getInstance().verifyIdToken(token)
@@ -92,16 +91,14 @@ class FirebaseAuthFilter(
                     exchange.attributes["firebase.principal"] = principal
                     ""
                 } catch (e: Exception) {
-                    log.warn("Both MPIN JWT and Firebase token verification failed: {}", e.message)
+                    log.warn("Token verification failed for {} {}: {}", method, normalizedPath, e.message)
                     "TOKEN_INVALID"
                 }
             }
         }.flatMap { error ->
-            log.info("🔵 flatMap reached, error='$error'")
             if (error == "TOKEN_INVALID") {
                 writeUnauthorized(exchange, "Invalid or expired token")
             } else {
-                log.info("🔵 Calling chain.filter()")
                 chain.filter(exchange)
             }
         }

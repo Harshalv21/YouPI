@@ -292,7 +292,7 @@ class _QuickAction extends StatelessWidget {
           children: [
             locked
                 ? ComingSoonOverlay(
-                shape: BoxShape.circle, showLabel: false, iconSize: 18, interactive: false, child: iconCircle)
+                shape: BoxShape.circle, showLabel: true, iconSize: 18, interactive: false, child: iconCircle)
                 : iconCircle,
             const SizedBox(height: 6),
             Text(label, style: AppTextStyles.labelSmall, textAlign: TextAlign.center, maxLines: 2),
