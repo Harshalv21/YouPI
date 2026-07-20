@@ -300,11 +300,12 @@ class InvestRouter(private val investService: InvestService) {
     }
 
     private suspend fun handleFdDetail(request: ServerRequest): ServerResponse {
-        val fdId = request.pathVariable("id")
-        val detail = investService.getGoldFdDetail(fdId)
-        return ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
-            .bodyValueAndAwait(ApiResponse.ok(detail))
-    }
+    val userId = request.currentUserId()
+    val fdId = request.pathVariable("id")
+    val detail = investService.getGoldFdDetail(userId, fdId)
+    return ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
+        .bodyValueAndAwait(ApiResponse.ok(detail))
+}
 
     private suspend fun handleFdClose(request: ServerRequest): ServerResponse {
         val userId = request.currentUserId()

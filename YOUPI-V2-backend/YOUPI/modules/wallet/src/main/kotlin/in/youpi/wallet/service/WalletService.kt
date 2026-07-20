@@ -2,7 +2,11 @@ package `in`.youpi.wallet.service
 
 import `in`.youpi.core.BaseException
 import `in`.youpi.core.Result
+import `in`.youpi.core.razorpay.RazorpayClient
+import `in`.youpi.core.razorpay.RazorpayOrderCreationException
+import `in`.youpi.core.ratelimit.RateLimiterService
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.data.annotation.Id
 import org.springframework.data.r2dbc.core.R2dbcEntityTemplate
 import org.springframework.data.r2dbc.repository.Query
@@ -101,6 +105,19 @@ data class TransferResponse(
     val recipientBalance: WalletInfo      // ← ab recipient bhi return hoga
 )
 
+// ← NAYA: wallet topup order DTOs
+data class CreateWalletTopupOrderRequest(
+    val amountRupees: BigDecimal
+)
+
+data class CreateWalletTopupOrderResponse(
+    val orderId: String,
+    val amount: Long,       // paise
+    val currency: String,
+    val receipt: String?,
+    val keyId: String
+)
+
 // ── Exceptions ──
 
 sealed class WalletException(code: String, message: String, httpStatus: Int = 400)
@@ -123,12 +140,24 @@ class SelfTransferException : WalletException(
     400
 )
 
+// ← NAYA: topup order creation exception
+class TopupOrderCreationException(reason: String) : WalletException(
+    "TOPUP_ORDER_FAILED", "Unable to create topup order: $reason", 502
+)
+
+class TopupRateLimitExceededException : WalletException(
+    "TOPUP_RATE_LIMIT_EXCEEDED", "Too many topup attempts, please try again in a minute", 429
+)
+
 @Service
 class WalletService(
     private val walletRepo: WalletRepository,
     private val ledgerRepo: LedgerEntryRepository,
     private val userLookupRepo: UserLookupRepository,            // ← naya
-    private val txManager: R2dbcTransactionManager               // ← @Transactional replace
+    private val txManager: R2dbcTransactionManager,               // ← @Transactional replace
+    private val razorpayClient: RazorpayClient,                          // ← NAYA
+    @Value("\${youpi.razorpay.key-id:}") private val razorpayKeyId: String,  // ← NAYA
+    private val rateLimiterService: RateLimiterService                    // ← NAYA (rate limit)
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
     private val txOperator = TransactionalOperator.create(txManager)  // ← reactive tx
@@ -312,5 +341,56 @@ if (senderId == recipientId) {
     suspend fun getLedger(userId: UUID, walletType: String, page: Int = 0, pageSize: Int = 20): List<LedgerEntryEntity> {
         val wallet = walletRepo.findByUserIdAndWalletType(userId, walletType) ?: return emptyList()
         return ledgerRepo.findByWalletId(wallet.id!!, pageSize, page * pageSize)
+    }
+
+    // ← NAYA: Wallet topup ke liye Razorpay order create karta hai
+    suspend fun createTopupOrder(
+        userId: UUID,
+        amountRupees: BigDecimal
+    ): Result<CreateWalletTopupOrderResponse, WalletException> {
+
+        if (amountRupees <= BigDecimal.ZERO) {
+            return Result.failure(TopupOrderCreationException("Amount must be greater than zero"))
+        }
+
+        // ← NAYA: distributed rate limit — 5 order attempts per user per 60s
+        val rateLimitKey = "rl:wallet:topup:$userId"
+        val allowed = rateLimiterService.isAllowed(rateLimitKey, limit = 5, windowSeconds = 60)
+        if (!allowed) {
+            log.warn("Rate limit exceeded for wallet topup: userId={}", userId)
+            return Result.failure(TopupRateLimitExceededException())
+        }
+
+        val amountPaise = amountRupees.multiply(BigDecimal(100)).toLong()
+        val shortUserId = userId.toString().take(8)
+        val receipt = "wtop_${shortUserId}_${System.currentTimeMillis()}"
+
+        return try {
+            val order = razorpayClient.createOrder(
+                amountPaise = amountPaise,
+                receipt = receipt,
+                notes = mapOf(
+                    "module" to "wallet_topup",
+                    "userId" to userId.toString()
+                )
+            )
+
+            log.info("Topup order created: userId={}, orderId={}, amount=₹{}", userId, order.id, amountRupees)
+
+            // TODO: persist order in DB (payment_orders table) once table is decided
+
+            Result.success(
+                CreateWalletTopupOrderResponse(
+                    orderId = order.id,
+                    amount = order.amount,
+                    currency = order.currency,
+                    receipt = order.receipt,
+                    keyId = razorpayKeyId
+                )
+            )
+        } catch (e: RazorpayOrderCreationException) {
+            log.error("Topup order creation failed for userId={}: {}", userId, e.message)
+            Result.failure(TopupOrderCreationException(e.message ?: "Razorpay error"))
+        }
     }
 }

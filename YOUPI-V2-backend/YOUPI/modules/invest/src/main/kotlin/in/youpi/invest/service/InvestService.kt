@@ -82,6 +82,18 @@ interface FixedDepositRepository : CoroutineCrudRepository<FixedDepositEntity, U
     suspend fun findAllByUserId(userId: UUID): List<FixedDepositEntity>
 }
 
+@Table("gold_fd_orders")
+data class GoldFdOrderEntity(
+    @Id val id: UUID? = null,
+    val userId: UUID,
+    val augmontFdId: String,
+    val createdAt: Instant = Instant.now()
+)
+
+interface GoldFdOrderRepository : CoroutineCrudRepository<GoldFdOrderEntity, UUID> {
+    suspend fun findByAugmontFdId(augmontFdId: String): GoldFdOrderEntity?
+}
+
 @Table("augmont_user_mappings")
 data class AugmontUserMappingEntity(
     @Id val id: UUID? = null,
@@ -150,7 +162,7 @@ sealed class GoldException(code: String, message: String, httpStatus: Int = 400)
 class GoldRateStaledException : GoldException("GOLD_RATE_UNAVAILABLE", "Gold rate data is stale or unavailable.", 503)
 class GoldProviderException(reason: String) : GoldException("GOLD_PROVIDER_ERROR", "Gold provider error: $reason", 502)
 class AugmontUserNotMappedException : GoldException("AUGMONT_USER_NOT_MAPPED", "User has no Augmont account. Please create one first.", 400)
-
+class GoldFdNotOwnedException : GoldException("FORBIDDEN", "You do not have access to this Gold FD.", 403)
 /**
  * Invest service — Digital Gold/Silver via Augmont Merchant API + Fixed Deposits.
  * Gold/Silver rates cached in Redis with 35s TTL (Augmont enforces 10 calls/min on rates).
@@ -160,6 +172,7 @@ class InvestService(
     private val goldHoldingRepo: GoldHoldingRepository,
     private val goldTxnRepo: GoldTransactionRepository,
     private val fdRepo: FixedDepositRepository,
+    private val goldFdOrderRepo: GoldFdOrderRepository,
     private val augmontUserRepo: AugmontUserMappingRepository,
     private val augmontClient: AugmontClient,
     private val redisTemplate: ReactiveStringRedisTemplate
@@ -550,15 +563,36 @@ class InvestService(
             merchantTransactionId = merchantTxnId
         ))
 
-        return response.result?.data
+        val fdOrder = response.result?.data
+
+        // Save local ownership mapping so getGoldFdDetail/closeGoldFd can verify access later
+        if (fdOrder?.id != null) {
+            goldFdOrderRepo.save(GoldFdOrderEntity(userId = userId, augmontFdId = fdOrder.id))
+        }
+
+        return fdOrder
     }
 
-    suspend fun getGoldFdDetail(fdId: String): AugmontFdOrder? {
+    suspend fun getGoldFdDetail(userId: UUID, fdId: String): AugmontFdOrder? {
+        val mapping = goldFdOrderRepo.findByAugmontFdId(fdId)
+            ?: throw GoldFdNotOwnedException()
+
+        if (mapping.userId != userId) {
+            throw GoldFdNotOwnedException()
+        }
+
         val response = augmontClient.getFdDetail(fdId)
         return response.result?.data
     }
 
     suspend fun closeGoldFd(userId: UUID, fdOrderId: String): AugmontFdPreCloseData? {
+        val mapping = goldFdOrderRepo.findByAugmontFdId(fdOrderId)
+            ?: throw GoldFdNotOwnedException()
+
+        if (mapping.userId != userId) {
+            throw GoldFdNotOwnedException()
+        }
+
         val uniqueId = getAugmontUniqueId(userId)
         val response = augmontClient.preCloseFd(AugmontFdPreCloseRequest(fdOrderId, uniqueId))
         return response.result?.data

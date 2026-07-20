@@ -42,13 +42,20 @@ class WalletRouter(private val walletService: WalletService) {
                 description = "Transfers funds from your NBFC wallet to another user by mobile number. Idempotent.",
                 tags = ["Wallet"],
                 requestBody = SwaggerRequestBody(content = [Content(schema = Schema(implementation = TransferRequest::class))]),
-                responses = [SwaggerApiResponse(responseCode = "200", description = "Transfer successful")]))
+                responses = [SwaggerApiResponse(responseCode = "200", description = "Transfer successful")])),
+        RouterOperation(path = "/v1/wallet/topup/order", method = [RequestMethod.POST],
+            operation = Operation(operationId = "createWalletTopupOrder", summary = "Create wallet topup order",
+                description = "Creates a real Razorpay order for adding money to the NBFC wallet.",
+                tags = ["Wallet"],
+                requestBody = SwaggerRequestBody(content = [Content(schema = Schema(implementation = CreateWalletTopupOrderRequest::class))]),
+                responses = [SwaggerApiResponse(responseCode = "200", description = "Order created")]))
     )
     fun walletRoutes() = coRouter {
         "/v1/wallet".nest {
             GET("/balance") { handleBalance(it) }
             GET("/ledger") { handleLedger(it) }
             POST("/transfer") { handleTransfer(it) }
+            POST("/topup/order") { handleCreateTopupOrder(it) }
         }
     }
 
@@ -73,6 +80,17 @@ class WalletRouter(private val walletService: WalletService) {
         val body = request.awaitBody<TransferRequest>()
         // ← ab walletService.transfer() call hoga — debit + credit dono ek saath
         return when (val result = walletService.transfer(userId, body)) {
+            is Result.Success -> ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
+                .bodyValueAndAwait(ApiResponse.ok(result.value))
+            is Result.Failure -> throw result.error
+        }
+    }
+
+    // ← NAYA: wallet topup order creation
+    private suspend fun handleCreateTopupOrder(request: ServerRequest): ServerResponse {
+        val userId = request.currentUserId()
+        val body = request.awaitBody<CreateWalletTopupOrderRequest>()
+        return when (val result = walletService.createTopupOrder(userId, body.amountRupees)) {
             is Result.Success -> ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
                 .bodyValueAndAwait(ApiResponse.ok(result.value))
             is Result.Failure -> throw result.error

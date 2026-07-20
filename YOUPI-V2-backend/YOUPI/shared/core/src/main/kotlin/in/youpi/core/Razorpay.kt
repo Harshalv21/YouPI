@@ -9,10 +9,7 @@ import org.springframework.web.reactive.function.client.WebClient
 import org.springframework.web.reactive.function.client.awaitBody
 import java.util.Base64
 
-/**
- * Response shape from Razorpay's Orders API.
- * https://razorpay.com/docs/api/orders/create/
- */
+
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class RazorpayOrderResult(
     val id: String,
