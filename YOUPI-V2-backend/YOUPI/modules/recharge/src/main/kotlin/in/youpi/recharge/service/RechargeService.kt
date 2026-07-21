@@ -4,6 +4,7 @@ import `in`.youpi.core.Result
 import `in`.youpi.core.razorpay.RazorpayClient
 import `in`.youpi.core.razorpay.RazorpayOrderCreationException
 import `in`.youpi.invest.service.InvestService
+import `in`.youpi.recharge.a1topup.A1TopupClient
 import `in`.youpi.recharge.domain.*
 import `in`.youpi.recharge.repository.RechargeEmiEntity
 import `in`.youpi.recharge.repository.RechargeEmiRepository
@@ -33,6 +34,7 @@ class RechargeService(
     private val webClient: WebClient,                          // ← bean inject karo, direct build nahi
     private val investService: InvestService,                   // ← recharge → auto gold-invest ke liye
     private val razorpayClient: RazorpayClient,
+    private val a1topupClient: A1TopupClient,
     @Value("\${mplan.api.key}") private val mplanApiKey: String,
     @Value("\${mplan.api.plans-url}") private val mplanPlansUrl: String,
     @Value("\${mplan.api.mobile-plans-url}") private val mplanMobilePlansUrl: String,
@@ -297,29 +299,57 @@ class RechargeService(
             return true
         }
 
-        // ── Deliver the actual recharge ──
-        // TODO(A1Topup): no A1Topup client exists in this codebase yet --
-        // mPlan is wired for plan *fetching* only, not recharge *delivery*.
-        // Once A1Topup API docs + credentials are available, replace this
-        // block with a real call, map its response into
-        // a1topupStatus/a1topupTxnId/a1topupRawResponse below, and set
-        // status to RECHARGE_SUCCESS/RECHARGE_FAILED accordingly. Until
-        // then, PAYMENT_DONE is the honest state -- payment is confirmed,
-        // actual delivery to the operator hasn't happened. (Note: 'SUCCESS'
-        // was never a valid value here -- chk_recharge_status only allows
-        // INITIATED/PAYMENT_DONE/RECHARGE_PENDING/RECHARGE_SUCCESS/
-        // RECHARGE_FAILED/REFUNDED. Writing 'SUCCESS' always violated the
-        // constraint; it just never surfaced until webhook delivery
-        // actually reached this code path for the first time.)
-        val a1topupStatus = "PENDING_DELIVERY"
-        log.warn("Recharge webhook: payment captured but A1Topup delivery is not yet implemented -- orderId={} left as a1topupStatus=PENDING_DELIVERY", order.id)
+        // ── Deliver the actual recharge via A1Topup ──
+        var status = "PAYMENT_DONE"
+        var a1topupStatus: String
+        var a1topupRawResponse: String
+
+        try {
+            val result = a1topupClient.rechargeMobile(
+                mobileNumber = order.mobileNumber,
+                operator = order.operator,
+                circle = order.circle,
+                amount = order.planAmount,
+                orderId = order.id.toString()
+            )
+            a1topupRawResponse = result.rawResponse
+
+            a1topupStatus = when {
+                result.success -> {
+                    status = "RECHARGE_SUCCESS"
+                    "SUCCESS"
+                }
+                result.needsStatusCheck -> {
+                    // A1Topup accepted the HTTP call but we couldn't confirm
+                    // outcome from the response -- do NOT mark RECHARGE_FAILED
+                    // here, since the recharge may well have gone through on
+                    // their end. Needs their Status API polled to resolve.
+                    log.warn("A1Topup: response ambiguous for orderId={}, needs Status API check", order.id)
+                    "PENDING_VERIFICATION"
+                }
+                else -> {
+                    status = "RECHARGE_FAILED"
+                    log.error("A1Topup: recharge failed for orderId={}, reason={}", order.id, result.errorMessage)
+                    "FAILED"
+                }
+            }
+        } catch (e: Exception) {
+            // Payment is already captured at this point -- an A1Topup
+            // failure must NOT roll back the payment-done state, but it
+            // also must not silently claim success. Leaves the order
+            // PAYMENT_DONE (money in, delivery unresolved) for ops/retry,
+            // same as the original explicit-TODO version did.
+            log.error("A1Topup: recharge call threw for orderId={}", order.id, e)
+            a1topupStatus = "FAILED"
+            a1topupRawResponse = "error: ${e.message}"
+        }
 
         var updatedOrder = rechargeRepo.updateAfterConfirm(
             id = order.id!!,
-            status = "PAYMENT_DONE",
+            status = status,
             razorpayPaymentId = razorpayPaymentId,
             a1topupStatus = a1topupStatus,
-            a1topupRawResponse = order.a1topupRawResponse ?: "null",
+            a1topupRawResponse = toSafeJson(a1topupRawResponse),
             goldAutoInvest = order.goldAutoInvest,
             goldTxnId = order.goldTxnId
         )
@@ -431,6 +461,21 @@ class RechargeService(
                 goldTxnId = order.goldTxnId
             )
         )
+    }
+
+    // The a1topup_raw_response column is JSONB (CAST($4 AS jsonb) in the
+    // UPDATE) -- A1Topup's actual response might not be valid JSON (their
+    // docs mention csv/xml formats too, and our own error messages
+    // definitely aren't JSON). Wrapping guarantees a valid JSON value goes
+    // into that column no matter what came back, instead of a second
+    // "violates ... jsonb" crash like the one 'status' caused earlier.
+    private fun toSafeJson(raw: String): String {
+        return try {
+            objectMapper.readTree(raw) // already valid JSON? use as-is
+            raw
+        } catch (e: Exception) {
+            objectMapper.writeValueAsString(mapOf("raw" to raw))
+        }
     }
 
     // ── History ──

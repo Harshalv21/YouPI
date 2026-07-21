@@ -56,7 +56,14 @@ class _ContactPickerFieldState extends State<ContactPickerField> {
     if (_allContacts.isNotEmpty || _loading) return;
     setState(() => _loading = true);
 
-    final granted = await FlutterContacts.requestPermission(readonly: true);
+    // flutter_contacts 2.3.0 restructured the API into sub-APIs
+    // (FlutterContacts.permissions, FlutterContacts.getAll(...)) --
+    // there's no top-level requestPermission()/getContacts() anymore.
+    // Using .request() then .has() (rather than parsing the returned
+    // PermissionStatus directly) keeps this resilient to that enum's
+    // exact member names, which we haven't needed to pin down.
+    await FlutterContacts.permissions.request(PermissionType.read);
+    final granted = await FlutterContacts.permissions.has(PermissionType.read);
     if (!granted) {
       setState(() {
         _permissionDenied = true;
@@ -66,7 +73,12 @@ class _ContactPickerFieldState extends State<ContactPickerField> {
     }
 
     try {
-      final contacts = await FlutterContacts.getContacts(withProperties: true);
+      // Name + phone only -- matches the old `withProperties: true`
+      // intent closely enough for this field's purpose (name + number
+      // suggestions), without pulling photos/emails/etc we don't use.
+      final contacts = await FlutterContacts.getAll(
+        properties: {ContactProperty.name, ContactProperty.phone},
+      );
       setState(() {
         _allContacts = contacts.where((c) => c.phones.isNotEmpty).toList();
         _loading = false;

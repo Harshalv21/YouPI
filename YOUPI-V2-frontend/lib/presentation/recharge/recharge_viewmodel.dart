@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import '../../core/services/razorpay_service.dart';
+import '../../core/services/storage_service.dart';
 import '../../data/models/recharge_plan_model.dart';
 import '../../data/repositories/recharge_repository.dart';
 
 class RechargeViewModel extends ChangeNotifier {
   final RechargeRepository _repo = RechargeRepository();
+  final RazorpayService _razorpayService = RazorpayService();
 
   bool _isLoading = false;
   String? _error;
@@ -78,13 +81,33 @@ class RechargeViewModel extends ChangeNotifier {
   String? get lastOrderId => _lastOrderId;
   String? get lastRazorpayOrderId => _lastRazorpayOrderId;
 
-  Future<bool> confirmRecharge() async {
+  // Distinct from _isLoading -- used by the UI to know we're specifically
+  // waiting on the Razorpay sheet / post-payment confirmation poll, not a
+  // plain network call, so it can show a different message ("Confirming
+  // your payment...") instead of a generic spinner.
+  bool _paymentInProgress = false;
+  bool get paymentInProgress => _paymentInProgress;
+
+  /// Full real-payment flow:
+  ///  1. Create the order on the backend (status INITIATED).
+  ///  2. Open Razorpay's native Checkout sheet for that order.
+  ///  3. Regardless of what the Checkout sheet itself reports, poll the
+  ///     backend's READ-ONLY status endpoint and wait for the Razorpay
+  ///     webhook to actually confirm the order server-side.
+  ///
+  /// Step 3 is not optional. The client-side Checkout callback is not
+  /// trusted for anything -- that's the exact vulnerability that was fixed
+  /// on the backend (see RechargeService.handleWebhookCaptured). Only the
+  /// server-to-server webhook can move an order past INITIATED.
+  Future<bool> payAndConfirm() async {
     if (_selectedPlan == null) return false;
     _isLoading = true;
     _error = null;
     notifyListeners();
+
     try {
-      final result = await _repo.createOrder(
+      // Step 1 -- create order
+      final order = await _repo.createOrder(
         mobileNumber: _mobile,
         operator: _operator.toUpperCase(),
         circle: _circle,
@@ -95,25 +118,85 @@ class RechargeViewModel extends ChangeNotifier {
             : 'EMI_${_selectedEmi!.months}',
         idempotencyKey: '${_mobile}-${_selectedPlan!.id}-${DateTime.now().millisecondsSinceEpoch}',
       );
-      _lastOrderId = result.orderId;
-      _lastRazorpayOrderId = result.razorpayOrderId;
-      // NOTE: order is created on the backend at this point (status
-      // INITIATED), but no payment has actually been collected --
-      // razorpay_flutter isn't wired into this screen (or anywhere in the
-      // app) yet. `_rechargeSuccess = true` here reflects "order placed",
-      // matching the previous mock's meaning, NOT "money charged" or
-      // "recharge delivered". Real completion only happens via the
-      // Razorpay webhook once Checkout is integrated -- see
-      // RechargeRepository.createOrder doc comment.
-      _rechargeSuccess = true;
-      return true;
+      _lastOrderId = order.orderId;
+      _lastRazorpayOrderId = order.razorpayOrderId;
+
+      if (order.razorpayOrderId.isEmpty) {
+        _error = 'Could not start payment. Please try again.';
+        return false;
+      }
+
+      // Step 2 -- open Checkout. Prefill with the LOGGED-IN user's own
+      // contact (for the receipt), not the recharge target's mobile --
+      // those can be different numbers (recharging someone else).
+      _isLoading = false;
+      notifyListeners();
+
+      final ownMobile = await StorageService.getLastMobile();
+
+      final result = await _razorpayService.open(
+        razorpayOrderId: order.razorpayOrderId,
+        amountRupees: order.amount,
+        name: 'YouPI Recharge',
+        description:
+        '${_selectedPlan!.operator.toUpperCase()} ₹${_selectedPlan!.price.toStringAsFixed(0)}',
+        contactPhone: ownMobile,
+      );
+
+      if (result.status == RazorpayResultStatus.cancelled) {
+        _error = 'Payment cancelled.';
+        _rechargeSuccess = false;
+        return false;
+      }
+      if (result.status == RazorpayResultStatus.failure) {
+        _error = result.errorMessage ?? 'Payment failed. Please try again.';
+        _rechargeSuccess = false;
+        return false;
+      }
+
+      // Step 3 -- wait for the webhook, not the client callback.
+      _paymentInProgress = true;
+      notifyListeners();
+      final confirmed = await _pollOrderStatus(order.orderId);
+      _rechargeSuccess = confirmed;
+      if (!confirmed) {
+        _error =
+        'Payment received but confirmation is taking longer than usual. '
+            'Check My Recharges in a few minutes for the final status.';
+      }
+      return confirmed;
     } catch (e) {
       _error = e.toString();
       _rechargeSuccess = false;
       return false;
     } finally {
       _isLoading = false;
+      _paymentInProgress = false;
       notifyListeners();
     }
+  }
+
+  /// Polls the read-only order-status endpoint every 2s, up to ~20s,
+  /// waiting for the Razorpay webhook to land server-side.
+  /// Returns true only for a genuinely confirmed order (PAYMENT_DONE /
+  /// RECHARGE_SUCCESS); false for RECHARGE_FAILED or timeout (still
+  /// INITIATED -- caller should tell the user to check history later,
+  /// since the webhook may still land after this poll gives up).
+  Future<bool> _pollOrderStatus(String orderId) async {
+    const maxAttempts = 10;
+    const interval = Duration(seconds: 2);
+    for (var attempt = 0; attempt < maxAttempts; attempt++) {
+      await Future.delayed(interval);
+      try {
+        final status = await _repo.getOrderStatus(orderId);
+        if (status.isSuccess) return true;
+        if (status.isFailed) return false;
+        // still INITIATED -- keep polling
+      } catch (_) {
+        // transient network hiccup while polling -- don't abort early,
+        // just try again next tick.
+      }
+    }
+    return false;
   }
 }

@@ -5,6 +5,7 @@
          permission the first time they type; this manifest line is just the
          declaration that makes that request possible at all. -->
     <uses-permission android:name="android.permission.READ_CONTACTS"/>
+    <uses-permission android:name="android.permission.INTERNET"/>
 
     <application
         android:label="youpi"

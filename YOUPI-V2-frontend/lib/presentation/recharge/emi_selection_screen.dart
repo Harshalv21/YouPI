@@ -119,11 +119,18 @@ class EmiSelectionScreen extends StatelessWidget {
                   style: AppTextStyles.captionText, textAlign: TextAlign.center),
               const SizedBox(height: 20),
               YoupiButton(
-                label: 'Confirm & Proceed',
-                isLoading: vm.isLoading,
+                label: vm.paymentInProgress ? 'Confirming payment...' : 'Confirm & Proceed',
+                isLoading: vm.isLoading || vm.paymentInProgress,
                 onPressed: () async {
-                  final ok = await vm.confirmRecharge();
-                  if (ok && ctx.mounted) ctx.go('/plans/success');
+                  final ok = await vm.payAndConfirm();
+                  if (!ctx.mounted) return;
+                  if (ok) {
+                    ctx.go('/plans/success');
+                  } else if (vm.error != null) {
+                    ScaffoldMessenger.of(ctx).showSnackBar(
+                      SnackBar(content: Text(vm.error!)),
+                    );
+                  }
                 },
               ),
             ],
