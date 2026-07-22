@@ -119,7 +119,8 @@ data class GoldPriceResponse(
     val silverSellRate: BigDecimal,
     val blockId: String,
     val provider: String = "Augmont",
-    val cachedAt: Instant
+    val cachedAt: Instant,
+    val isStale: Boolean = false
 )
 
 data class GoldHoldingResponse(
@@ -235,6 +236,8 @@ class InvestService(
             )
             ops.putAll(RATES_CACHE_KEY, rateMap).awaitSingle()
             redisTemplate.expire(RATES_CACHE_KEY, RATES_TTL).awaitSingle()
+            ops.putAll("augmont:rates:backup", rateMap).awaitSingle()
+            redisTemplate.expire("augmont:rates:backup", Duration.ofMinutes(10)).awaitSingle()
 
             Result.success(GoldPriceResponse(
                 goldBuyRate = goldBuy,
@@ -248,6 +251,27 @@ class InvestService(
             log.error("Augmont: Failed to fetch rates", ex)
             Result.failure(GoldRateStaledException())
         }
+    }
+
+    suspend fun getDisplayRates(): Result<GoldPriceResponse, GoldException> {
+        val fresh = getLiveRates()
+        if (fresh is Result.Success) return fresh
+
+        val ops = redisTemplate.opsForHash<String, String>()
+        val backupCached = ops.entries("augmont:rates:backup").collectList().awaitSingle()
+        val backupMap = backupCached.associate { it.key to it.value }
+        if (backupMap.isNotEmpty() && backupMap["goldBuy"] != null) {
+            return Result.success(GoldPriceResponse(
+                goldBuyRate = BigDecimal(backupMap["goldBuy"]),
+                goldSellRate = BigDecimal(backupMap["goldSell"] ?: "0"),
+                silverBuyRate = BigDecimal(backupMap["silverBuy"] ?: "0"),
+                silverSellRate = BigDecimal(backupMap["silverSell"] ?: "0"),
+                blockId = backupMap["blockId"] ?: "",
+                cachedAt = Instant.now(),
+                isStale = true
+            ))
+        }
+        return fresh
     }
 
     // backward compat: old getLiveGoldPrice returns buy rate only

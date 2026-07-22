@@ -118,6 +118,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   // ready yet. See conversation notes.
                   ComingSoonOverlay(
                     iconSize: 26,
+                    labelFontSize: 13,
+                    labelAlignment: const Alignment(0.55, -0.75),
                     child: YoupiGlassCard(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -266,7 +268,9 @@ class _QuickAction extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
   final bool locked;
-  const _QuickAction(this.label, this.icon, this.onTap, {this.locked = false});
+  final GlobalKey<ComingSoonOverlayState> _comingSoonKey = GlobalKey();
+
+  _QuickAction(this.label, this.icon, this.onTap, {this.locked = false});
 
   @override
   Widget build(BuildContext context) {
@@ -283,7 +287,10 @@ class _QuickAction extends StatelessWidget {
 
     return GestureDetector(
       onTap: locked
-          ? () => ComingSoonOverlay.showComingSoonSnack(context)
+          ? () {
+              _comingSoonKey.currentState?.triggerFastBlink();
+              ComingSoonOverlay.showComingSoonSnack(context);
+            }
           : onTap,
       child: Container(
         width: 72,
@@ -292,6 +299,7 @@ class _QuickAction extends StatelessWidget {
           children: [
             locked
                 ? ComingSoonOverlay(
+                key: _comingSoonKey,
                 shape: BoxShape.circle, showLabel: true, iconSize: 18, interactive: false, child: iconCircle)
                 : iconCircle,
             const SizedBox(height: 6),

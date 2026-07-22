@@ -24,11 +24,15 @@ class ComingSoonOverlay extends StatefulWidget {
   final BoxShape shape;
   final double iconSize; // kept for API compatibility; unused (no icon)
   final bool showLabel;
-  // When false, this is purely a visual dim with no GestureDetector of its
-  // own -- use this when a parent widget already owns the tap handling
-  // (e.g. a quick-action tile where the whole icon+label column shares one
-  // tap target) so taps aren't consumed twice.
   final bool interactive;
+
+  // Where the "Coming Soon" label sits within the overlay. Defaults to
+  // dead-center (existing behavior for quick actions / portfolio metrics).
+  // Pass e.g. Alignment(0.6, -0.6) to push it up-and-right, near a corner
+  // control like an eye-toggle icon.
+  final Alignment labelAlignment;
+  // Font size for the label. Defaults to 22 (existing behavior).
+  final double labelFontSize;
 
   const ComingSoonOverlay({
     super.key,
@@ -38,6 +42,8 @@ class ComingSoonOverlay extends StatefulWidget {
     this.iconSize = 20,
     this.showLabel = true,
     this.interactive = true,
+    this.labelAlignment = Alignment.center,
+    this.labelFontSize = 22,
   });
 
   static const List<String> _snackMessages = [
@@ -70,24 +76,37 @@ class ComingSoonOverlay extends StatefulWidget {
   }
 
   @override
-  State<ComingSoonOverlay> createState() => _ComingSoonOverlayState();
+  State<ComingSoonOverlay> createState() => ComingSoonOverlayState();
 }
 
-class _ComingSoonOverlayState extends State<ComingSoonOverlay>
+class ComingSoonOverlayState extends State<ComingSoonOverlay>
     with SingleTickerProviderStateMixin {
   late final AnimationController _blinkController;
   late final Animation<double> _blinkAnimation;
+
+  static const _normalBlink = Duration(milliseconds: 1100);
+  static const _fastBlink = Duration(milliseconds: 500);
+  bool _spedUp = false; 
 
   @override
   void initState() {
     super.initState();
     _blinkController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1100),
+      duration: _normalBlink,
     )..repeat(reverse: true);
     _blinkAnimation = Tween<double>(begin: 0.45, end: 1.0).animate(
       CurvedAnimation(parent: _blinkController, curve: Curves.easeInOut),
     );
+  }
+
+  // Called once, the first time the overlay is tapped -- speeds up the
+  // blink permanently for this widget instance.
+  void triggerFastBlink() {
+    if (_spedUp) return;
+    _spedUp = true;
+    _blinkController.duration = _fastBlink;
+    _blinkController.repeat(reverse: true);
   }
 
   @override
@@ -109,7 +128,8 @@ class _ComingSoonOverlayState extends State<ComingSoonOverlay>
         borderRadius: radius,
       ),
       child: widget.showLabel
-          ? Center(
+          ? Align(
+        alignment: widget.labelAlignment,
         child: AnimatedBuilder(
           animation: _blinkAnimation,
           builder: (context, _) => Opacity(
@@ -129,7 +149,7 @@ class _ComingSoonOverlayState extends State<ComingSoonOverlay>
                   'Coming Soon',
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    fontSize: 22,
+                    fontSize: widget.labelFontSize,
                     fontWeight: FontWeight.w800,
                     letterSpacing: 0.5,
                     height: 1.05,
@@ -164,7 +184,10 @@ class _ComingSoonOverlayState extends State<ComingSoonOverlay>
             child: widget.interactive
                 ? GestureDetector(
               behavior: HitTestBehavior.opaque,
-              onTap: () => ComingSoonOverlay.showComingSoonSnack(context),
+              onTap: () {
+                triggerFastBlink();
+                ComingSoonOverlay.showComingSoonSnack(context);
+              },
               child: overlay,
             )
                 : IgnorePointer(child: overlay),

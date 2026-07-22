@@ -171,7 +171,7 @@ class InvestRouter(private val investService: InvestService) {
     // ══════════════════════════════════════
 
     private suspend fun handleGoldPrice(request: ServerRequest): ServerResponse {
-        return when (val result = investService.getLiveRates()) {
+        return when (val result = investService.getDisplayRates()) {
             is Result.Success -> ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
                 .bodyValueAndAwait(ApiResponse.ok(result.value))
             is Result.Failure -> throw result.error
