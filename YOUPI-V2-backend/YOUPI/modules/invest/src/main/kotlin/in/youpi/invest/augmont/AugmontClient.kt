@@ -10,10 +10,13 @@ import org.springframework.data.redis.core.ReactiveStringRedisTemplate
 import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
 import org.springframework.http.client.MultipartBodyBuilder
+import org.springframework.http.client.reactive.ReactorClientHttpConnector
 import org.springframework.stereotype.Component
 import org.springframework.web.reactive.function.BodyInserters
 import org.springframework.web.reactive.function.client.WebClient
 import org.springframework.web.reactive.function.client.awaitBody
+import reactor.netty.http.client.HttpClient
+import reactor.netty.transport.ProxyProvider
 import java.math.BigDecimal
 import java.time.Duration
 import java.util.UUID
@@ -36,9 +39,17 @@ import java.util.UUID
  */
 @Component
 class AugmontClient(
-    @Value("\${youpi.augmont.base-url:https://uat-api.augmont.com}") private val baseUrl: String,
+    // Augmont sent new sandbox credentials + a NEW base URL on 2026-07-22:
+    // uat-api.augmontgold.com/api (previously uat-api.augmont.com -- the old
+    // domain, without "gold", may be deprecated/unreachable, which likely
+    // explains the weeks of 503s/timeouts). No separate AUGMONT_BASE_URL
+    // secret exists in GCP -- this default is the actual configured value.
+    @Value("\${youpi.augmont.base-url:https://uat-api.augmontgold.com/api}") private val baseUrl: String,
     @Value("\${youpi.augmont.email:}") private val email: String,
     @Value("\${youpi.augmont.password:}") private val password: String,
+    @Value("\${youpi.proxy.enabled:true}") private val proxyEnabled: Boolean,
+    @Value("\${youpi.proxy.host:10.160.0.2}") private val proxyHost: String,
+    @Value("\${youpi.proxy.port:3128}") private val proxyPort: Int,
     private val redisTemplate: ReactiveStringRedisTemplate,
     private val objectMapper: ObjectMapper
 ) {
@@ -49,6 +60,31 @@ class AugmontClient(
         .baseUrl(baseUrl)
         .defaultHeader(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
         .codecs { it.defaultCodecs().maxInMemorySize(2 * 1024 * 1024) }
+        .clientConnector(
+            ReactorClientHttpConnector(
+                HttpClient.create()
+                    // Routes through the fixed-IP proxy VM -- same reasoning
+                    // as mPlan/A1Topup: Augmont's UAT server has been
+                    // rejecting/timing-out on us for weeks (separate,
+                    // vendor-side outage per their own confirmation), but
+                    // once they whitelist an IP for the new sandbox
+                    // credentials, we want that whitelist to stay valid
+                    // permanently rather than silently breaking on the next
+                    // Cloud Run deploy the way mPlan's did.
+                    .let { client ->
+                        if (proxyEnabled) {
+                            log.info("AugmontClient: routing via proxy {}:{}", proxyHost, proxyPort)
+                            client.proxy { proxySpec ->
+                                proxySpec.type(ProxyProvider.Proxy.HTTP)
+                                    .host(proxyHost)
+                                    .port(proxyPort)
+                            }
+                        } else {
+                            client
+                        }
+                    }
+            )
+        )
         .build()
 
     companion object {

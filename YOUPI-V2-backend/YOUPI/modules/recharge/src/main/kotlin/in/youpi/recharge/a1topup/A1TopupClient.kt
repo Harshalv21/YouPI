@@ -12,6 +12,7 @@ import org.springframework.stereotype.Component
 import org.springframework.web.reactive.function.client.WebClient
 import org.springframework.web.reactive.function.client.awaitBody
 import reactor.netty.http.client.HttpClient
+import reactor.netty.transport.ProxyProvider
 import java.time.Duration
 import java.util.concurrent.TimeUnit
 
@@ -41,6 +42,9 @@ class A1TopupClient(
     @Value("\${youpi.a1topup.base-url}") private val baseUrl: String,
     @Value("\${youpi.a1topup.username:}") private val username: String,
     @Value("\${youpi.a1topup.password:}") private val password: String,
+    @Value("\${youpi.proxy.enabled:true}") private val proxyEnabled: Boolean,
+    @Value("\${youpi.proxy.host:10.160.0.2}") private val proxyHost: String,
+    @Value("\${youpi.proxy.port:3128}") private val proxyPort: Int,
     private val objectMapper: ObjectMapper
 ) {
 
@@ -72,6 +76,26 @@ class A1TopupClient(
                     // a broad DEBUG/TRACE turned on for debugging something
                     // unrelated.
                     .wiretap(false)
+                    // Routes through the fixed-IP proxy VM -- A1Topup was
+                    // already IP-whitelisted against whatever Cloud Run IP
+                    // happened to be active at the time, which is why it
+                    // worked so far -- but that's the same unstable-IP
+                    // situation that broke mPlan, and could silently break
+                    // A1Topup too on any future deploy. Routing through the
+                    // proxy VM makes this permanently stable instead of
+                    // working by coincidence.
+                    .let { client ->
+                        if (proxyEnabled) {
+                            log.info("A1TopupClient: routing via proxy {}:{}", proxyHost, proxyPort)
+                            client.proxy { proxySpec ->
+                                proxySpec.type(ProxyProvider.Proxy.HTTP)
+                                    .host(proxyHost)
+                                    .port(proxyPort)
+                            }
+                        } else {
+                            client
+                        }
+                    }
             )
         )
         .build()

@@ -15,6 +15,7 @@ import com.fasterxml.jackson.module.kotlin.readValue
 import kotlinx.coroutines.reactor.awaitSingle
 import kotlinx.coroutines.reactor.awaitSingleOrNull
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate
 import org.springframework.stereotype.Service
@@ -31,7 +32,12 @@ class RechargeService(
     private val emiRepo: RechargeEmiRepository,
     private val redisTemplate: ReactiveStringRedisTemplate,
     private val objectMapper: ObjectMapper,
-    private val webClient: WebClient,                          // ← bean inject karo, direct build nahi
+    // Explicitly the PROXIED bean (see WebClientConfig) -- mPlan enforces
+    // IP-whitelisting, and Cloud Run's own outbound IP is unstable, so this
+    // call needs to go through the fixed-IP proxy VM. Do NOT switch this
+    // back to the plain @Primary webClient bean -- that one is intentionally
+    // unproxied (used by Razorpay, which doesn't need/want this).
+    @Qualifier("proxiedWebClient") private val webClient: WebClient,
     private val investService: InvestService,                   // ← recharge → auto gold-invest ke liye
     private val razorpayClient: RazorpayClient,
     private val a1topupClient: A1TopupClient,
@@ -58,7 +64,7 @@ class RechargeService(
 
     // mPlan requires numeric operator_code / circle_code, not free-text names.
     // These mappings come from mPlan's dashboard (Operator Codes / Circle
-    // Codes tables) — update here if mPlan adds/changes codes.
+    // Codes tables) -- update here if mPlan adds/changes codes.
     private val operatorCodeMap = mapOf(
         "VI" to 1,
         "AIRTEL" to 2,
@@ -128,8 +134,51 @@ class RechargeService(
             ?: return Result.failure(RechargeApiException("Unknown circle: $circle"))
 
         return try {
+            // TEMPORARY DIAGNOSTIC -- confirms what outbound IP this exact
+            // webClient bean actually uses, right before the mPlan call.
+            // Cross-checks against A1Topup (which IS known to egress via
+            // youpi-nat-ip successfully) to isolate whether this is a
+            // per-call routing issue or a genuine infra problem. Remove
+            // once the IP mismatch is root-caused.
+            try {
+                val myIp = webClient.get()
+                    .uri("https://api.ipify.org?format=text")
+                    .retrieve()
+                    .bodyToMono(String::class.java)
+                    .awaitSingle()
+                log.error("DIAGNOSTIC: outbound IP for this webClient bean = {}", myIp)
+            } catch (e: Exception) {
+                log.error("DIAGNOSTIC: ipify check failed", e)
+            }
+
+            // IMPORTANT: build the URI via UriComponentsBuilder + .queryParam()
+            // + .encode(), not a manually-concatenated string passed to
+            // .uri(String). The latter does its own encoding pass over an
+            // already-built string -- if mplanApiKey contains characters like
+            // '+', '/', or '=' (common in API keys), they can get corrupted
+            // or misinterpreted before mPlan ever sees them. This is the same
+            // class of bug that caused A1Topup's "Authentication fail!"
+            // earlier -- fixed there via the equivalent safe-encoding
+            // pattern. .trim() also guards against a trailing newline in the
+            // secret (bit the team before with Cloud Run secrets -- see
+            // Set-Content -NoNewline fix).
+            //
+            // Note: this `webClient` bean has no baseUrl configured (it's
+            // shared across multiple vendor integrations), so we build a
+            // full absolute URI explicitly rather than relying on the
+            // uri{builder->} form, which only works against a client-level
+            // baseUrl.
+            val uri = org.springframework.web.util.UriComponentsBuilder
+                .fromHttpUrl(mplanMobilePlansUrl)
+                .queryParam("apikey", mplanApiKey.trim())
+                .queryParam("operator_code", operatorCode)
+                .queryParam("circle_code", circleCode)
+                .build()
+                .encode()
+                .toUri()
+
             val response = webClient.get()
-                .uri("$mplanMobilePlansUrl?apikey=$mplanApiKey&operator_code=$operatorCode&circle_code=$circleCode")
+                .uri(uri)
                 .retrieve()
                 .bodyToMono(String::class.java)
                 .awaitSingle()
@@ -141,7 +190,15 @@ class RechargeService(
             // "records": {<category>: [...plans]}, ...} on success.
             if (root.path("status").asInt(0) != 1) {
                 val errorMsg = root.path("records").path("msg").asText("Unknown mPlan API error")
-                log.error("mPlan API returned failure status: operator={}, circle={}, msg={}", operator, circle, errorMsg)
+                // TEMPORARY: log the full raw response too -- mPlan's
+                // failure response includes a "yourip" field showing
+                // exactly which IP it saw the request come from. This is
+                // the only way to get DIRECT proof of what IP Cloud Run's
+                // outbound traffic actually uses (vs. assuming the NAT IP
+                // is correctly applied to this call). Remove this extra
+                // log line once the IP is confirmed either way.
+                log.error("mPlan API returned failure status: operator={}, circle={}, msg={}, fullResponse={}",
+                    operator, circle, errorMsg, response)
                 return Result.failure(RechargeApiException("mPlan error: $errorMsg"))
             }
 
