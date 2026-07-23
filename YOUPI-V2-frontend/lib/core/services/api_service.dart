@@ -1,7 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'storage_service.dart';
-
+import 'package:flutter/foundation.dart';
 /// Central HTTP client for all YOUPI backend calls.
 ///
 /// Key feature: on a 401, it tries to silently refresh the access token using
@@ -100,6 +100,9 @@ class ApiService {
   }
 }
 
+// Add this import at the top of api_service.dart if not already present:
+// import 'package:flutter/foundation.dart' show kDebugMode;
+
 class _AuthInterceptor extends Interceptor {
   @override
   Future<void> onRequest(
@@ -107,6 +110,16 @@ class _AuthInterceptor extends Interceptor {
     final token = await StorageService.getToken();
     if (token != null) {
       options.headers['Authorization'] = 'Bearer $token';
+      // TEMPORARY, testing-only -- lets you copy the current JWT out of the
+      // console to hit the API manually from Postman without re-doing
+      // login/MPIN each time. Guarded by kDebugMode so it's physically
+      // impossible for this to compile into a release build and leak a
+      // live session token (15-min TTL, but still) into device logs/logcat.
+      // Remove this line entirely once no longer needed for testing --
+      // don't leave it around "just in case" the way AUTH_DUMMY_ENABLED was.
+      if (kDebugMode) {
+        debugPrint('🔑 TOKEN: $token');
+      }
     }
     handler.next(options);
   }
@@ -118,7 +131,6 @@ class _AuthInterceptor extends Interceptor {
     final isRefreshCall =
     err.requestOptions.path.contains('/auth/token/refresh');
     final alreadyRetried = err.requestOptions.extra['__retried'] == true;
-
     if (is401 && !isRefreshCall && !alreadyRetried) {
       final refreshed = await ApiService.refreshTokens();
       if (refreshed) {
