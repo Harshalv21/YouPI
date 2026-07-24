@@ -1,5 +1,7 @@
 package `in`.youpi.app.config
 
+import io.netty.handler.ssl.SslContextBuilder
+import io.netty.handler.ssl.SslProvider
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.beans.factory.annotation.Value
@@ -41,7 +43,7 @@ class WebClientConfig(
 
     // Separate, explicitly-qualified bean -- ONLY for calls to vendors that
     // enforce IP whitelisting (currently: mPlan, via RechargeService).
-    // Routes through the proxy VM (Squid on 10.160.0.2:3128), which has a
+    // Routes through the proxy VM (Squid on 10.160.40.2:3128), which has a
     // genuinely fixed IP -- unlike Cloud Run's own outbound IP, confirmed
     // unstable via diagnostic logging across three separate VPC-egress
     // configurations. That instability is what caused mPlan's
@@ -57,13 +59,24 @@ class WebClientConfig(
         val httpClient = HttpClient.create()
             .responseTimeout(Duration.ofSeconds(10))
             .compress(true)
-            // Explicitly HTTP/1.1 -- curl defaults to HTTP/1.1, but Java/
-            // Reactor Netty clients can attempt HTTP/2 (ALPN) negotiation by
-            // default. mPlan's server (or a WAF in front of it) may be
-            // filtering based on that difference, since curl consistently
-            // succeeds from this same IP while our backend consistently
-            // fails -- forcing HTTP/1.1 rules this out as a cause.
             .protocol(reactor.netty.http.HttpProtocol.HTTP11)
+            // Uses OpenSSL/BoringSSL (via netty-tcnative) instead of the
+            // JDK's default SunJSSE engine for the TLS handshake. This is
+            // the actual difference between "curl always succeeds, our
+            // Java app server always fails" from the identical
+            // already-whitelisted IP: JDK's TLS ClientHello has a very
+            // distinctive fingerprint (JA3) that some vendor-side WAFs
+            // flag as an automated/non-browser client, separately from IP
+            // whitelisting. curl (built on OpenSSL) doesn't trigger this.
+            // Requires io.netty:netty-tcnative-boringssl-static as a
+            // dependency (see build.gradle.kts).
+            .secure { spec ->
+                spec.sslContext(
+                    SslContextBuilder.forClient()
+                        .sslProvider(SslProvider.OPENSSL)
+                        .build()
+                )
+            }
             .let { client ->
                 if (proxyEnabled) {
                     log.info("proxiedWebClient: routing via proxy {}:{}", proxyHost, proxyPort)

@@ -41,6 +41,7 @@ dependencies {
     implementation(libs.jackson.datatype.jsr310)           // ← Instant/LocalDate serialization
     implementation("com.google.cloud.sql:postgres-socket-factory:1.19.1")
     implementation("com.google.cloud.sql:cloud-sql-connector-r2dbc-postgres:1.19.1")
+    implementation("io.netty:netty-tcnative-boringssl-static:2.0.65.Final:linux-x86_64")
     testImplementation(libs.spring.boot.starter.test)
     testImplementation(libs.testcontainers.postgresql)
     testImplementation(libs.testcontainers.r2dbc)

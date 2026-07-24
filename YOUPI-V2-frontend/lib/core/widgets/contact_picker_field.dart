@@ -176,7 +176,7 @@ class _ContactPickerFieldState extends State<ContactPickerField> {
         if (_matches.isNotEmpty)
           Container(
             margin: const EdgeInsets.only(top: 8),
-            constraints: const BoxConstraints(maxHeight: 220),
+            constraints: const BoxConstraints(maxHeight: 260),
             decoration: BoxDecoration(
               color: AppColors.backgroundSurface,
               borderRadius: BorderRadius.circular(12),
@@ -199,8 +199,18 @@ class _ContactPickerFieldState extends State<ContactPickerField> {
                       style: AppTextStyles.bodySmall.copyWith(color: AppColors.primary),
                     ),
                   ),
-                  title: Text(m.name, style: AppTextStyles.bodyMedium),
-                  subtitle: Text('+91 ${m.number}', style: AppTextStyles.bodySmall),
+                  title: Text(
+                    m.name,
+                    style: AppTextStyles.bodyMedium,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text(
+                    '+91 ${m.number}',
+                    style: AppTextStyles.bodySmall,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                   onTap: () => _select(m),
                 );
               },

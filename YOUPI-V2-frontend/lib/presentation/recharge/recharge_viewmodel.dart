@@ -13,12 +13,35 @@ class RechargeViewModel extends ChangeNotifier {
   List<RechargePlanModel> _plans = [];
   RechargePlanModel? _selectedPlan;
   EmiOption? _selectedEmi;
-  String _mobile = '9876543210';
+  // Empty by default -- was a hardcoded '9876543210' before, which looked
+  // like a real, already-filled-in number and confused users into thinking
+  // someone's actual number was pre-selected. Empty lets the UI show a
+  // proper placeholder (GPay-style) instead, and the recharge screen
+  // prompts the user to pick a number/contact before proceeding.
+  String _mobile = '';
   String _operator = 'airtel';
   String _circle = 'UP East';
   String _searchQuery = '';
   List<String> _activeFilters = [];
   bool _rechargeSuccess = false;
+
+  // Recharge-target number is otherwise pure in-memory state -- when the
+  // OS reclaims memory after the app is backgrounded/switched away from
+  // (common on lower-RAM devices), Flutter can recreate the widget tree
+  // and this viewmodel from scratch, silently losing whatever the user
+  // had typed. Persisting to StorageService (same mechanism already used
+  // for the logged-in user's own last-used mobile) survives that.
+  RechargeViewModel() {
+    _restoreLastRechargeMobile();
+  }
+
+  Future<void> _restoreLastRechargeMobile() async {
+    final saved = await StorageService.getLastRechargeMobile();
+    if (saved != null && saved.length == 10) {
+      _mobile = saved;
+      notifyListeners();
+    }
+  }
 
   bool get isLoading => _isLoading;
   String? get error => _error;
@@ -66,6 +89,13 @@ class RechargeViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Switches to "pay in full, no EMI" -- backend derives paymentMode as
+  /// FULL whenever _selectedEmi is null (see payAndConfirm below).
+  void selectFullPayment() {
+    _selectedEmi = null;
+    notifyListeners();
+  }
+
   void setSearchQuery(String q) {
     _searchQuery = q;
     notifyListeners();
@@ -73,6 +103,7 @@ class RechargeViewModel extends ChangeNotifier {
 
   void setMobile(String m) {
     _mobile = m;
+    StorageService.saveLastRechargeMobile(m);
     notifyListeners();
   }
 
@@ -101,6 +132,17 @@ class RechargeViewModel extends ChangeNotifier {
   /// server-to-server webhook can move an order past INITIATED.
   Future<bool> payAndConfirm() async {
     if (_selectedPlan == null) return false;
+
+    // Guard against the now-empty default mobile -- previously a fake
+    // '9876543210' silently sailed through to order creation. Now we
+    // actually stop and tell the user, instead of creating an order for
+    // an empty/invalid number.
+    if (_mobile.trim().length != 10) {
+      _error = 'Please enter a valid 10-digit mobile number.';
+      notifyListeners();
+      return false;
+    }
+
     _isLoading = true;
     _error = null;
     notifyListeners();

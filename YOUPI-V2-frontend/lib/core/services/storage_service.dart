@@ -18,6 +18,7 @@ class StorageService {
   static const _keyGuestMode = 'guest_mode';
   static const _keyDeviceId = 'device_id';
   static const _keyLastMobile = 'last_mobile';
+  static const _keyLastRechargeMobile = 'last_recharge_mobile';
 
   // ── Access token ──
   static Future<void> saveToken(String token) async =>
@@ -140,6 +141,24 @@ class StorageService {
 
   static Future<void> clearLastMobile() async =>
       await _storage.delete(key: _keyLastMobile);
+
+  // ── Last recharge-target mobile number ──
+  // DIFFERENT from _keyLastMobile above -- that one is the logged-in
+  // user's OWN mobile (used e.g. for Razorpay prefill). This one is
+  // whatever number the recharge screen currently has selected, which
+  // could be someone else's (recharging for a family member). Kept
+  // separate so the two never accidentally overwrite each other.
+  //
+  // Exists because the recharge number was previously pure in-memory
+  // viewmodel state -- when the OS reclaims memory after the app is
+  // backgrounded/switched away from, Flutter can recreate the widget tree
+  // (and the viewmodel) from scratch, silently losing whatever the user
+  // had typed or selected. Persisting here survives that.
+  static Future<void> saveLastRechargeMobile(String mobile) async =>
+      await _storage.write(key: _keyLastRechargeMobile, value: mobile);
+
+  static Future<String?> getLastRechargeMobile() async =>
+      await _storage.read(key: _keyLastRechargeMobile);
 
   // ── Clear all (sign out) ──
   // Deliberately preserves device_id AND last_mobile -- signing out

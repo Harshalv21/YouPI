@@ -45,9 +45,36 @@ class RechargeService(
     @Value("\${mplan.api.plans-url}") private val mplanPlansUrl: String,
     @Value("\${mplan.api.mobile-plans-url}") private val mplanMobilePlansUrl: String,
     @Value("\${mplan.api.operator-check-url}") private val mplanOperatorCheckUrl: String,
-    @Value("\${youpi.recharge.gold-invest-percentage:1.0}") private val goldInvestPercentage: BigDecimal
+    @Value("\${youpi.recharge.gold-invest-percentage:1.0}") private val goldInvestPercentage: BigDecimal,
+    // TEMPORARY -- lets recharge flow (Razorpay checkout, order creation,
+    // EMI, etc.) be tested end-to-end while mPlan's "not authorize" issue is
+    // under investigation on their end (confirmed vendor-side, not ours --
+    // see chat history). Defaults to OFF. MUST be turned off again once
+    // mPlan is confirmed working -- do not let this repeat the
+    // AUTH_DUMMY_ENABLED situation where a test-only bypass got left on in
+    // production. Returns clearly-labeled fake plans, never touches mPlan.
+    @Value("\${youpi.recharge.mock-enabled:false}") private val mockEnabled: Boolean
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
+
+    // TEMPORARY mock plans -- clearly labeled [TEST MOCK] in the description
+    // so nobody mistakes these for real mPlan data in logs, screenshots, or
+    // demos. Covers enough variety (small/large amounts, EMI-eligible ₹249
+    // plan) to exercise the full recharge + payment + gold-auto-invest flow.
+    private fun mockPlans(operator: String, circle: String): List<PlanResponse> = listOf(
+        PlanResponse(planId = "MOCK0001", operator = operator, circle = circle, amount = BigDecimal("199"),
+            validity = "28", description = "[TEST MOCK] Unlimited calls, 1.5GB/day", category = "POPULAR",
+            data = null, talktime = null, sms = null),
+        PlanResponse(planId = "MOCK0002", operator = operator, circle = circle, amount = BigDecimal("249"),
+            validity = "28", description = "[TEST MOCK] Unlimited calls, 2GB/day + gold auto-invest eligible", category = "POPULAR",
+            data = null, talktime = null, sms = null),
+        PlanResponse(planId = "MOCK0003", operator = operator, circle = circle, amount = BigDecimal("599"),
+            validity = "84", description = "[TEST MOCK] Unlimited calls, 2GB/day, long validity", category = "POPULAR",
+            data = null, talktime = null, sms = null),
+        PlanResponse(planId = "MOCK0004", operator = operator, circle = circle, amount = BigDecimal("3599"),
+            validity = "365", description = "[TEST MOCK] Annual unlimited plan", category = "ANNUAL",
+            data = null, talktime = null, sms = null)
+    )
 
     companion object {
         private val PLAN_CACHE_TTL = Duration.ofMinutes(30)
@@ -106,6 +133,13 @@ class RechargeService(
         s.trim().uppercase().replace("-", " ").replace("_", " ").replace(Regex("\\s+"), " ")
 
     suspend fun fetchPlans(operator: String, circle: String): Result<List<PlanResponse>, RechargeException> {
+        // TEMPORARY mock short-circuit -- see mockEnabled doc comment above.
+        if (mockEnabled) {
+            log.warn("MOCK MODE ACTIVE: returning fake plans instead of calling mPlan. " +
+                    "This must be disabled (youpi.recharge.mock-enabled=false) before real launch.")
+            return Result.success(mockPlans(operator, circle))
+        }
+
         val cacheKey = "$PLAN_CACHE_PREFIX${operator.uppercase()}:${circle.uppercase()}"
 
         val cached = redisTemplate.opsForValue().get(cacheKey).awaitSingleOrNull()
@@ -168,14 +202,32 @@ class RechargeService(
             // full absolute URI explicitly rather than relying on the
             // uri{builder->} form, which only works against a client-level
             // baseUrl.
+            // TEMPORARY DIAGNOSTIC -- verifies the EXACT api key this code
+            // sends matches the one manually tested via curl (which
+            // succeeds). Masked (not full value) to avoid putting the whole
+            // secret in logs, but length + first/last 4 chars is enough to
+            // catch a hidden extra character (stray quote/newline/space
+            // from Secret Manager) that .trim() wouldn't necessarily catch
+            // if it's not at the very start/end after trim, or if trim
+            // missed something unexpected. Remove once ruled out.
+            val trimmedKey = mplanApiKey.trim()
+            log.error(
+                "DIAGNOSTIC: mplan api key length={}, first4={}, last4={}",
+                trimmedKey.length,
+                trimmedKey.take(4),
+                trimmedKey.takeLast(4)
+            )
+
             val uri = org.springframework.web.util.UriComponentsBuilder
                 .fromHttpUrl(mplanMobilePlansUrl)
-                .queryParam("apikey", mplanApiKey.trim())
+                .queryParam("apikey", trimmedKey)
                 .queryParam("operator_code", operatorCode)
                 .queryParam("circle_code", circleCode)
                 .build()
                 .encode()
                 .toUri()
+
+            log.error("DIAGNOSTIC: exact outgoing URI = {}", uri)
 
             val response = webClient.get()
                 .uri(uri)

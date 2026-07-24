@@ -49,12 +49,20 @@ class _RechargeHomeScreenState extends State<RechargeHomeScreen> {
             children: [
               // Mobile row
               YoupiCard(
+                onTap: vm.mobile.isEmpty ? () => _showEditMobileDialog(context, vm) : null,
                 child: Row(
                   children: [
                     const Icon(Icons.phone_android_rounded, color: AppColors.primary),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: Text('+91 ${vm.mobile}', style: AppTextStyles.headlineSmall),
+                      child: vm.mobile.isEmpty
+                          ? Text(
+                        'Enter mobile number',
+                        style: AppTextStyles.headlineSmall.copyWith(
+                          color: AppColors.textSecondary.withOpacity(0.6),
+                        ),
+                      )
+                          : Text('+91 ${vm.mobile}', style: AppTextStyles.headlineSmall),
                     ),
                     IconButton(
                       icon: const Icon(Icons.edit_rounded, color: AppColors.textSecondary, size: 18),
@@ -127,7 +135,7 @@ class _RechargeHomeScreenState extends State<RechargeHomeScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Row(children: [
-                              Text(plan.name, style: AppTextStyles.labelLarge),
+                              Flexible(child: Text(plan.name, style: AppTextStyles.labelLarge)),
                               if (plan.isPopular) ...[
                                 const SizedBox(width: 8),
                                 Container(

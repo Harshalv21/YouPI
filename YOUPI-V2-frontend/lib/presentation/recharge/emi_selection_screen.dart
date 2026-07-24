@@ -17,63 +17,68 @@ class EmiSelectionScreen extends StatelessWidget {
       final plan = vm.selectedPlan;
       if (plan == null) return const Scaffold(body: Center(child: Text('No plan selected')));
 
+      // Full payment is "selected" whenever no EMI option is currently
+      // chosen. This mirrors how the backend decides paymentMode
+      // (FULL vs EMI_x) purely from whether an EMI is set.
+      final isFullPaymentSelected = vm.selectedEmi == null;
+
       return Scaffold(
         backgroundColor: AppColors.backgroundPrimary,
         appBar: AppBar(backgroundColor: AppColors.backgroundPrimary,
-            title: Text('EMI Selection', style: AppTextStyles.headlineMedium)),
+            title: Text('Payment Options', style: AppTextStyles.headlineMedium)),
         body: SingleChildScrollView(
           padding: const EdgeInsets.all(AppDimensions.paddingPage),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Tier badge
-              Center(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: AppColors.secondary.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: AppColors.secondary),
-                  ),
-                  child: Text('OBSIDIAN',
-                      style: AppTextStyles.labelLarge.copyWith(color: AppColors.secondary, letterSpacing: 3)),
-                ),
-              ),
-              const SizedBox(height: 20),
-              Text('Investment Summary', style: AppTextStyles.headlineLarge, textAlign: TextAlign.center),
-              Text('Review your periodic payment details.',
-                  style: AppTextStyles.bodySmall, textAlign: TextAlign.center),
-              const SizedBox(height: 20),
-              // Portfolio card
-              YoupiGlassCard(
+              // Recharge summary -- what's actually being paid for.
+              YoupiCard(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text('Portfolio', style: AppTextStyles.labelMedium),
-                  Text('₹8,42,000', style: AppTextStyles.amountMedium),
-                  Row(children: [
-                    const Icon(Icons.trending_up_rounded, color: AppColors.success, size: 14),
-                    const SizedBox(width: 4),
-                    Text('Portfolio Growth +12.4%',
-                        style: AppTextStyles.captionText.copyWith(color: AppColors.success)),
-                  ]),
+                  Text(plan.name, style: AppTextStyles.headlineSmall),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${plan.operator.toUpperCase()} • ${plan.dataPerDay}/day • ${plan.validityDays} days',
+                    style: AppTextStyles.bodySmall,
+                  ),
+                  const SizedBox(height: 10),
+                  Text('₹${plan.price.toStringAsFixed(0)}',
+                      style: AppTextStyles.amountMedium.copyWith(color: AppColors.primary)),
                 ]),
               ),
-              const SizedBox(height: 20),
-              Text('Recent Activity', style: AppTextStyles.headlineSmall),
-              const SizedBox(height: 8),
-              YoupiCard(
-                child: Text('${plan.operator.toUpperCase()} ₹${plan.price.toStringAsFixed(0)} | ${plan.dataPerDay}/day | ${plan.validityDays} days',
-                    style: AppTextStyles.bodyMedium),
-              ),
-              const SizedBox(height: 20),
-              Text('Choose EMI Plan', style: AppTextStyles.headlineSmall),
+              const SizedBox(height: 24),
+              Text('Choose Payment Option', style: AppTextStyles.headlineSmall),
               const SizedBox(height: 12),
-              if (plan.emiOptions.isEmpty)
-                YoupiCard(
-                  child: Text('Full payment: ₹${plan.price.toStringAsFixed(0)}', style: AppTextStyles.labelLarge),
-                )
-              else
+
+              // Pay in full -- always offered, regardless of whether EMI
+              // options exist for this plan.
+              GestureDetector(
+                onTap: () => vm.selectFullPayment(),
+                child: YoupiCard(
+                  showGlow: isFullPaymentSelected,
+                  borderColor: isFullPaymentSelected ? AppColors.primary : null,
+                  child: Row(children: [
+                    Icon(
+                      isFullPaymentSelected
+                          ? Icons.radio_button_checked_rounded
+                          : Icons.radio_button_unchecked_rounded,
+                      color: isFullPaymentSelected ? AppColors.primary : AppColors.textSecondary,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text('Pay Full Amount', style: AppTextStyles.labelLarge),
+                        Text('₹${plan.price.toStringAsFixed(0)} • Charged now, one time',
+                            style: AppTextStyles.bodySmall),
+                      ]),
+                    ),
+                  ]),
+                ),
+              ),
+
+              if (plan.emiOptions.isNotEmpty) ...[
+                const SizedBox(height: 10),
                 ...plan.emiOptions.map((emi) {
-                  final selected = vm.selectedEmi?.months == emi.months;
+                  final selected = !isFullPaymentSelected && vm.selectedEmi?.months == emi.months;
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 10),
                     child: GestureDetector(
@@ -90,7 +95,7 @@ class EmiSelectionScreen extends StatelessWidget {
                           Expanded(
                             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                               Row(children: [
-                                Text(emi.label, style: AppTextStyles.labelLarge),
+                                Flexible(child: Text(emi.label, style: AppTextStyles.labelLarge)),
                                 if (emi.isRecommended) ...[
                                   const SizedBox(width: 8),
                                   Container(
@@ -114,9 +119,16 @@ class EmiSelectionScreen extends StatelessWidget {
                     ),
                   );
                 }).toList(),
+              ],
+
               const SizedBox(height: 8),
-              Text('First EMI deducted today via auto-debit',
-                  style: AppTextStyles.captionText, textAlign: TextAlign.center),
+              Text(
+                isFullPaymentSelected
+                    ? 'Full amount charged immediately via Razorpay Checkout'
+                    : 'First EMI deducted today via auto-debit',
+                style: AppTextStyles.captionText,
+                textAlign: TextAlign.center,
+              ),
               const SizedBox(height: 20),
               YoupiButton(
                 label: vm.paymentInProgress ? 'Confirming payment...' : 'Confirm & Proceed',
