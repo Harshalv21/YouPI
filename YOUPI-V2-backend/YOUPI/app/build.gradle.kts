@@ -16,9 +16,10 @@ dependencies {
     implementation(project(":modules:wallet"))
     implementation(project(":modules:smart-saver"))
     implementation(project(":modules:invest"))
-    implementation(project(":modules:bnpl"))  
+    implementation(project(":modules:bnpl"))
     implementation(project(":modules:loan"))
     implementation(project(":modules:admin"))
+    implementation(project(":modules:gold"))
     api(project(":modules:invest"))
 
     implementation(libs.spring.boot.starter.webflux)
@@ -37,11 +38,12 @@ dependencies {
     implementation(libs.google.cloud.secretmanager)
     implementation(libs.logstash.logback.encoder)
     implementation(libs.springdoc.openapi.webflux.ui)
-    implementation(libs.jackson.module.kotlin)              // ← ObjectMapper + Kotlin data classes
-    implementation(libs.jackson.datatype.jsr310)           // ← Instant/LocalDate serialization
+    implementation(libs.jackson.module.kotlin)
+    implementation(libs.jackson.datatype.jsr310)
     implementation("com.google.cloud.sql:postgres-socket-factory:1.19.1")
     implementation("com.google.cloud.sql:cloud-sql-connector-r2dbc-postgres:1.19.1")
     implementation("io.netty:netty-tcnative-boringssl-static:2.0.65.Final:linux-x86_64")
+    implementation("io.netty:netty-tcnative-boringssl-static:2.0.65.Final:windows-x86_64") // local Windows dev only, prod Linux build untouched
     testImplementation(libs.spring.boot.starter.test)
     testImplementation(libs.testcontainers.postgresql)
     testImplementation(libs.testcontainers.r2dbc)

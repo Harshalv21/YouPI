@@ -26,6 +26,8 @@ class FirebaseAuthFilter(
         "/api/v1/auth/mpin/verify",
         "/api/v1/auth/token/refresh",
         "/api/v1/gold/price",
+        "/api/v1/config/features",
+        "/v1/config/features",
         "/webhooks/",
         "/api/webhooks/",
         "/actuator/health",
