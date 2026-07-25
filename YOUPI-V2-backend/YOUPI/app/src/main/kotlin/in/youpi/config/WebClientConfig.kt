@@ -1,7 +1,5 @@
 package `in`.youpi.app.config
 
-import io.netty.handler.ssl.SslContextBuilder
-import io.netty.handler.ssl.SslProvider
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.beans.factory.annotation.Value
@@ -60,23 +58,6 @@ class WebClientConfig(
             .responseTimeout(Duration.ofSeconds(10))
             .compress(true)
             .protocol(reactor.netty.http.HttpProtocol.HTTP11)
-            // Uses OpenSSL/BoringSSL (via netty-tcnative) instead of the
-            // JDK's default SunJSSE engine for the TLS handshake. This is
-            // the actual difference between "curl always succeeds, our
-            // Java app server always fails" from the identical
-            // already-whitelisted IP: JDK's TLS ClientHello has a very
-            // distinctive fingerprint (JA3) that some vendor-side WAFs
-            // flag as an automated/non-browser client, separately from IP
-            // whitelisting. curl (built on OpenSSL) doesn't trigger this.
-            // Requires io.netty:netty-tcnative-boringssl-static as a
-            // dependency (see build.gradle.kts).
-            .secure { spec ->
-                spec.sslContext(
-                    SslContextBuilder.forClient()
-                        .sslProvider(SslProvider.OPENSSL)
-                        .build()
-                )
-            }
             .let { client ->
                 if (proxyEnabled) {
                     log.info("proxiedWebClient: routing via proxy {}:{}", proxyHost, proxyPort)

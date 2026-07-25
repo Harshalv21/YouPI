@@ -106,22 +106,21 @@ class A1TopupClient(
         // relevant entries included -- DTH/Postpaid codes exist in their
         // table too but aren't used by this recharge module.
         //
-        // ⚠️ "VI" is intentionally NOT mapped: post-merger, Vodafone and
-        // Idea are marketed as one brand ("Vi"), but A1Topup's table still
-        // only lists the legacy "Vodafone" (V) and "Idea" (I) separately --
-        // there's no single "VI" row. Passing "VI" straight through would
-        // throw (safe), but which legacy code actually matches a given
-        // Vi SIM depends on the original operator before the merger, which
-        // we can't determine from the number alone. Needs A1Topup to
-        // confirm how they want merged-brand numbers submitted before this
-        // is wired -- don't guess V vs I here.
+        // "VI" (Vodafone-Idea merged brand) -- written confirmation received
+        // via WhatsApp from A1Topup on 2026-07-25: "use VI for Vodafone
+        // Idea" (exact casing: both letters uppercase). This is NOT listed
+        // in their documented Operator Code table (which still only shows
+        // legacy "Vodafone" = V and "Idea" = I separately), but this is a
+        // clearer, written confirmation (not just verbal/phone) -- more
+        // trustworthy than the earlier "Vi" guess, though still worth a
+        // real test recharge before fully relying on it.
         private val CONFIRMED_OPERATOR_CODES = mapOf(
             "AIRTEL" to "A",
             "JIO" to "RC",       // table shows "RELIANCE - JIO", code RC (not "J")
             "VODAFONE" to "V",   // legacy brand, pre-merger only
             "IDEA" to "I",       // legacy brand, pre-merger only
-            "BSNL" to "BT"       // "BSNL - TOPUP" = prepaid recharge; "BSNL - STV" (BR) is a separate special-tariff-voucher product, not used here
-            // "VI" deliberately omitted -- see comment above
+            "BSNL" to "BT",      // "BSNL - TOPUP" = prepaid recharge; "BSNL - STV" (BR) is a separate special-tariff-voucher product, not used here
+            "VI" to "VI"         // confirmed in writing (WhatsApp) -- see comment above
         )
 
         // Confirmed from A1Topup's circle-code table. Keyed by the exact
