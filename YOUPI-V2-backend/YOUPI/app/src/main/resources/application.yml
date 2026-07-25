@@ -61,10 +61,10 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,prometheus
+        include: health
   endpoint:
     health:
-      show-details: when-authorized
+      show-details: never
       probes:
         enabled: true
   info:
@@ -150,6 +150,9 @@ youpi:
     plans:
       max-requests: 60
       window-seconds: 60
+  cors:
+    allowed-origins: "${YOUPI_CORS_ALLOWED_ORIGINS:http://localhost:8082}"
+
 
 # ── mPlan API Config ──
 mplan:

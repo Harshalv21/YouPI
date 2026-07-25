@@ -71,11 +71,18 @@ class GlobalExceptionHandler(
                 )
             }
             else -> {
-                val errorMessage = "An unexpected error occurred: ${throwable.message} (${throwable.javaClass.name})"
-                log.error("Unhandled exception (requestId={}): {}", requestId, errorMessage, throwable)
+                // Full detail sirf server-side log mein — client ko generic message hi jaata hai
+                log.error(
+                    "Unhandled exception (requestId={}): {} ({})",
+                    requestId, throwable.message, throwable.javaClass.name, throwable
+                )
                 buildResponse(
                     status = HttpStatus.INTERNAL_SERVER_ERROR,
-                    body = ApiResponse.error("INTERNAL_ERROR", errorMessage, requestId = requestId)
+                    body = ApiResponse.error(
+                        "INTERNAL_ERROR",
+                        "Something went wrong. Please try again.",
+                        requestId = requestId
+                    )
                 )
             }
         }

@@ -221,9 +221,9 @@ class PaymentService(
         }
     }
 
-    // ── HMAC Verification ──
+  // ── HMAC Verification ──
 
-    private fun verifyHmacSignature(payload: String, expectedSignature: String, secret: String): Boolean {
+        private fun verifyHmacSignature(payload: String, expectedSignature: String, secret: String): Boolean {
         // Security fix: this used to return true (skip verification entirely)
         // when the secret wasn't configured, meaning an unset env var made
         // every payment signature check pass automatically -- anyone could
@@ -239,17 +239,21 @@ class PaymentService(
             mac.init(SecretKeySpec(secret.toByteArray(), "HmacSHA256"))
             val computedHex = mac.doFinal(payload.toByteArray())
                 .joinToString("") { "%02x".format(it) }
-            val matches = computedHex.equals(expectedSignature, ignoreCase = true)
+
+            // Constant-time comparison -- String.equals()/== can leak timing
+            // information about how many characters matched before the first
+            // mismatch. MessageDigest.isEqual() always compares the full
+            // arrays regardless of where a mismatch occurs, so it's safe
+            // against timing attacks.
+            val matches = java.security.MessageDigest.isEqual(
+                computedHex.lowercase().toByteArray(),
+                expectedSignature.lowercase().toByteArray()
+            )
+
             if (!matches) {
-                // Temporary diagnostic logging -- never log the secret itself,
-                // but length/payload-size/computed-vs-received signature is
-                // enough to pinpoint a mismatch (wrong secret loaded, wrong
-                // payload bytes, encoding difference, etc.) without repeated
-                // blind guessing. Remove once webhook signing is confirmed
-                // working end-to-end.
                 log.warn(
-                    "Webhook signature mismatch: secretLength={}, payloadLength={}, computed={}, received={}",
-                    secret.length, payload.length, computedHex, expectedSignature
+                    "Webhook signature mismatch: secretLength={}, payloadLength={}",
+                    secret.length, payload.length
                 )
             }
             matches
