@@ -38,13 +38,17 @@ class RateLimitFilter(
 
     private val rules = listOf(
         RateLimitRule("/api/v1/auth/otp/send", 3, 600) { exchange ->
-            // Rate limit by mobile number from request body — fallback to IP
+            val mobile = exchange.attributes["cachedMobile"]?.toString()
             val ip = exchange.request.remoteAddress?.address?.hostAddress ?: "unknown"
-            "rl:otp:$ip"
+            "rl:otp:${mobile ?: ip}"
         },
         RateLimitRule("/api/v1/payment/", 10, 3600) { exchange ->
             val userId = exchange.attributes["auth.userId"]?.toString() ?: "anon"
             "rl:payment:$userId"
+        },
+        RateLimitRule("/api/v1/recharge/order", 5, 60) { exchange ->
+            val userId = exchange.attributes["auth.userId"]?.toString() ?: "anon"
+            "rl:recharge-order:$userId"
         },
         RateLimitRule("/api/v1/recharge/plans", 60, 60) { exchange ->
             val ip = exchange.request.remoteAddress?.address?.hostAddress ?: "unknown"
@@ -62,7 +66,10 @@ class RateLimitFilter(
     val rule = rules.find { path.startsWith(it.pathPrefix) }
         ?: return chain.filter(exchange)
 
-    if (rule.pathPrefix == "/api/v1/auth/mpin/verify") {
+    val needsBodyCaching = rule.pathPrefix == "/api/v1/auth/mpin/verify" ||
+                           rule.pathPrefix == "/api/v1/auth/otp/send"
+
+    if (needsBodyCaching) {
         return DataBufferUtils.join(exchange.request.body)
             .defaultIfEmpty(exchange.response.bufferFactory().wrap(ByteArray(0)))
             .flatMap { buffer ->

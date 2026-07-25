@@ -466,7 +466,7 @@ class RechargeService(
         log.info("Recharge confirmed via webhook: orderId={}, amount={}", updatedOrder.id, updatedOrder.planAmount)
 
         // ── Auto gold-invest — ₹249 plan only, non-fatal ──
-        if (updatedOrder.planAmount.compareTo(GOLD_ELIGIBLE_PLAN_AMOUNT) == 0) {
+        if (updatedOrder.planAmount >= GOLD_ELIGIBLE_PLAN_AMOUNT) {
             val goldAmount = updatedOrder.planAmount
                 .multiply(goldInvestPercentage)
                 .divide(BigDecimal(100), 2, java.math.RoundingMode.HALF_EVEN)
@@ -530,7 +530,7 @@ class RechargeService(
             return Result.failure(RechargeOrderNotFoundException(rechargeOrderId))
         }
 
-        val goldEligible = order.planAmount.compareTo(GOLD_ELIGIBLE_PLAN_AMOUNT) == 0
+        val goldEligible = order.planAmount.compareTo(GOLD_ELIGIBLE_PLAN_AMOUNT) >= 0
         val goldAmount = if (goldEligible) {
             order.planAmount.multiply(goldInvestPercentage).divide(BigDecimal(100), 2, java.math.RoundingMode.HALF_EVEN)
         } else null

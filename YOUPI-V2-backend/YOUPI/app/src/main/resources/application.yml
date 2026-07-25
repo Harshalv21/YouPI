@@ -61,10 +61,10 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,prometheus
+        include: health
   endpoint:
     health:
-      show-details: when-authorized
+      show-details: never
       probes:
         enabled: true
   info:
@@ -114,8 +114,18 @@ youpi:
     msg91-auth-key: ${MSG91_AUTH_KEY:}
     otp-template-id: ${MSG91_TEMPLATE_ID:}
 
-  recharge:
-    gold-invest-percentage: 1.0
+
+    recharge:
+      mock-enabled: false
+      gold-invest-percentage: 1.0
+
+    features:
+      wallet-enabled: false
+      invest-enabled: false
+      loan-enabled: false
+      bnpl-enabled: false
+      smart-saver-enabled: false
+      kyc-enabled: false
 
   razorpay:
     key-id: ${RAZORPAY_KEY_ID:}
@@ -150,6 +160,9 @@ youpi:
     plans:
       max-requests: 60
       window-seconds: 60
+  cors:
+    allowed-origins: "${YOUPI_CORS_ALLOWED_ORIGINS:http://localhost:8082}"
+
 
 # ── mPlan API Config ──
 mplan:

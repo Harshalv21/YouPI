@@ -7,22 +7,17 @@ import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.core.env.Environment
 import jakarta.annotation.PostConstruct
 
 /**
  * Firebase initialization using Google Application Default Credentials (ADC).
- *
- * On GCP (Compute Engine / Cloud Run) the VM's attached service account is
- * automatically discovered — no JSON key file required or allowed.
- *
- * ADC resolution order:
- *  1. GOOGLE_APPLICATION_CREDENTIALS env var (path to a key file, for local dev only)
- *  2. gcloud CLI credentials  (local dev: `gcloud auth application-default login`)
- *  3. GCE / GKE metadata server  ← used automatically on Compute Engine (production)
- *  4. Cloud Run / App Engine built-in service account
+ * ...
  */
 @Configuration
-class FirebaseConfig {
+class FirebaseConfig(
+    private val environment: Environment   // ← naya: active profile check karne ke liye
+) {
 
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -34,14 +29,12 @@ class FirebaseConfig {
 
     @PostConstruct
     fun initFirebase() {
-        // Guard: Firebase SDK throws if you initialise the default app twice
         if (FirebaseApp.getApps().isNotEmpty()) {
             log.info("FirebaseApp already initialised — skipping.")
             return
         }
 
         try {
-            // ── Application Default Credentials ──────────────────────────────
             val options = FirebaseOptions.builder()
                 .setCredentials(GoogleCredentials.getApplicationDefault())
                 .setProjectId(projectId)
@@ -57,7 +50,14 @@ class FirebaseConfig {
                 log.info("Firebase already initialized")
             }
         } catch (e: Exception) {
-            log.warn("Firebase initialization skipped or failed. On GCE ensure the VM has a service account attached with the 'Firebase Admin SDK Service Agent' role. Error: {}", e.message)
+            val activeProfiles = environment.activeProfiles.toList()
+            val isProd = activeProfiles.any { it == "gcp" || it == "prod" }
+
+            if (isProd) {
+                log.error("Firebase initialization FAILED in profile(s) {} — refusing to start", activeProfiles, e)
+                throw IllegalStateException("Firebase init failed in production profile — cannot start app", e)
+            }
+            log.warn("Firebase initialization skipped/failed (non-prod profile {}) — continuing", activeProfiles, e)
         }
     }
 }

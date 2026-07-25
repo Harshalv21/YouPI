@@ -22,5 +22,4 @@ include("modules:invest")
 include("modules:bnpl")
 include("modules:loan")
 include("modules:admin")
-
-
+include("modules:gold")
