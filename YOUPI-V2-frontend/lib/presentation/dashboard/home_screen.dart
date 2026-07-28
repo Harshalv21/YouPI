@@ -91,25 +91,16 @@ class _HomeScreenState extends State<HomeScreen> {
                           ],
                         ),
                       ),
-                      Stack(
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.notifications_none_rounded,
-                                color: AppColors.textPrimary),
-                            onPressed: () => context.push('/settings/notifications'),
-                          ),
-                          Positioned(
-                            right: 10,
-                            top: 10,
-                            child: Container(
-                              width: 8,
-                              height: 8,
-                              decoration: const BoxDecoration(
-                                  color: AppColors.error, shape: BoxShape.circle),
-                            ),
-                          )
-                        ],
-                      )
+                      // YouPi Gold Coin -- replaces the old notification bell.
+                      // TEMPORARY (this version): tapping shows accumulated
+                      // recharge reward as YouPi Coins. Augmont gram-conversion
+                      // comes in the next version.
+                      // TODO(backend): wire `_goldRewardBalance` / `_goldCoinCount`
+                      // below to the real accumulated reward total from the API.
+                      _GoldRewardCoin(
+                        amount: _goldRewardBalance(vm),
+                        coinCount: _goldCoinCount(vm),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 20),
@@ -249,7 +240,14 @@ class _HomeScreenState extends State<HomeScreen> {
                       scrollDirection: Axis.horizontal,
                       itemCount: vm.offers.length,
                       separatorBuilder: (_, __) => const SizedBox(width: 12),
-                      itemBuilder: (ctx, i) => _OfferCard(vm.offers[i]),
+                      itemBuilder: (ctx, i) {
+                        final offer = vm.offers[i];
+                        // Lock the "BNPL Boost" offer with a Coming Soon overlay.
+                        final isLocked = (offer['title'] ?? '')
+                            .toLowerCase()
+                            .contains('bnpl boost');
+                        return _OfferCard(offer, locked: isLocked);
+                      },
                     ),
                   ),
                   const SizedBox(height: 20),
@@ -260,6 +258,173 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       );
     });
+  }
+
+  // TODO(backend): replace this with the real accumulated gold-reward total.
+  // For now returns 0.0 (or a mock value for local UI testing). The reward is
+  // 1 YouPi Coin per successful recharge >= ₹249, and that coin's value is
+  // 1% of the recharge amount it came from (total value tracked in rupees).
+  double _goldRewardBalance(HomeViewModel vm) {
+    // return vm.goldRewardBalance; // <-- wire this once backend field exists
+    return 0.0;
+  }
+
+  // TODO(backend): replace with real count of YouPi Coins earned.
+  int _goldCoinCount(HomeViewModel vm) {
+    // return vm.goldCoinCount; // <-- wire this once backend field exists
+    return 0;
+  }
+}
+
+/// YouPi Coin button shown in the home header (replaces the notification bell).
+/// Tapping it opens the Gold Reward popup.
+class _GoldRewardCoin extends StatelessWidget {
+  final double amount;
+  final int coinCount;
+  const _GoldRewardCoin({required this.amount, required this.coinCount});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () => showDialog(
+        context: context,
+        barrierColor: Colors.black87,
+        builder: (_) => _GoldRewardPopup(amount: amount, coinCount: coinCount),
+      ),
+      child: SizedBox(
+        width: 64,
+        height: 64,
+        child: Image.asset(
+          'assets/images/youpi_coin.png',
+          fit: BoxFit.contain,
+          errorBuilder: (_, __, ___) =>
+              const Icon(Icons.monetization_on_rounded, color: AppColors.secondary, size: 36),
+        ),
+      ),
+    );
+  }
+}
+
+/// Gold Reward popup -- shows accumulated YouPi Coins with a Withdraw
+/// button. Minimum withdrawal is ₹50 (based on the coins' rupee value);
+/// below that an inline error is shown. At/above ₹50 the value is credited
+/// to the wallet.
+class _GoldRewardPopup extends StatefulWidget {
+  final double amount;
+  final int coinCount;
+  const _GoldRewardPopup({required this.amount, required this.coinCount});
+
+  @override
+  State<_GoldRewardPopup> createState() => _GoldRewardPopupState();
+}
+
+class _GoldRewardPopupState extends State<_GoldRewardPopup> {
+  static const double _minWithdraw = 50.0;
+  String? _error;
+  bool _busy = false;
+
+  Future<void> _withdraw() async {
+    if (widget.amount < _minWithdraw) {
+      setState(() => _error = 'Minimum withdrawal amount is ₹50');
+      return;
+    }
+
+    setState(() {
+      _error = null;
+      _busy = true;
+    });
+
+    // TODO(backend): call withdraw API -> credits `widget.amount` to wallet.
+    // await context.read<HomeViewModel>().withdrawGoldReward();
+    await Future<void>.delayed(const Duration(milliseconds: 400)); // mock
+
+    if (!mounted) return;
+    setState(() => _busy = false);
+    Navigator.of(context).pop();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('${CurrencyFormatter.format(widget.amount)} credited to wallet'),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: AppColors.backgroundCard,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppDimensions.radiusCard),
+        side: BorderSide(color: AppColors.secondary.withOpacity(0.5)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 112,
+              height: 112,
+              child: Image.asset(
+                'assets/images/youpi_coin.png',
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) =>
+                    const Icon(Icons.monetization_on_rounded, color: AppColors.secondary, size: 64),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Text('Gold Reward', style: AppTextStyles.headlineSmall),
+            const SizedBox(height: 6),
+            Text(
+              'Earn up to 5% of every recharge as YouPi Coins',
+              style: AppTextStyles.bodySmall.copyWith(color: AppColors.textSecondary),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                '${widget.coinCount} Coin${widget.coinCount == 1 ? '' : 's'}',
+                maxLines: 1,
+                style: AppTextStyles.amountLarge.copyWith(color: AppColors.secondary),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Worth ${CurrencyFormatter.format(widget.amount)}',
+              style: AppTextStyles.bodySmall.copyWith(color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _busy ? null : _withdraw,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.secondary,
+                  foregroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                child: _busy
+                    ? const SizedBox(
+                        height: 18,
+                        width: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                      )
+                    : Text('Withdraw', style: AppTextStyles.labelLarge.copyWith(color: Colors.black)),
+              ),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 10),
+              Text(
+                _error!,
+                style: AppTextStyles.bodySmall.copyWith(color: AppColors.error),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -332,18 +497,26 @@ class _PortfolioMetric extends StatelessWidget {
       ),
     );
     return Expanded(
-      child: locked ? ComingSoonOverlay(iconSize: 16, showLabel: false, child: card) : card,
+      child: locked
+          ? ComingSoonOverlay(
+              iconSize: 16,
+              showLabel: true,
+              labelFontSize: 10,
+              child: card,
+            )
+          : card,
     );
   }
 }
 
 class _OfferCard extends StatelessWidget {
   final Map<String, String> offer;
-  const _OfferCard(this.offer);
+  final bool locked;
+  const _OfferCard(this.offer, {this.locked = false});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    final card = Container(
       width: 220,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -372,5 +545,8 @@ class _OfferCard extends StatelessWidget {
         ],
       ),
     );
+
+    if (!locked) return card;
+    return ComingSoonOverlay(iconSize: 16, showLabel: true, labelFontSize: 12, child: card);
   }
 }

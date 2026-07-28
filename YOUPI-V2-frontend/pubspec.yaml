@@ -47,7 +47,7 @@ flutter:
     - assets/images/
     - assets/animations/
     - assets/icons/
-
+    - assets/images/youpi_coin.png
 flutter_launcher_icons:
   android: "launcher_icon"
   ios: true

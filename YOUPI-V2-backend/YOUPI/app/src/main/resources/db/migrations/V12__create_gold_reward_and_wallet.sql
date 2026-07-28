@@ -1,19 +1,19 @@
 -- V12__create_gold_reward_and_wallet.sql
 
--- -- 1. Reward ledger — har recharge se mila reward track karega
--- CREATE TABLE gold_reward_ledger (
---     id BIGSERIAL PRIMARY KEY,
---     user_id UUID NOT NULL,
---     recharge_txn_id VARCHAR(128) NOT NULL,
---     recharge_amount NUMERIC(12,2) NOT NULL,
---     reward_value_rupees NUMERIC(12,2) NOT NULL,      -- 1% of recharge_amount
---     gold_rate_at_credit NUMERIC(12,4) NOT NULL,       -- Augmont rate used at credit time
---     gold_grams NUMERIC(14,6) NOT NULL,                -- reward_value_rupees / gold_rate_at_credit
---     status VARCHAR(20) NOT NULL DEFAULT 'CREDITED',   -- CREDITED, REVERSED
---     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+-- 1. Reward ledger — har recharge se mila reward track karega
+CREATE TABLE gold_reward_ledger (
+    id BIGSERIAL PRIMARY KEY,
+    user_id UUID NOT NULL,
+    recharge_txn_id VARCHAR(128) NOT NULL,
+    recharge_amount NUMERIC(12,2) NOT NULL,
+    reward_value_rupees NUMERIC(12,2) NOT NULL,      -- 1% of recharge_amount
+    gold_rate_at_credit NUMERIC(12,4) NOT NULL,       -- Augmont rate used at credit time
+    gold_grams NUMERIC(14,6) NOT NULL,                -- reward_value_rupees / gold_rate_at_credit
+    status VARCHAR(20) NOT NULL DEFAULT 'CREDITED',   -- CREDITED, REVERSED
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 
---     CONSTRAINT uq_recharge_txn UNIQUE (recharge_txn_id)   -- idempotency: ek recharge = ek hi reward
--- );
+    CONSTRAINT uq_recharge_txn UNIQUE (recharge_txn_id)   -- idempotency: ek recharge = ek hi reward
+);
 
 CREATE INDEX idx_gold_reward_user ON gold_reward_ledger(user_id);
 
