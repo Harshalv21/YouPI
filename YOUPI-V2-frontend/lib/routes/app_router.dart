@@ -131,7 +131,10 @@ class AppRouter {
       ShellRoute(
         builder: (context, state, child) => MainShell(child: child),
         routes: [
-          GoRoute(path: '/dashboard/home', builder: (c, s) => const HomeScreen()),
+          GoRoute(
+            path: '/dashboard/home',
+            builder: (c, s) => HomeScreen(justEarnedCoin: (s.extra as Map?)?['justEarnedCoin'] == true),
+          ),
           GoRoute(path: '/dashboard/plans', builder: (c, s) => const RechargeHomeScreen()),
           GoRoute(path: '/dashboard/invest', builder: (c, s) => const InvestHubScreen()),
           GoRoute(path: '/dashboard/wallet', builder: (c, s) => const WalletScreen()),

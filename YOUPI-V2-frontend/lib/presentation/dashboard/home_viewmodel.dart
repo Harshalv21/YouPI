@@ -25,6 +25,8 @@ class HomeViewModel extends ChangeNotifier {
   WalletBalance? _walletBalance;
   List<TransactionModel> _transactions = [];
   ActiveRechargeResult? _activeRecharge;
+  int _goldCoinCount = 0;
+  double _goldCoinValue = 0.0;
 
   bool get isLoading => _isLoading;
   String? get error => _error;
@@ -33,6 +35,11 @@ class HomeViewModel extends ChangeNotifier {
   UserModel get user => _user;
   List<Map<String, String>> get offers => _offers;
   ActiveRechargeResult? get activeRecharge => _activeRecharge;
+  // TEMPORARY: local-persisted stand-in for the real backend gold-reward
+  // total (see StorageService.getGoldCoinCount doc comment) -- this is
+  // the REAL, cumulative, incrementing count now, not a hardcoded 1.
+  int get goldCoinCount => _goldCoinCount;
+  double get goldCoinValue => _goldCoinValue;
 
   /// Primary spendable balance (NBFC wallet).
   double get walletBalance =>
@@ -72,6 +79,8 @@ class HomeViewModel extends ChangeNotifier {
       _walletBalance = null;
       _transactions = [];
       _activeRecharge = null;
+      _goldCoinCount = 0;
+      _goldCoinValue = 0.0;
       _profileLoadFailed = false;
       _isLoading = false;
       notifyListeners();
@@ -85,6 +94,7 @@ class HomeViewModel extends ChangeNotifier {
       _loadBalance(),
       _loadTransactions(),
       _loadActiveRecharge(),
+      _loadGoldCoins(),
     ]);
 
     _isLoading = false;
@@ -129,6 +139,15 @@ class HomeViewModel extends ChangeNotifier {
       // blocking the rest of the home screen.
       debugPrint('Home: active recharge load failed: $e');
       _activeRecharge = null;
+    }
+  }
+
+  Future<void> _loadGoldCoins() async {
+    try {
+      _goldCoinCount = await StorageService.getGoldCoinCount();
+      _goldCoinValue = await StorageService.getGoldCoinValue();
+    } catch (e) {
+      debugPrint('Home: gold coin count load failed: $e');
     }
   }
 

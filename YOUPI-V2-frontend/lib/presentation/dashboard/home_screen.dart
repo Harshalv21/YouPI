@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:audioplayers/audioplayers.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_dimensions.dart';
 import '../../core/constants/app_text_styles.dart';
@@ -12,7 +13,15 @@ import '../../data/repositories/recharge_repository.dart';
 import 'home_viewmodel.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  // Set true only when navigated here right after a qualifying recharge
+  // (see emi_selection_screen.dart) -- lets this screen play the
+  // coin-collect sound exactly once, on that specific arrival, instead of
+  // guessing "did the coin count just increase" from Provider state alone.
+  // Does NOT control what number is shown -- that always comes from the
+  // real persisted HomeViewModel.goldCoinCount/goldCoinValue, loaded
+  // fresh on every visit (see _loadGoldCoins in home_viewmodel.dart).
+  final bool justEarnedCoin;
+  const HomeScreen({super.key, this.justEarnedCoin = false});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -20,13 +29,25 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   bool _balanceHidden = true;
+  final _audioPlayer = AudioPlayer();
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<HomeViewModel>().loadHome();
+      if (widget.justEarnedCoin) {
+        // Fire-and-forget -- never let a sound failure affect the actual
+        // screen/data loading above.
+        _audioPlayer.play(AssetSource('sounds/coin_increment.mp3')).catchError((_) {});
+      }
     });
+  }
+
+  @override
+  void dispose() {
+    _audioPlayer.dispose();
+    super.dispose();
   }
 
   @override
@@ -306,17 +327,13 @@ class _HomeScreenState extends State<HomeScreen> {
   // TODO(backend): replace this with the real accumulated gold-reward total
   // once RechargeService's webhook handler is hooked up to GoldRewardService
   // (see YouPI_GoldCoin_Status_Report.pdf -- "NOT DONE YET" as of last
-  // status check). For now returns 0.0.
-  double _goldRewardBalance(HomeViewModel vm) {
-    // return vm.goldRewardBalance; // <-- wire this once backend field exists
-    return 0.0;
-  }
+  // status check). Until then, reads the REAL, cumulative, incrementing
+  // local-persisted count (StorageService.getGoldCoinCount) -- not a
+  // hardcoded 1 anymore. Increments correctly across every qualifying
+  // recharge, survives app restarts.
+  double _goldRewardBalance(HomeViewModel vm) => vm.goldCoinValue;
 
-  // TODO(backend): replace with real count of YouPi Coins earned.
-  int _goldCoinCount(HomeViewModel vm) {
-    // return vm.goldCoinCount; // <-- wire this once backend field exists
-    return 0;
-  }
+  int _goldCoinCount(HomeViewModel vm) => vm.goldCoinCount;
 }
 
 /// YouPi Coin button shown in the home header (replaces the notification bell).

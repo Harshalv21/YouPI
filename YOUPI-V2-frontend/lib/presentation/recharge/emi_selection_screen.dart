@@ -6,6 +6,7 @@ import '../../core/constants/app_dimensions.dart';
 import '../../core/constants/app_text_styles.dart';
 import '../../core/widgets/youpi_button.dart';
 import '../../core/widgets/youpi_card.dart';
+import '../../core/services/storage_service.dart';
 import 'gold_coin_reward_screen.dart';
 import 'recharge_viewmodel.dart';
 
@@ -15,6 +16,15 @@ import 'recharge_viewmodel.dart';
 // them -- it always confirms with PaymentMode.FULL.
 class EmiSelectionScreen extends StatelessWidget {
   const EmiSelectionScreen({super.key});
+
+  // ── TEMPORARY PREVIEW TOGGLE ──
+  // true  = skip Razorpay/backend entirely, jump straight to the coin-toss
+  //         animation. Zero payment, zero A1Topup call, zero risk -- purely
+  //         to eyeball the animation running for real in the app.
+  // false = normal real flow (Razorpay Checkout -> webhook -> A1Topup ->
+  //         animation only on confirmed success).
+  // SET BACK TO false BEFORE ANY REAL TESTING OR RELEASE BUILD.
+  static const bool _previewAnimationOnly = true;
 
   @override
   Widget build(BuildContext context) {
@@ -34,6 +44,21 @@ class EmiSelectionScreen extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              if (_previewAnimationOnly)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppColors.error.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppColors.error),
+                  ),
+                  child: Text(
+                    '⚠ PREVIEW MODE — no real payment will happen. Set _previewAnimationOnly = false before real testing.',
+                    style: AppTextStyles.bodySmall.copyWith(color: AppColors.error),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
               YoupiCard(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Text(plan.name, style: AppTextStyles.headlineSmall),
@@ -55,22 +80,40 @@ class EmiSelectionScreen extends StatelessWidget {
               ),
               const SizedBox(height: 20),
               YoupiButton(
-                label: vm.paymentInProgress ? 'Confirming payment...' : 'Confirm & Pay ₹${plan.price.toStringAsFixed(0)}',
-                isLoading: vm.isLoading || vm.paymentInProgress,
+                label: _previewAnimationOnly
+                    ? 'Preview Coin Animation'
+                    : (vm.paymentInProgress ? 'Confirming payment...' : 'Confirm & Pay ₹${plan.price.toStringAsFixed(0)}'),
+                isLoading: !_previewAnimationOnly && (vm.isLoading || vm.paymentInProgress),
                 onPressed: () async {
+                  if (_previewAnimationOnly) {
+                    // Bypasses payAndConfirm() entirely -- no order created,
+                    // no Razorpay Checkout opened, no backend call at all.
+                    // Increment still happens for real (local persistence),
+                    // so repeated preview taps genuinely go 1 -> 2 -> 3...
+                    // matching what real recharges will do once this
+                    // toggle is off.
+                    await StorageService.incrementGoldCoin(plan.price * 0.01);
+                    await showGoldCoinReward(
+                      ctx,
+                      plan.price,
+                      onNavigateHome: () => ctx.go('/dashboard/home', extra: {'justEarnedCoin': true}),
+                    );
+                    return;
+                  }
+
                   final ok = await vm.payAndConfirm();
                   if (!ctx.mounted) return;
                   if (ok) {
                     // Matches backend's GOLD_ELIGIBLE_PLAN_AMOUNT (>= ₹249,
                     // see RechargeService.kt) -- only qualifying recharges
-                    // get the coin-toss celebration.
+                    // get the coin-toss celebration + increment.
                     if (plan.price >= 249) {
-                      // Overlay on THIS screen (dimmed background, per
-                      // design) rather than navigating to a separate page
-                      // -- await it, then go home once it's done/skipped.
-                      await showGoldCoinReward(ctx, plan.price);
-                      if (!ctx.mounted) return;
-                      ctx.go('/dashboard/home');
+                      await StorageService.incrementGoldCoin(plan.price * 0.01);
+                      await showGoldCoinReward(
+                        ctx,
+                        plan.price,
+                        onNavigateHome: () => ctx.go('/dashboard/home', extra: {'justEarnedCoin': true}),
+                      );
                     } else {
                       ctx.go('/plans/success');
                     }

@@ -19,6 +19,9 @@ class StorageService {
   static const _keyDeviceId = 'device_id';
   static const _keyLastMobile = 'last_mobile';
   static const _keyLastRechargeMobile = 'last_recharge_mobile';
+  // NEW -- gold coin local-persisted stand-in (see doc comments below).
+  static const _keyGoldCoinCount = 'gold_coin_count';
+  static const _keyGoldCoinValue = 'gold_coin_value';
 
   // ── Access token ──
   static Future<void> saveToken(String token) async =>
@@ -160,20 +163,65 @@ class StorageService {
   static Future<String?> getLastRechargeMobile() async =>
       await _storage.read(key: _keyLastRechargeMobile);
 
+  // ── Gold coin count (TEMPORARY local stand-in) ──
+  // Real, persisted, CUMULATIVE coin count -- increments across every
+  // qualifying recharge, survives app restarts.
+  //
+  // TEMPORARY: stands in for the real backend total until
+  // RechargeService -> GoldRewardService is wired (see
+  // YouPI_GoldCoin_Status_Report.pdf -- "NOT DONE YET" as of last check).
+  // Once that backend work lands, delete this and read the real
+  // accumulated total from the API instead.
+  static Future<int> getGoldCoinCount() async {
+    final raw = await _storage.read(key: _keyGoldCoinCount);
+    return int.tryParse(raw ?? '') ?? 0;
+  }
+
+  static Future<double> getGoldCoinValue() async {
+    final raw = await _storage.read(key: _keyGoldCoinValue);
+    return double.tryParse(raw ?? '') ?? 0.0;
+  }
+
+  /// Increments the local coin count by 1 and adds valueEarned to the
+  /// running rupee total. Call this exactly once per qualifying recharge
+  /// -- see emi_selection_screen.dart.
+  static Future<void> incrementGoldCoin(double valueEarned) async {
+    final currentCount = await getGoldCoinCount();
+    final currentValue = await getGoldCoinValue();
+    await _storage.write(key: _keyGoldCoinCount, value: (currentCount + 1).toString());
+    await _storage.write(key: _keyGoldCoinValue, value: (currentValue + valueEarned).toString());
+  }
+
+  /// Testing convenience only -- resets the local counter back to 0. Not
+  /// called anywhere in the app UI.
+  static Future<void> resetGoldCoinCount() async {
+    await _storage.delete(key: _keyGoldCoinCount);
+    await _storage.delete(key: _keyGoldCoinValue);
+  }
+
   // ── Clear all (sign out) ──
-  // Deliberately preserves device_id AND last_mobile -- signing out
-  // shouldn't un-trust this device or make it forget which account it's
-  // for. Only a genuine reinstall/app-data-clear should reset these (which
-  // wipes secure storage at the OS level, outside our control anyway).
+  // Deliberately preserves device_id, last_mobile, AND the gold coin
+  // count/value -- signing out shouldn't un-trust this device, make it
+  // forget which account it's for, or wipe an earned reward total. Only
+  // a genuine reinstall/app-data-clear should reset these (which wipes
+  // secure storage at the OS level, outside our control anyway).
   static Future<void> clearAll() async {
     final deviceId = await _storage.read(key: _keyDeviceId);
     final lastMobile = await _storage.read(key: _keyLastMobile);
+    final goldCoinCount = await _storage.read(key: _keyGoldCoinCount);
+    final goldCoinValue = await _storage.read(key: _keyGoldCoinValue);
     await _storage.deleteAll();
     if (deviceId != null) {
       await _storage.write(key: _keyDeviceId, value: deviceId);
     }
     if (lastMobile != null) {
       await _storage.write(key: _keyLastMobile, value: lastMobile);
+    }
+    if (goldCoinCount != null) {
+      await _storage.write(key: _keyGoldCoinCount, value: goldCoinCount);
+    }
+    if (goldCoinValue != null) {
+      await _storage.write(key: _keyGoldCoinValue, value: goldCoinValue);
     }
   }
 }
