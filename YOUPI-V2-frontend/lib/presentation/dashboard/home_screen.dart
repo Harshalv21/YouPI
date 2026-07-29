@@ -9,6 +9,7 @@ import '../../core/widgets/coming_soon_overlay.dart';
 import '../../core/widgets/shimmer_loader.dart';
 import '../../core/widgets/youpi_card.dart';
 import '../../data/repositories/recharge_repository.dart';
+import '../../data/repositories/gold_repository.dart';
 import 'home_viewmodel.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -308,17 +309,13 @@ class _HomeScreenState extends State<HomeScreen> {
   // (see YouPI_GoldCoin_Status_Report.pdf -- "NOT DONE YET" as of last
   // status check). For now returns 0.0.
   double _goldRewardBalance(HomeViewModel vm) {
-    // return vm.goldRewardBalance; // <-- wire this once backend field exists
-    return 0.0;
+    return vm.goldBalanceRupees;
   }
 
-  // TODO(backend): replace with real count of YouPi Coins earned.
   int _goldCoinCount(HomeViewModel vm) {
-    // return vm.goldCoinCount; // <-- wire this once backend field exists
-    return 0;
+    return vm.goldCoinCount;
   }
 }
-
 /// YouPi Coin button shown in the home header (replaces the notification bell).
 /// Tapping it opens the Gold Reward popup.
 class _GoldRewardCoin extends StatelessWidget {
@@ -411,29 +408,40 @@ class _GoldRewardPopupState extends State<_GoldRewardPopup> {
   bool _busy = false;
 
   Future<void> _withdraw() async {
-    if (widget.amount < _minWithdraw) {
-      setState(() => _error = 'Minimum withdrawal amount is ₹50');
-      return;
-    }
+  if (widget.amount < _minWithdraw) {
+    setState(() => _error = 'Minimum withdrawal amount is ₹50');
+    return;
+  }
 
-    setState(() {
-      _error = null;
-      _busy = true;
-    });
+  setState(() {
+    _error = null;
+    _busy = true;
+  });
 
-    // TODO(backend): call withdraw API -> credits `widget.amount` to wallet.
-    // await context.read<HomeViewModel>().withdrawGoldReward();
-    await Future<void>.delayed(const Duration(milliseconds: 400)); // mock
+  try {
+    final result = await GoldRepository().withdraw(widget.amount);
 
     if (!mounted) return;
+
+    // Update the home viewmodel's cached balance so the header badge/
+    // popup reflect the new state without a full home reload.
+    context.read<HomeViewModel>().updateGoldWalletAfterWithdraw(result);
+
     setState(() => _busy = false);
     Navigator.of(context).pop();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('${CurrencyFormatter.format(widget.amount)} credited to wallet'),
+        content: Text('${CurrencyFormatter.format(result.amountRupees)} credited to wallet'),
       ),
     );
+  } catch (e) {
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _error = e.toString().replaceFirst('Exception: ', '');
+    });
   }
+}
 
   @override
   Widget build(BuildContext context) {

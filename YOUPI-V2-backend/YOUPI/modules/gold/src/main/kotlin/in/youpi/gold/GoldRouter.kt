@@ -25,13 +25,13 @@ class GoldRouter(
     @Bean
     @RouterOperations(
         RouterOperation(path = "/v1/gold/wallet", method = [RequestMethod.GET],
-            operation = Operation(operationId = "getGoldWallet", summary = "Get gold reward wallet balance",
-                description = "Returns the user's current gold reward balance in grams.",
+            operation = Operation(operationId = "getGoldWallet", summary = "Get gold coin wallet balance",
+                description = "Returns the user's current gold coin count and rupee value.",
                 tags = ["Gold"],
                 responses = [SwaggerApiResponse(responseCode = "200", description = "Gold wallet balance")])),
         RouterOperation(path = "/v1/gold/withdraw", method = [RequestMethod.POST],
-            operation = Operation(operationId = "withdrawGold", summary = "Withdraw gold as cash",
-                description = "Converts gold reward balance to cash (rupees) and credits the NBFC wallet. Minimum ₹50.",
+            operation = Operation(operationId = "withdrawGold", summary = "Withdraw gold coin value as cash",
+                description = "Converts gold coin rupee balance to cash and credits the NBFC wallet. Minimum ₹50.",
                 tags = ["Gold"],
                 requestBody = SwaggerRequestBody(content = [Content(schema = Schema(implementation = GoldWithdrawRequest::class))]),
                 responses = [SwaggerApiResponse(responseCode = "200", description = "Withdraw successful")]))
@@ -46,9 +46,14 @@ class GoldRouter(
     private suspend fun handleGetWallet(request: ServerRequest): ServerResponse {
         val userId = request.currentUserId()
         val wallet = goldWalletRepo.findByUserId(userId)
-        val totalGrams = wallet?.totalGrams ?: java.math.BigDecimal.ZERO
+        val coinCount = wallet?.coinCount ?: 0
+        val balanceRupees = wallet?.balanceRupees ?: java.math.BigDecimal.ZERO
         return ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
-            .bodyValueAndAwait(ApiResponse.ok(mapOf("userId" to userId, "totalGoldGrams" to totalGrams)))
+            .bodyValueAndAwait(ApiResponse.ok(mapOf(
+                "userId" to userId,
+                "coinCount" to coinCount,
+                "balanceRupees" to balanceRupees
+            )))
     }
 
     private suspend fun handleWithdraw(request: ServerRequest): ServerResponse {

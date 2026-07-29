@@ -2,7 +2,6 @@ package `in`.youpi.gold
 
 import `in`.youpi.core.BaseException
 import `in`.youpi.core.Result
-import `in`.youpi.invest.service.InvestService
 import `in`.youpi.wallet.service.WalletService
 import org.slf4j.LoggerFactory
 import org.springframework.r2dbc.connection.R2dbcTransactionManager
@@ -10,7 +9,6 @@ import org.springframework.stereotype.Service
 import org.springframework.transaction.reactive.TransactionalOperator
 import org.springframework.transaction.reactive.executeAndAwait
 import java.math.BigDecimal
-import java.math.RoundingMode
 import java.util.UUID
 
 // ── DTOs ──
@@ -22,8 +20,8 @@ data class GoldWithdrawRequest(
 data class GoldWithdrawResponse(
     val userId: UUID,
     val amountRupees: BigDecimal,
-    val goldGramsDeducted: BigDecimal,
-    val remainingGoldGrams: BigDecimal
+    val remainingBalanceRupees: BigDecimal,
+    val remainingCoinCount: Int
 )
 
 // ── Exceptions ──
@@ -35,19 +33,14 @@ class MinimumWithdrawException : GoldWithdrawException(
     "MIN_WITHDRAW", "Minimum withdrawal amount is ₹50", 400
 )
 
-class InsufficientGoldBalanceException(val availableRupeesValue: BigDecimal, val requiredRupees: BigDecimal) : GoldWithdrawException(
-    "INSUFFICIENT_GOLD_BALANCE", "Insufficient gold balance: available worth ₹$availableRupeesValue, required ₹$requiredRupees", 402
-)
-
-class GoldRateFetchFailedException : GoldWithdrawException(
-    "GOLD_RATE_UNAVAILABLE", "Unable to fetch current gold rate for withdrawal", 502
+class InsufficientGoldBalanceException(val availableRupees: BigDecimal, val requiredRupees: BigDecimal) : GoldWithdrawException(
+    "INSUFFICIENT_GOLD_BALANCE", "Insufficient balance: available ₹$availableRupees, required ₹$requiredRupees", 402
 )
 
 @Service
 class GoldWithdrawService(
     private val goldWalletRepo: GoldWalletRepository,
     private val goldWithdrawRepo: GoldWithdrawRequestRepository,
-    private val investService: InvestService,
     private val walletService: WalletService,
     private val txManager: R2dbcTransactionManager
 ) {
@@ -68,32 +61,18 @@ class GoldWithdrawService(
         }
 
         val wallet = goldWalletRepo.findByUserId(userId)
-        if (wallet == null || wallet.totalGrams <= BigDecimal.ZERO) {
-            return Result.failure(InsufficientGoldBalanceException(BigDecimal.ZERO, req.amountRupees))
-        }
-
-        // Current gold sell rate fetch karo (withdraw = sell)
-        val rateResult = investService.getDisplayRates()
-        val goldRate = when (rateResult) {
-            is Result.Success -> rateResult.value.goldSellRate
-            is Result.Failure -> {
-                log.error("Failed to fetch gold rate for withdrawal, userId={}: {}", userId, rateResult.error.message)
-                return Result.failure(GoldRateFetchFailedException())
-            }
-        }
-
-        val goldGramsRequired = req.amountRupees.divide(goldRate, 6, RoundingMode.HALF_UP)
-        val availableRupeesValue = wallet.totalGrams.multiply(goldRate).setScale(2, RoundingMode.HALF_UP)
-
-        if (wallet.totalGrams < goldGramsRequired) {
-            return Result.failure(InsufficientGoldBalanceException(availableRupeesValue, req.amountRupees))
+        if (wallet == null || wallet.balanceRupees < req.amountRupees) {
+            val available = wallet?.balanceRupees ?: BigDecimal.ZERO
+            return Result.failure(InsufficientGoldBalanceException(available, req.amountRupees))
         }
 
         return txOperator.executeAndAwait {
-            // 1. Gold wallet se grams deduct karo
-            val rowsAffected = goldWalletRepo.atomicGramsUpdate(userId, goldGramsRequired.negate())
-            if (rowsAffected == 0) {
-                return@executeAndAwait Result.failure(InsufficientGoldBalanceException(availableRupeesValue, req.amountRupees))
+            // 1. Wallet se rupees deduct karo (atomic, balance check DB level pe bhi)
+            val deductedUserId = goldWalletRepo.deductBalance(userId, req.amountRupees)
+            if (deductedUserId == null) {
+                return@executeAndAwait Result.failure(
+                    InsufficientGoldBalanceException(wallet.balanceRupees, req.amountRupees)
+                )
             }
 
             // 2. Withdraw request log karo
@@ -101,8 +80,6 @@ class GoldWithdrawService(
                 GoldWithdrawRequestEntity(
                     userId = userId,
                     amountRupees = req.amountRupees,
-                    goldGramsDeducted = goldGramsRequired,
-                    goldRateAtWithdraw = goldRate,
                     status = "COMPLETED"
                 )
             )
@@ -113,27 +90,29 @@ class GoldWithdrawService(
                 walletType = "NBFC",
                 amount = req.amountRupees,
                 referenceType = "GOLD_WITHDRAW",
-                description = "Gold withdrawal — ${goldGramsRequired}g converted to cash",
+                description = "Gold coin withdrawal — ₹${req.amountRupees} converted to cash",
                 idempotencyKey = "gold_withdraw_${userId}_${System.currentTimeMillis()}"
             )
             if (creditResult is Result.Failure) {
                 log.error("Wallet credit failed during gold withdraw for userId={}: {}", userId, creditResult.error.message)
-                return@executeAndAwait Result.failure(GoldRateFetchFailedException()) // fallback, txn rollback ho jayega
+                return@executeAndAwait Result.failure(
+                    InsufficientGoldBalanceException(wallet.balanceRupees, req.amountRupees)
+                ) // fallback error, txn rollback ho jayega
             }
 
             val updatedWallet = goldWalletRepo.findByUserId(userId)!!
 
             log.info(
-                "Gold withdraw completed: userId={}, amountRupees=₹{}, goldGramsDeducted={}, remainingGrams={}",
-                userId, req.amountRupees, goldGramsRequired, updatedWallet.totalGrams
+                "Gold withdraw completed: userId={}, amountRupees=₹{}, remainingBalance=₹{}",
+                userId, req.amountRupees, updatedWallet.balanceRupees
             )
 
             Result.success(
                 GoldWithdrawResponse(
                     userId = userId,
                     amountRupees = req.amountRupees,
-                    goldGramsDeducted = goldGramsRequired,
-                    remainingGoldGrams = updatedWallet.totalGrams
+                    remainingBalanceRupees = updatedWallet.balanceRupees,
+                    remainingCoinCount = updatedWallet.coinCount
                 )
             )
         }!!

@@ -9,6 +9,7 @@ dependencies {
     api(project(":shared:security"))
     api(project(":shared:events"))
     api(project(":modules:invest"))
+    api(project(":modules:gold"))
     implementation(libs.spring.boot.starter.webflux)
     implementation(libs.spring.boot.starter.data.r2dbc)
     implementation(libs.spring.boot.starter.data.redis.reactive)

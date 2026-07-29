@@ -6,12 +6,14 @@ import '../../data/models/wallet_model.dart';
 import '../../data/repositories/wallet_repository.dart';
 import '../../data/repositories/user_repository.dart';
 import '../../data/repositories/recharge_repository.dart';
+import '../../data/repositories/gold_repository.dart';    
 import '../../core/services/storage_service.dart';
 
 class HomeViewModel extends ChangeNotifier {
   final WalletRepository _walletRepo = WalletRepository();
   final UserRepository _userRepo = UserRepository();
   final RechargeRepository _rechargeRepo = RechargeRepository();
+  final GoldRepository _goldRepo = GoldRepository();     
 
   bool _isLoading = false;
   String? _error;
@@ -25,6 +27,7 @@ class HomeViewModel extends ChangeNotifier {
   WalletBalance? _walletBalance;
   List<TransactionModel> _transactions = [];
   ActiveRechargeResult? _activeRecharge;
+  GoldWalletResult? _goldWallet;         
 
   bool get isLoading => _isLoading;
   String? get error => _error;
@@ -33,6 +36,13 @@ class HomeViewModel extends ChangeNotifier {
   UserModel get user => _user;
   List<Map<String, String>> get offers => _offers;
   ActiveRechargeResult? get activeRecharge => _activeRecharge;
+
+  /// Gold coin count for the home header popup. 0 if not yet loaded / no
+  /// rewards earned -- never null, so UI doesn't need extra null checks.
+  int get goldCoinCount => _goldWallet?.coinCount ?? 0;          // ← ADD
+
+  /// Rupee value of accumulated gold coins.
+  double get goldBalanceRupees => _goldWallet?.balanceRupees ?? 0.0;  // ← ADD
 
   /// Primary spendable balance (NBFC wallet).
   double get walletBalance =>
@@ -72,6 +82,7 @@ class HomeViewModel extends ChangeNotifier {
       _walletBalance = null;
       _transactions = [];
       _activeRecharge = null;
+      _goldWallet = null;     
       _profileLoadFailed = false;
       _isLoading = false;
       notifyListeners();
@@ -85,6 +96,7 @@ class HomeViewModel extends ChangeNotifier {
       _loadBalance(),
       _loadTransactions(),
       _loadActiveRecharge(),
+      _loadGoldWallet(),   
     ]);
 
     _isLoading = false;
@@ -130,6 +142,28 @@ class HomeViewModel extends ChangeNotifier {
       debugPrint('Home: active recharge load failed: $e');
       _activeRecharge = null;
     }
+  }
+
+   // Gold wallet load failure shouldn't block the rest of the home screen --
+  // same isolated-failure pattern as the other _load* methods. Falls back
+  // to 0 coins / ₹0 via the getters' null-coalescing.
+  Future<void> _loadGoldWallet() async {                        // ← ADD
+    try {
+      _goldWallet = await _goldRepo.getWallet();
+    } catch (e) {
+      debugPrint('Home: gold wallet load failed: $e');
+      _goldWallet = null;
+    }
+  }
+
+  /// Call after a successful withdrawal so the header popup reflects the
+  /// new balance without a full home reload.
+  void updateGoldWalletAfterWithdraw(GoldWithdrawResult result) {  // ← ADD
+    _goldWallet = GoldWalletResult(
+      coinCount: result.remainingCoinCount,
+      balanceRupees: result.remainingBalanceRupees,
+    );
+    notifyListeners();
   }
 
   String _cleanError(Object e) =>

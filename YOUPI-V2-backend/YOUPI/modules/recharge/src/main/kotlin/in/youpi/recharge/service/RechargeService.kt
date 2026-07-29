@@ -3,6 +3,7 @@ package `in`.youpi.recharge.service
 import `in`.youpi.core.Result
 import `in`.youpi.core.razorpay.RazorpayClient
 import `in`.youpi.core.razorpay.RazorpayOrderCreationException
+import `in`.youpi.gold.GoldRewardService
 import `in`.youpi.invest.service.InvestService
 import `in`.youpi.recharge.a1topup.A1TopupClient
 import `in`.youpi.recharge.domain.*
@@ -41,6 +42,7 @@ class RechargeService(
     private val investService: InvestService,                   // ← recharge → auto gold-invest ke liye
     private val razorpayClient: RazorpayClient,
     private val a1topupClient: A1TopupClient,
+    private val goldRewardService: GoldRewardService,
     @Value("\${mplan.api.key}") private val mplanApiKey: String,
     @Value("\${mplan.api.plans-url}") private val mplanPlansUrl: String,
     @Value("\${mplan.api.mobile-plans-url}") private val mplanMobilePlansUrl: String,
@@ -528,6 +530,21 @@ class RechargeService(
             val expiryDate = LocalDate.now().plusDays(order.planValidityDays.toLong())
             rechargeRepo.setExpiryDate(updatedOrder.id!!, expiryDate)
             log.info("Recharge expiry set: orderId={}, expiryDate={}", updatedOrder.id, expiryDate)
+        }
+
+        if (updatedOrder.status == "RECHARGE_SUCCESS") {
+            try {
+                goldRewardService.creditRewardForRecharge(
+                    userId = order.userId,
+                    rechargeTxnId = razorpayOrderId,
+                    rechargeAmount = updatedOrder.planAmount
+                )
+            } catch (e: Exception) {
+                // Non-fatal by design -- same reasoning as gold auto-invest
+                // below: recharge already succeeded, a reward-crediting
+                // failure shouldn't roll that back.
+                log.error("Gold coin reward credit failed (non-fatal): orderId={}", updatedOrder.id, e)
+            }
         }
 
         // ── Auto gold-invest — ₹249 plan only, non-fatal ──
