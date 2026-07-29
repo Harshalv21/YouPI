@@ -192,10 +192,19 @@ class _HomeScreenState extends State<HomeScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text('My Portfolio', style: AppTextStyles.headlineSmall),
+                      // Disabled: Portfolio view isn't ready yet.
+                      // onPressed: null makes the button visually dull
+                      // (Flutter's default disabled styling) and completely
+                      // non-interactive -- taps are ignored automatically,
+                      // no need for a separate locked/onTap check like the
+                      // ComingSoonOverlay pattern used elsewhere on this page.
                       TextButton(
-                        onPressed: () => ctx.push('/invest/portfolio'),
+                        onPressed: null,
                         child: Text('View all',
-                            style: AppTextStyles.tealLink.copyWith(decoration: TextDecoration.none)),
+                            style: AppTextStyles.tealLink.copyWith(
+                              decoration: TextDecoration.none,
+                              color: AppColors.textSecondary,
+                            )),
                       ),
                     ],
                   ),

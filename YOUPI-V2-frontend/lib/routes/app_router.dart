@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import '../core/widgets/coming_soon_dialog.dart';
 import '../core/services/storage_service.dart';
 import '../presentation/splash/splash_screen.dart';
 import '../presentation/onboarding/welcome_screen.dart';
@@ -176,7 +177,20 @@ class _MainShellState extends State<MainShell> {
       bottomNavigationBar: _YoupiBottomNav(
         // -1 => no tab highlighted (valid for bnpl and other shell-but-not-tab routes)
         currentIndex: matchedIndex,
-        onTap: (i) => context.go(_tabRoutes[i]),
+        onTap: (i) {
+          // Invest and Wallet tabs aren't ready yet -- show a "Coming Soon"
+          // popup instead of navigating into a screen that isn't ready, and
+          // don't change the active tab since we're not actually navigating.
+          if (i == 2) {
+            showComingSoonDialog(context, featureName: 'Invest');
+            return;
+          }
+          if (i == 3) {
+            showComingSoonDialog(context, featureName: 'Wallet');
+            return;
+          }
+          context.go(_tabRoutes[i]);
+        },
       ),
     );
   }
