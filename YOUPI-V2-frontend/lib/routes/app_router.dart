@@ -133,7 +133,13 @@ class AppRouter {
         routes: [
           GoRoute(
             path: '/dashboard/home',
-            builder: (c, s) => HomeScreen(justEarnedCoin: (s.extra as Map?)?['justEarnedCoin'] == true),
+            builder: (c, s) {
+              final extra = s.extra as Map?;
+              return HomeScreen(
+                justEarnedCoin: extra?['justEarnedCoin'] == true,
+                debugBumpCoin: extra?['debugBumpCoin'] == true,
+              );
+            },
           ),
           GoRoute(path: '/dashboard/plans', builder: (c, s) => const RechargeHomeScreen()),
           GoRoute(path: '/dashboard/invest', builder: (c, s) => const InvestHubScreen()),

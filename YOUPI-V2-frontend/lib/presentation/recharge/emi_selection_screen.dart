@@ -6,7 +6,6 @@ import '../../core/constants/app_dimensions.dart';
 import '../../core/constants/app_text_styles.dart';
 import '../../core/widgets/youpi_button.dart';
 import '../../core/widgets/youpi_card.dart';
-import '../../core/services/storage_service.dart';
 import 'gold_coin_reward_screen.dart';
 import 'recharge_viewmodel.dart';
 
@@ -88,15 +87,21 @@ class EmiSelectionScreen extends StatelessWidget {
                   if (_previewAnimationOnly) {
                     // Bypasses payAndConfirm() entirely -- no order created,
                     // no Razorpay Checkout opened, no backend call at all.
-                    // Increment still happens for real (local persistence),
-                    // so repeated preview taps genuinely go 1 -> 2 -> 3...
-                    // matching what real recharges will do once this
-                    // toggle is off.
-                    await StorageService.incrementGoldCoin(plan.price * 0.01);
+                    // NOTE: since real gold-crediting now happens via the
+                    // backend webhook hook (RechargeService ->
+                    // GoldRewardService), this preview path does NOT
+                    // increment any real coin count -- it's purely a visual
+                    // animation preview. To see the badge update for real,
+                    // test with _previewAnimationOnly = false and an actual
+                    // successful recharge (one that reaches RECHARGE_SUCCESS,
+                    // not just PAYMENT_DONE/REFUNDED).
                     await showGoldCoinReward(
                       ctx,
                       plan.price,
-                      onNavigateHome: () => ctx.go('/dashboard/home', extra: {'justEarnedCoin': true}),
+                      onNavigateHome: () => ctx.go(
+                        '/dashboard/home',
+                        extra: {'justEarnedCoin': true, 'debugBumpCoin': true},
+                      ),
                     );
                     return;
                   }
@@ -106,9 +111,11 @@ class EmiSelectionScreen extends StatelessWidget {
                   if (ok) {
                     // Matches backend's GOLD_ELIGIBLE_PLAN_AMOUNT (>= ₹249,
                     // see RechargeService.kt) -- only qualifying recharges
-                    // get the coin-toss celebration + increment.
+                    // get the coin-toss celebration. Coin crediting itself
+                    // happens server-side via the webhook hook -- this just
+                    // plays the celebratory animation, it doesn't credit
+                    // anything client-side.
                     if (plan.price >= 249) {
-                      await StorageService.incrementGoldCoin(plan.price * 0.01);
                       await showGoldCoinReward(
                         ctx,
                         plan.price,

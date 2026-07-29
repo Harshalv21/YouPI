@@ -6,14 +6,17 @@ import '../../data/models/wallet_model.dart';
 import '../../data/repositories/wallet_repository.dart';
 import '../../data/repositories/user_repository.dart';
 import '../../data/repositories/recharge_repository.dart';
+import '../../data/repositories/gold_repository.dart';
 import '../../core/services/storage_service.dart';
 
 class HomeViewModel extends ChangeNotifier {
   final WalletRepository _walletRepo = WalletRepository();
   final UserRepository _userRepo = UserRepository();
   final RechargeRepository _rechargeRepo = RechargeRepository();
+  final GoldRepository _goldRepo = GoldRepository();
 
   bool _isLoading = false;
+  bool _hasLoadedOnce = false;
   String? _error;
   bool _profileLoadFailed = false;
   bool _isGuest = false;
@@ -25,21 +28,58 @@ class HomeViewModel extends ChangeNotifier {
   WalletBalance? _walletBalance;
   List<TransactionModel> _transactions = [];
   ActiveRechargeResult? _activeRecharge;
-  int _goldCoinCount = 0;
-  double _goldCoinValue = 0.0;
+  GoldWalletResult? _goldWallet;
+  // DEBUG-ONLY -- purely in-memory, never persisted anywhere, never touches
+  // the backend. Exists solely so the badge pop-in animation can be
+  // previewed while the real gold_wallet table is empty (confirmed via
+  // direct DB check -- no recharge has reached RECHARGE_SUCCESS yet, so
+  // there's no real data to show). ONLY ever set from the preview-mode
+  // branch in emi_selection_screen.dart -- never from the real payment
+  // path, so this can never be mistaken for or interfere with real data.
+  int? _debugCoinBump;
 
   bool get isLoading => _isLoading;
+  // Only true on the very first load -- used to gate the full-screen
+  // shimmer. Was previously shown on EVERY pull-to-refresh too, wiping
+  // already-visible content back to a skeleton every time, even though
+  // the RefreshIndicator's own spinner already communicates "updating."
+  bool get isFirstLoad => _isLoading && !_hasLoadedOnce;
   String? get error => _error;
   bool get isShowingMockProfile => _profileLoadFailed;
   bool get isGuest => _isGuest;
   UserModel get user => _user;
   List<Map<String, String>> get offers => _offers;
   ActiveRechargeResult? get activeRecharge => _activeRecharge;
-  // TEMPORARY: local-persisted stand-in for the real backend gold-reward
-  // total (see StorageService.getGoldCoinCount doc comment) -- this is
-  // the REAL, cumulative, incrementing count now, not a hardcoded 1.
-  int get goldCoinCount => _goldCoinCount;
-  double get goldCoinValue => _goldCoinValue;
+
+  /// Gold coin count for the home header popup. 0 if not yet loaded / no
+  /// rewards earned -- never null, so UI doesn't need extra null checks.
+  /// Real backend data now (via GoldRepository), not a local stand-in.
+  int get goldCoinCount => _debugCoinBump ?? (_goldWallet?.coinCount ?? 0);
+
+  /// DEBUG-ONLY -- increments the preview-only counter by 1 so you can see
+  /// the badge's pop-in animation run repeatedly (1, 2, 3...) without a
+  /// real backend credit. Never call this from the real payment path.
+  void debugBumpGoldCoinForPreview() {
+    _debugCoinBump = (_debugCoinBump ?? (_goldWallet?.coinCount ?? 0)) + 1;
+    notifyListeners();
+  }
+
+  /// Clears any leftover debug bump from earlier preview testing. Called
+  /// on every Home arrival that ISN'T itself a preview bump (see
+  /// home_screen.dart) -- without this, testing preview mode once and
+  /// then later getting a REAL successful recharge in the same app
+  /// session would leave the stale fake number stuck on screen forever,
+  /// masking the real backend value. Only an app restart would have
+  /// cleared it otherwise.
+  void clearDebugCoinBump() {
+    if (_debugCoinBump != null) {
+      _debugCoinBump = null;
+      notifyListeners();
+    }
+  }
+
+  /// Rupee value of accumulated gold coins.
+  double get goldBalanceRupees => _goldWallet?.balanceRupees ?? 0.0;
 
   /// Primary spendable balance (NBFC wallet).
   double get walletBalance =>
@@ -79,10 +119,10 @@ class HomeViewModel extends ChangeNotifier {
       _walletBalance = null;
       _transactions = [];
       _activeRecharge = null;
-      _goldCoinCount = 0;
-      _goldCoinValue = 0.0;
+      _goldWallet = null;
       _profileLoadFailed = false;
       _isLoading = false;
+      _hasLoadedOnce = true;
       notifyListeners();
       return;
     }
@@ -94,10 +134,11 @@ class HomeViewModel extends ChangeNotifier {
       _loadBalance(),
       _loadTransactions(),
       _loadActiveRecharge(),
-      _loadGoldCoins(),
+      _loadGoldWallet(),
     ]);
 
     _isLoading = false;
+    _hasLoadedOnce = true;
     notifyListeners();
   }
 
@@ -142,13 +183,26 @@ class HomeViewModel extends ChangeNotifier {
     }
   }
 
-  Future<void> _loadGoldCoins() async {
+  // Gold wallet load failure shouldn't block the rest of the home screen --
+  // same isolated-failure pattern as the other _load* methods. Falls back
+  // to 0 coins / ₹0 via the getters' null-coalescing.
+  Future<void> _loadGoldWallet() async {
     try {
-      _goldCoinCount = await StorageService.getGoldCoinCount();
-      _goldCoinValue = await StorageService.getGoldCoinValue();
+      _goldWallet = await _goldRepo.getWallet();
     } catch (e) {
-      debugPrint('Home: gold coin count load failed: $e');
+      debugPrint('Home: gold wallet load failed: $e');
+      _goldWallet = null;
     }
+  }
+
+  /// Call after a successful withdrawal so the header popup reflects the
+  /// new balance without a full home reload.
+  void updateGoldWalletAfterWithdraw(GoldWithdrawResult result) {
+    _goldWallet = GoldWalletResult(
+      coinCount: result.remainingCoinCount,
+      balanceRupees: result.remainingBalanceRupees,
+    );
+    notifyListeners();
   }
 
   String _cleanError(Object e) =>

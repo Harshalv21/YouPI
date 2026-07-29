@@ -10,18 +10,23 @@ import '../../core/widgets/coming_soon_overlay.dart';
 import '../../core/widgets/shimmer_loader.dart';
 import '../../core/widgets/youpi_card.dart';
 import '../../data/repositories/recharge_repository.dart';
+import '../../data/repositories/gold_repository.dart';
 import 'home_viewmodel.dart';
 
 class HomeScreen extends StatefulWidget {
   // Set true only when navigated here right after a qualifying recharge
   // (see emi_selection_screen.dart) -- lets this screen play the
-  // coin-collect sound exactly once, on that specific arrival, instead of
-  // guessing "did the coin count just increase" from Provider state alone.
-  // Does NOT control what number is shown -- that always comes from the
-  // real persisted HomeViewModel.goldCoinCount/goldCoinValue, loaded
-  // fresh on every visit (see _loadGoldCoins in home_viewmodel.dart).
+  // coin-collect sound exactly once, on that specific arrival. Does NOT
+  // control what number is shown -- that always comes from the real
+  // backend-connected HomeViewModel.goldCoinCount/goldBalanceRupees.
   final bool justEarnedCoin;
-  const HomeScreen({super.key, this.justEarnedCoin = false});
+  // DEBUG-ONLY -- set true only from the PREVIEW-mode branch in
+  // emi_selection_screen.dart. Triggers a fake, in-memory-only badge
+  // increment (see HomeViewModel.debugBumpGoldCoinForPreview) so the pop
+  // animation can be tested while the real gold_wallet table is empty.
+  // Never set this from the real payment path.
+  final bool debugBumpCoin;
+  const HomeScreen({super.key, this.justEarnedCoin = false, this.debugBumpCoin = false});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -36,6 +41,14 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<HomeViewModel>().loadHome();
+      if (widget.debugBumpCoin) {
+        context.read<HomeViewModel>().debugBumpGoldCoinForPreview();
+      } else {
+        // Guards against a stale preview-test number masking a real
+        // credit later in the same app session (see clearDebugCoinBump
+        // doc comment in home_viewmodel.dart).
+        context.read<HomeViewModel>().clearDebugCoinBump();
+      }
       if (widget.justEarnedCoin) {
         // Fire-and-forget -- never let a sound failure affect the actual
         // screen/data loading above.
@@ -56,7 +69,7 @@ class _HomeScreenState extends State<HomeScreen> {
       return Scaffold(
         backgroundColor: AppColors.backgroundPrimary,
         body: SafeArea(
-          child: vm.isLoading
+          child: vm.isFirstLoad
               ? const ShimmerList(itemCount: 5, itemHeight: 100)
               : RefreshIndicator(
             color: AppColors.primary,
@@ -68,11 +81,6 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Was previously invisible: if the real profile fetch
-                  // failed, the screen silently showed mock data with no
-                  // indication anything was wrong. This banner makes that
-                  // state visible instead of looking like "the app is just
-                  // showing wrong numbers for no reason."
                   if (vm.isShowingMockProfile)
                     Container(
                       margin: const EdgeInsets.only(bottom: 12),
@@ -114,17 +122,9 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                       // YouPi Gold Coin -- replaces the old notification bell.
-                      // TEMPORARY (this version): tapping shows accumulated
-                      // recharge reward as YouPi Coins. Augmont gram-conversion
-                      // comes in the next version.
-                      // Left as TODO/0 deliberately -- backend gold-reward
-                      // hook (RechargeService -> GoldRewardService) isn't
-                      // wired yet per the Gold Coin status report, so wiring
-                      // this to the real endpoint now would just show 0
-                      // anyway while carrying risk of guessing wrong
-                      // response field names against an API that's still
-                      // mid-refactor (coin_count/balance_rupees migration).
-                      // Wire once that backend work lands.
+                      // Now wired to the REAL backend (GoldRepository via
+                      // HomeViewModel.goldCoinCount/goldBalanceRupees) --
+                      // no longer a local stand-in.
                       _GoldRewardCoin(
                         amount: _goldRewardBalance(vm),
                         coinCount: _goldCoinCount(vm),
@@ -132,9 +132,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   ),
                   const SizedBox(height: 20),
-                  // Balance card -- locked: this card is being repositioned as
-                  // "Credit Limit" (NBFC-backed) per director direction, not
-                  // ready yet. See conversation notes.
                   ComingSoonOverlay(
                     iconSize: 26,
                     labelFontSize: 13,
@@ -194,10 +191,6 @@ class _HomeScreenState extends State<HomeScreen> {
                       children: [
                         _QuickAction('Recharge', Icons.wifi_rounded, () => ctx.go('/dashboard/plans')),
                         _QuickAction('Smart Saver', Icons.savings_rounded, () => ctx.push('/plans/smartsave'), locked: true),
-                        // Was unlocked despite the backend blocking
-                        // /v1/wallet/** with 403 FEATURE_DISABLED -- tapping
-                        // this used to take users into a screen where every
-                        // API call would just fail. Locked to match reality.
                         _QuickAction('Wallet', Icons.account_balance_wallet_rounded, () => ctx.go('/dashboard/wallet'), locked: true),
                         _QuickAction('Gold', Icons.monetization_on_rounded, () => ctx.push('/invest/gold'), locked: true),
                         _QuickAction('FD Invest', Icons.trending_up_rounded, () => ctx.push('/invest/fd'), locked: true),
@@ -212,10 +205,17 @@ class _HomeScreenState extends State<HomeScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text('My Portfolio', style: AppTextStyles.headlineSmall),
+                      // Disabled: Portfolio view isn't ready yet (teammate's
+                      // change). onPressed: null makes it visually dull and
+                      // non-interactive automatically -- no separate locked/
+                      // onTap check needed like the ComingSoonOverlay pattern.
                       TextButton(
-                        onPressed: () => ctx.push('/invest/portfolio'),
+                        onPressed: null,
                         child: Text('View all',
-                            style: AppTextStyles.tealLink.copyWith(decoration: TextDecoration.none)),
+                            style: AppTextStyles.tealLink.copyWith(
+                              decoration: TextDecoration.none,
+                              color: AppColors.textSecondary,
+                            )),
                       ),
                     ],
                   ),
@@ -233,13 +233,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   ),
                   const SizedBox(height: 24),
-                  // Bills & recharges -- GPay-style layout. Only Mobile
-                  // Recharge is live this version; Postpaid/DTH/Electricity/
-                  // Credit Cards are shown so users know they're coming, not
-                  // hidden entirely, gated with the same ComingSoonOverlay
-                  // pattern used elsewhere. Placed directly above Active
-                  // Recharge -- these two belong together conceptually
-                  // (browse/pay a bill, see its current status).
+                  // Bills & recharges
                   Text('Bills & Recharges', style: AppTextStyles.headlineSmall),
                   const SizedBox(height: 12),
                   GridView.count(
@@ -258,12 +252,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   ),
                   const SizedBox(height: 24),
-                  // Active recharge -- shows the user's real currently-active
-                  // plan (status + end date) once vm.activeRecharge loads
-                  // (backed by the new GET /v1/recharge/active endpoint),
-                  // falling back to the original placeholder when there's
-                  // none. Same card is meant to extend to DTH/Postpaid once
-                  // those ship.
+                  // Active recharge
                   Text('Active Recharge', style: AppTextStyles.headlineSmall),
                   const SizedBox(height: 12),
                   vm.activeRecharge != null
@@ -306,7 +295,6 @@ class _HomeScreenState extends State<HomeScreen> {
                       separatorBuilder: (_, __) => const SizedBox(width: 12),
                       itemBuilder: (ctx, i) {
                         final offer = vm.offers[i];
-                        // Lock the "BNPL Boost" offer with a Coming Soon overlay.
                         final isLocked = (offer['title'] ?? '')
                             .toLowerCase()
                             .contains('bnpl boost');
@@ -324,14 +312,9 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  // TODO(backend): replace this with the real accumulated gold-reward total
-  // once RechargeService's webhook handler is hooked up to GoldRewardService
-  // (see YouPI_GoldCoin_Status_Report.pdf -- "NOT DONE YET" as of last
-  // status check). Until then, reads the REAL, cumulative, incrementing
-  // local-persisted count (StorageService.getGoldCoinCount) -- not a
-  // hardcoded 1 anymore. Increments correctly across every qualifying
-  // recharge, survives app restarts.
-  double _goldRewardBalance(HomeViewModel vm) => vm.goldCoinValue;
+  // Real backend data now (via GoldRepository -> HomeViewModel), not the
+  // earlier local StorageService stand-in.
+  double _goldRewardBalance(HomeViewModel vm) => vm.goldBalanceRupees;
 
   int _goldCoinCount(HomeViewModel vm) => vm.goldCoinCount;
 }
@@ -349,9 +332,6 @@ class _GoldRewardCoin extends StatelessWidget {
       onTap: () => showDialog(
         context: context,
         barrierColor: Colors.black87,
-        // Untouched -- teammate's existing coin-count/withdraw popup,
-        // exactly as built. Anything beyond count + withdraw (history,
-        // breakdown, etc.) is a next-version concern, not touched here.
         builder: (_) => _GoldRewardPopup(amount: amount, coinCount: coinCount),
       ),
       child: SizedBox(
@@ -366,12 +346,6 @@ class _GoldRewardCoin extends StatelessWidget {
               errorBuilder: (_, __, ___) =>
               const Icon(Icons.monetization_on_rounded, color: AppColors.secondary, size: 36),
             ),
-            // Badge only appears once there's actually something to show --
-            // stays hidden entirely at 0 rather than showing "0". Animates
-            // in with a slight overshoot pop whenever coinCount changes
-            // (e.g. right after landing here from a qualifying recharge),
-            // via TweenAnimationBuilder keyed implicitly by coinCount --
-            // no separate AnimationController needed for this small a case.
             if (coinCount > 0)
               Positioned(
                 top: -2,
@@ -410,9 +384,8 @@ class _GoldRewardCoin extends StatelessWidget {
 }
 
 /// Gold Reward popup -- shows accumulated YouPi Coins with a Withdraw
-/// button. Minimum withdrawal is ₹50 (based on the coins' rupee value);
-/// below that an inline error is shown. At/above ₹50 the value is credited
-/// to the wallet.
+/// button. Minimum withdrawal is ₹50. Now calls the REAL /v1/gold/withdraw
+/// API via GoldRepository (teammate's work) -- was a 400ms mock before.
 class _GoldRewardPopup extends StatefulWidget {
   final double amount;
   final int coinCount;
@@ -438,18 +411,29 @@ class _GoldRewardPopupState extends State<_GoldRewardPopup> {
       _busy = true;
     });
 
-    // TODO(backend): call withdraw API -> credits `widget.amount` to wallet.
-    // await context.read<HomeViewModel>().withdrawGoldReward();
-    await Future<void>.delayed(const Duration(milliseconds: 400)); // mock
+    try {
+      final result = await GoldRepository().withdraw(widget.amount);
 
-    if (!mounted) return;
-    setState(() => _busy = false);
-    Navigator.of(context).pop();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('${CurrencyFormatter.format(widget.amount)} credited to wallet'),
-      ),
-    );
+      if (!mounted) return;
+
+      // Update the home viewmodel's cached balance so the header badge/
+      // popup reflect the new state without a full home reload.
+      context.read<HomeViewModel>().updateGoldWalletAfterWithdraw(result);
+
+      setState(() => _busy = false);
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${CurrencyFormatter.format(result.amountRupees)} credited to wallet'),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = e.toString().replaceFirst('Exception: ', '');
+      });
+    }
   }
 
   @override
@@ -536,7 +520,6 @@ class _ActiveRechargeCard extends StatelessWidget {
   final ActiveRechargeResult recharge;
   const _ActiveRechargeCard(this.recharge);
 
-  // Plain Dart formatting, no intl dependency -- e.g. "12 Aug 2026".
   static const _months = [
     'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
