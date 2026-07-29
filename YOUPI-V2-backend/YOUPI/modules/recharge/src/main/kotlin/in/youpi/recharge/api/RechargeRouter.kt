@@ -61,7 +61,12 @@ class RechargeRouter(private val rechargeService: RechargeService) {
                 description = "Returns paginated recharge order history for the authenticated user.",
                 tags = ["Recharge"],
                 parameters = [Parameter(name = "page", description = "Page number (0-based)", required = false)],
-                responses = [SwaggerApiResponse(responseCode = "200", description = "List of past recharge orders")]))
+                responses = [SwaggerApiResponse(responseCode = "200", description = "List of past recharge orders")])),
+        RouterOperation(path = "/v1/recharge/active", method = [RequestMethod.GET],
+            operation = Operation(operationId = "getActiveRecharge", summary = "Get current active recharge",
+                description = "Returns the user's currently active (not-yet-expired) recharge for the home screen status card, or null if none.",
+                tags = ["Recharge"],
+                responses = [SwaggerApiResponse(responseCode = "200", description = "Active recharge, or null")]))
     )
     fun rechargeRoutes() = coRouter {
         "/v1/recharge".nest {
@@ -70,6 +75,7 @@ class RechargeRouter(private val rechargeService: RechargeService) {
             POST("/order/{orderId}/confirm") { handleConfirmOrder(it) }
             GET("/order/{orderId}") { handleGetOrderStatus(it) }
             GET("/history") { handleHistory(it) }
+            GET("/active") { handleGetActiveRecharge(it) }
         }
     }
 
@@ -123,5 +129,12 @@ class RechargeRouter(private val rechargeService: RechargeService) {
         val history = rechargeService.getOrderHistory(userId, page)
         return ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
             .bodyValueAndAwait(ApiResponse.ok(history))
+    }
+
+    private suspend fun handleGetActiveRecharge(request: ServerRequest): ServerResponse {
+        val userId = request.currentUserId()
+        val active = rechargeService.getActiveRecharge(userId)
+        return ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
+            .bodyValueAndAwait(ApiResponse.ok(active))
     }
 }

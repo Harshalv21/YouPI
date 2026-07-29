@@ -19,7 +19,6 @@ import '../presentation/kyc/kyc_success_screen.dart';
 import '../presentation/dashboard/home_screen.dart';
 import '../presentation/recharge/recharge_home_screen.dart';
 import '../presentation/recharge/browse_plans_screen.dart';
-import '../presentation/recharge/plan_search_filter_screen.dart';
 import '../presentation/recharge/smartsave_advantage_screen.dart';
 import '../presentation/recharge/emi_selection_screen.dart';
 import '../presentation/recharge/recharge_success_screen.dart';
@@ -104,7 +103,6 @@ class AppRouter {
         ],
       ),
       GoRoute(path: '/plans/browse', builder: (c, s) => const BrowsePlansScreen()),
-      GoRoute(path: '/plans/search', builder: (c, s) => const PlanSearchFilterScreen()),
       GoRoute(path: '/plans/smartsave', builder: (c, s) => const SmartSaveAdvantageScreen()),
       GoRoute(path: '/plans/emi-select', builder: (c, s) => const EmiSelectionScreen()),
       GoRoute(path: '/plans/success', builder: (c, s) => const RechargeSuccessScreen()),

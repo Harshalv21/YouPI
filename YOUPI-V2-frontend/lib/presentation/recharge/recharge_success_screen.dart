@@ -25,9 +25,9 @@ class _RechargeSuccessScreenState extends State<RechargeSuccessScreen>
     super.initState();
     _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 800));
     _scaleAnim = Tween<double>(begin: 0, end: 1).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.elasticOut));
+        CurvedAnimation(parent: _controller, curve: Curves.elasticOut));
     _fadeAnim = Tween<double>(begin: 0, end: 1).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeIn));
+        CurvedAnimation(parent: _controller, curve: Curves.easeIn));
     _controller.forward();
   }
 
@@ -77,25 +77,13 @@ class _RechargeSuccessScreenState extends State<RechargeSuccessScreen>
                           child: Column(children: [
                             _InfoRow('Mobile', '+91 ${vm.mobile}'),
                             const Divider(color: AppColors.divider, height: 20),
-                            _InfoRow('Amount Paid', '₹${vm.selectedEmi?.monthlyAmount.toStringAsFixed(0) ?? plan.price.toStringAsFixed(0)}'),
+                            _InfoRow('Amount Paid', '₹${plan.price.toStringAsFixed(0)}'),
                             const Divider(color: AppColors.divider, height: 20),
                             _InfoRow('Plan', plan.name),
                             const Divider(color: AppColors.divider, height: 20),
                             _InfoRow('Status', 'SUCCESS', valueColor: AppColors.success),
                           ]),
                         ),
-                        if (vm.selectedEmi != null) ...[
-                          const SizedBox(height: 12),
-                          YoupiCard(
-                            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                              Text('EMI Schedule',
-                                  style: AppTextStyles.labelLarge.copyWith(color: AppColors.primary)),
-                              const SizedBox(height: 8),
-                              Text('${vm.selectedEmi!.months}x ₹${vm.selectedEmi!.monthlyAmount.toStringAsFixed(0)}/month',
-                                  style: AppTextStyles.bodyMedium),
-                            ]),
-                          ),
-                        ],
                       ],
                     ],
                   ),

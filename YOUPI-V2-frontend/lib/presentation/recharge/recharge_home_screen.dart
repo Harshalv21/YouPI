@@ -36,7 +36,10 @@ class _RechargeHomeScreenState extends State<RechargeHomeScreen> {
           actions: [
             IconButton(
               icon: const Icon(Icons.search_rounded),
-              onPressed: () => ctx.push('/plans/search'),
+              // Was '/plans/search' -- that screen's filter chips were
+              // non-functional and duplicated this Browse Plans screen.
+              // Consolidated to one working plans screen.
+              onPressed: () => ctx.push('/plans/browse'),
             )
           ],
         ),
@@ -86,30 +89,10 @@ class _RechargeHomeScreenState extends State<RechargeHomeScreen> {
                 ],
               ),
               const SizedBox(height: 20),
-              // EMI banner
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: AppColors.backgroundCard,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.primary.withOpacity(0.3)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Pay via EMI', style: AppTextStyles.labelLarge),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        _EmiChip('3 EMI × ₹116', true),
-                        const SizedBox(width: 8),
-                        _EmiChip('6 EMI × ₹60', false),
-                      ],
-                    )
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
+              // EMI banner + cashback banner removed -- full-amount-only for
+              // this version, per launch scope. No payment-mode picker
+              // offered anywhere in the recharge flow now (see
+              // emi_selection_screen.dart, which always confirms FULL).
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -165,34 +148,12 @@ class _RechargeHomeScreenState extends State<RechargeHomeScreen> {
                         children: [
                           Text('₹${plan.price.toStringAsFixed(0)}',
                               style: AppTextStyles.headlineSmall.copyWith(color: AppColors.primary)),
-                          if (plan.hasEmi)
-                            Text('EMI from ₹${plan.emiOptions.first.monthlyAmount.toStringAsFixed(0)}/mo',
-                                style: AppTextStyles.captionText),
                         ],
                       ),
                     ],
                   ),
                 ),
               )).toList(),
-              // Bottom offer banner
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [AppColors.primary.withOpacity(0.15), AppColors.backgroundCard],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.primary.withOpacity(0.3)),
-                ),
-                child: Row(children: [
-                  const Icon(Icons.local_offer_rounded, color: AppColors.primary),
-                  const SizedBox(width: 10),
-                  Expanded(child: Text('Special Offer — Get 10% Cashback on EMI Recharges',
-                      style: AppTextStyles.bodySmall.copyWith(color: AppColors.textPrimary))),
-                ]),
-              ),
             ],
           ),
         ),
@@ -201,29 +162,6 @@ class _RechargeHomeScreenState extends State<RechargeHomeScreen> {
   }
 }
 
-class _EmiChip extends StatelessWidget {
-  final String label;
-  final bool isSelected;
-  const _EmiChip(this.label, this.isSelected);
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      decoration: BoxDecoration(
-        color: isSelected ? AppColors.primary : AppColors.backgroundSurface,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: isSelected ? AppColors.primary : AppColors.divider),
-      ),
-      child: Text(
-        label,
-        style: AppTextStyles.chipText.copyWith(
-          color: isSelected ? AppColors.backgroundPrimary : AppColors.textPrimary,
-        ),
-      ),
-    );
-  }
-}
 void _showEditMobileDialog(BuildContext context, RechargeViewModel vm) {
   final ctrl = TextEditingController(text: vm.mobile);
   showDialog(

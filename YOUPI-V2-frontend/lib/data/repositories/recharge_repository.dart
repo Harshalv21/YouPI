@@ -7,6 +7,7 @@
 //   GET  /v1/recharge/order/{orderId}
 //   POST /v1/recharge/order/{orderId}/confirm   (status-check only now, see below)
 //   GET  /v1/recharge/history
+//   GET  /v1/recharge/active
 
 import 'package:dio/dio.dart';
 import '../../core/services/api_service.dart';
@@ -52,18 +53,16 @@ class RechargeRepository {
   /// Creates the Razorpay order for a recharge on the backend. Returns the
   /// fields the Razorpay Checkout SDK needs (razorpayOrderId, amount, keyId)
   /// plus our internal orderId to poll status against afterwards.
-  ///
-  /// NOTE: this only creates the order -- it does NOT open the Razorpay
-  /// payment sheet. `razorpay_flutter` isn't wired into this app anywhere
-  /// yet (checked across the whole codebase), so actually collecting
-  /// payment is a separate integration step. Wire that before calling this
-  /// in production, otherwise you'll create orders that never get paid.
   Future<RechargeOrderResult> createOrder({
     required String mobileNumber,
     required String operator,
     required String circle,
     required String planId,
     required double planAmount,
+    // Needed so the backend can compute expiry_date once the recharge
+    // succeeds -- without this, "Active Recharge" on the home screen has
+    // no way to know when the plan actually expires.
+    required int validityDays,
     required String paymentMode, // 'FULL' | 'EMI_3' | 'EMI_6' | 'EMI_12'
     required String idempotencyKey,
   }) async {
@@ -74,6 +73,7 @@ class RechargeRepository {
         'circle': circle,
         'planId': planId,
         'planAmount': planAmount,
+        'planValidityDays': validityDays,
         'paymentMode': paymentMode,
         'idempotencyKey': idempotencyKey,
       });
@@ -109,6 +109,21 @@ class RechargeRepository {
       return list
           .map((e) => RechargeStatusResult.fromJson(e as Map<String, dynamic>))
           .toList();
+    } on DioException catch (e) {
+      throw ApiService.toException(e);
+    }
+  }
+
+  /// Powers the home screen's "Active Recharge" card. Returns null when
+  /// the user has no currently-active (not-yet-expired) recharge -- that's
+  /// a normal state, not an error, so it's handled as a plain null return
+  /// rather than throwing.
+  Future<ActiveRechargeResult?> getActiveRecharge() async {
+    try {
+      final res = await _dio.get('/v1/recharge/active');
+      final data = ApiService.unwrap(res);
+      if (data == null) return null;
+      return ActiveRechargeResult.fromJson(data as Map<String, dynamic>);
     } on DioException catch (e) {
       throw ApiService.toException(e);
     }
@@ -161,9 +176,6 @@ class RechargeStatusResult {
   // Matches the backend's actual status enum (chk_recharge_status:
   // INITIATED/PAYMENT_DONE/RECHARGE_PENDING/RECHARGE_SUCCESS/
   // RECHARGE_FAILED/REFUNDED) -- there's no plain 'SUCCESS' value.
-  // PAYMENT_DONE = payment confirmed via webhook, but actual delivery to
-  // the operator isn't wired yet (A1Topup pending); RECHARGE_SUCCESS will
-  // mean delivery also confirmed once that's implemented.
   bool get isSuccess => status == 'PAYMENT_DONE' || status == 'RECHARGE_SUCCESS';
   bool get isPending => status == 'INITIATED';
   bool get isFailed => status == 'RECHARGE_FAILED';
@@ -176,5 +188,34 @@ class RechargeStatusResult {
     planAmount: (json['planAmount'] as num?)?.toDouble(),
     a1TopupStatus: json['a1TopupStatus'] as String?,
     goldTxnId: json['goldTxnId'] as String?,
+  );
+}
+
+/// The user's current active recharge -- backs the home screen status
+/// card. Mirrors the backend's ActiveRechargeResponse.
+class ActiveRechargeResult {
+  final String orderId;
+  final String mobileNumber;
+  final String operator;
+  final double planAmount;
+  final DateTime expiryDate;
+  final int daysRemaining;
+
+  ActiveRechargeResult({
+    required this.orderId,
+    required this.mobileNumber,
+    required this.operator,
+    required this.planAmount,
+    required this.expiryDate,
+    required this.daysRemaining,
+  });
+
+  factory ActiveRechargeResult.fromJson(Map<String, dynamic> json) => ActiveRechargeResult(
+    orderId: json['orderId'] as String,
+    mobileNumber: json['mobileNumber'] as String,
+    operator: json['operator'] as String,
+    planAmount: (json['planAmount'] as num).toDouble(),
+    expiryDate: DateTime.parse(json['expiryDate'] as String),
+    daysRemaining: (json['daysRemaining'] as num).toInt(),
   );
 }

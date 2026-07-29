@@ -8,6 +8,7 @@ import '../../core/utils/currency_formatter.dart';
 import '../../core/widgets/coming_soon_overlay.dart';
 import '../../core/widgets/shimmer_loader.dart';
 import '../../core/widgets/youpi_card.dart';
+import '../../data/repositories/recharge_repository.dart';
 import 'home_viewmodel.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -95,8 +96,14 @@ class _HomeScreenState extends State<HomeScreen> {
                       // TEMPORARY (this version): tapping shows accumulated
                       // recharge reward as YouPi Coins. Augmont gram-conversion
                       // comes in the next version.
-                      // TODO(backend): wire `_goldRewardBalance` / `_goldCoinCount`
-                      // below to the real accumulated reward total from the API.
+                      // Left as TODO/0 deliberately -- backend gold-reward
+                      // hook (RechargeService -> GoldRewardService) isn't
+                      // wired yet per the Gold Coin status report, so wiring
+                      // this to the real endpoint now would just show 0
+                      // anyway while carrying risk of guessing wrong
+                      // response field names against an API that's still
+                      // mid-refactor (coin_count/balance_rupees migration).
+                      // Wire once that backend work lands.
                       _GoldRewardCoin(
                         amount: _goldRewardBalance(vm),
                         coinCount: _goldCoinCount(vm),
@@ -166,7 +173,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       children: [
                         _QuickAction('Recharge', Icons.wifi_rounded, () => ctx.go('/dashboard/plans')),
                         _QuickAction('Smart Saver', Icons.savings_rounded, () => ctx.push('/plans/smartsave'), locked: true),
-                        _QuickAction('Wallet', Icons.account_balance_wallet_rounded, () => ctx.go('/dashboard/wallet')),
+                        // Was unlocked despite the backend blocking
+                        // /v1/wallet/** with 403 FEATURE_DISABLED -- tapping
+                        // this used to take users into a screen where every
+                        // API call would just fail. Locked to match reality.
+                        _QuickAction('Wallet', Icons.account_balance_wallet_rounded, () => ctx.go('/dashboard/wallet'), locked: true),
                         _QuickAction('Gold', Icons.monetization_on_rounded, () => ctx.push('/invest/gold'), locked: true),
                         _QuickAction('FD Invest', Icons.trending_up_rounded, () => ctx.push('/invest/fd'), locked: true),
                         _QuickAction('BNPL Shop', Icons.credit_card_rounded, () => ctx.go('/dashboard/bnpl'), locked: true),
@@ -201,10 +212,42 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   ),
                   const SizedBox(height: 24),
-                  // Active recharge
+                  // Bills & recharges -- GPay-style layout. Only Mobile
+                  // Recharge is live this version; Postpaid/DTH/Electricity/
+                  // Credit Cards are shown so users know they're coming, not
+                  // hidden entirely, gated with the same ComingSoonOverlay
+                  // pattern used elsewhere. Placed directly above Active
+                  // Recharge -- these two belong together conceptually
+                  // (browse/pay a bill, see its current status).
+                  Text('Bills & Recharges', style: AppTextStyles.headlineSmall),
+                  const SizedBox(height: 12),
+                  GridView.count(
+                    crossAxisCount: 4,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    mainAxisSpacing: 16,
+                    crossAxisSpacing: 8,
+                    childAspectRatio: 0.85,
+                    children: [
+                      _BillTile('Mobile\nRecharge', Icons.smartphone_rounded, () => ctx.go('/dashboard/plans')),
+                      _BillTile('Postpaid', Icons.receipt_long_rounded, () {}, locked: true),
+                      _BillTile('DTH /\nCable TV', Icons.live_tv_rounded, () {}, locked: true),
+                      _BillTile('Electricity', Icons.bolt_rounded, () {}, locked: true),
+                      _BillTile('Credit\nCards', Icons.credit_card_rounded, () {}, locked: true),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  // Active recharge -- shows the user's real currently-active
+                  // plan (status + end date) once vm.activeRecharge loads
+                  // (backed by the new GET /v1/recharge/active endpoint),
+                  // falling back to the original placeholder when there's
+                  // none. Same card is meant to extend to DTH/Postpaid once
+                  // those ship.
                   Text('Active Recharge', style: AppTextStyles.headlineSmall),
                   const SizedBox(height: 12),
-                  YoupiCard(
+                  vm.activeRecharge != null
+                      ? _ActiveRechargeCard(vm.activeRecharge!)
+                      : YoupiCard(
                     child: Column(
                       children: [
                         const Icon(Icons.wifi_off_rounded, color: AppColors.textSecondary, size: 28),
@@ -260,10 +303,10 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  // TODO(backend): replace this with the real accumulated gold-reward total.
-  // For now returns 0.0 (or a mock value for local UI testing). The reward is
-  // 1 YouPi Coin per successful recharge >= ₹249, and that coin's value is
-  // 1% of the recharge amount it came from (total value tracked in rupees).
+  // TODO(backend): replace this with the real accumulated gold-reward total
+  // once RechargeService's webhook handler is hooked up to GoldRewardService
+  // (see YouPI_GoldCoin_Status_Report.pdf -- "NOT DONE YET" as of last
+  // status check). For now returns 0.0.
   double _goldRewardBalance(HomeViewModel vm) {
     // return vm.goldRewardBalance; // <-- wire this once backend field exists
     return 0.0;
@@ -289,16 +332,60 @@ class _GoldRewardCoin extends StatelessWidget {
       onTap: () => showDialog(
         context: context,
         barrierColor: Colors.black87,
+        // Untouched -- teammate's existing coin-count/withdraw popup,
+        // exactly as built. Anything beyond count + withdraw (history,
+        // breakdown, etc.) is a next-version concern, not touched here.
         builder: (_) => _GoldRewardPopup(amount: amount, coinCount: coinCount),
       ),
       child: SizedBox(
         width: 64,
         height: 64,
-        child: Image.asset(
-          'assets/images/youpi_coin.png',
-          fit: BoxFit.contain,
-          errorBuilder: (_, __, ___) =>
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Image.asset(
+              'assets/images/youpi_coin.png',
+              fit: BoxFit.contain,
+              errorBuilder: (_, __, ___) =>
               const Icon(Icons.monetization_on_rounded, color: AppColors.secondary, size: 36),
+            ),
+            // Badge only appears once there's actually something to show --
+            // stays hidden entirely at 0 rather than showing "0". Animates
+            // in with a slight overshoot pop whenever coinCount changes
+            // (e.g. right after landing here from a qualifying recharge),
+            // via TweenAnimationBuilder keyed implicitly by coinCount --
+            // no separate AnimationController needed for this small a case.
+            if (coinCount > 0)
+              Positioned(
+                top: -2,
+                right: -2,
+                child: TweenAnimationBuilder<double>(
+                  key: ValueKey(coinCount),
+                  tween: Tween(begin: 0.0, end: 1.0),
+                  duration: const Duration(milliseconds: 400),
+                  curve: Curves.easeOutBack,
+                  builder: (context, scale, child) => Transform.scale(scale: scale, child: child),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    constraints: const BoxConstraints(minWidth: 20),
+                    decoration: BoxDecoration(
+                      color: AppColors.error,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: AppColors.backgroundPrimary, width: 2),
+                    ),
+                    child: Text(
+                      coinCount > 99 ? '99+' : '$coinCount',
+                      textAlign: TextAlign.center,
+                      style: AppTextStyles.labelSmall.copyWith(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );
@@ -368,7 +455,7 @@ class _GoldRewardPopupState extends State<_GoldRewardPopup> {
                 'assets/images/youpi_coin.png',
                 fit: BoxFit.contain,
                 errorBuilder: (_, __, ___) =>
-                    const Icon(Icons.monetization_on_rounded, color: AppColors.secondary, size: 64),
+                const Icon(Icons.monetization_on_rounded, color: AppColors.secondary, size: 64),
               ),
             ),
             const SizedBox(height: 14),
@@ -406,10 +493,10 @@ class _GoldRewardPopupState extends State<_GoldRewardPopup> {
                 ),
                 child: _busy
                     ? const SizedBox(
-                        height: 18,
-                        width: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
-                      )
+                  height: 18,
+                  width: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                )
                     : Text('Withdraw', style: AppTextStyles.labelLarge.copyWith(color: Colors.black)),
               ),
             ),
@@ -423,6 +510,113 @@ class _GoldRewardPopupState extends State<_GoldRewardPopup> {
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ActiveRechargeCard extends StatelessWidget {
+  final ActiveRechargeResult recharge;
+  const _ActiveRechargeCard(this.recharge);
+
+  // Plain Dart formatting, no intl dependency -- e.g. "12 Aug 2026".
+  static const _months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+  ];
+  String _formatDate(DateTime d) => '${d.day} ${_months[d.month - 1]} ${d.year}';
+
+  @override
+  Widget build(BuildContext context) {
+    final expiringSoon = recharge.daysRemaining <= 3;
+    return YoupiCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.wifi_rounded, color: AppColors.primary, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('${recharge.operator.toUpperCase()} • ₹${recharge.planAmount.toStringAsFixed(0)}',
+                        style: AppTextStyles.labelLarge),
+                    Text(recharge.mobileNumber, style: AppTextStyles.bodySmall),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: (expiringSoon ? AppColors.error : AppColors.primary).withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  recharge.daysRemaining == 0 ? 'Expires today' : '${recharge.daysRemaining}d left',
+                  style: AppTextStyles.labelSmall.copyWith(
+                    color: expiringSoon ? AppColors.error : AppColors.primary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text('Active till ${_formatDate(recharge.expiryDate)}', style: AppTextStyles.bodySmall),
+        ],
+      ),
+    );
+  }
+}
+
+class _BillTile extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+  final bool locked;
+  final GlobalKey<ComingSoonOverlayState> _comingSoonKey = GlobalKey();
+
+  _BillTile(this.label, this.icon, this.onTap, {this.locked = false});
+
+  @override
+  Widget build(BuildContext context) {
+    final iconSquare = Container(
+      width: 52,
+      height: 52,
+      decoration: BoxDecoration(
+        color: AppColors.backgroundCard,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.divider),
+      ),
+      child: Icon(icon, color: AppColors.primary, size: 22),
+    );
+
+    return GestureDetector(
+      onTap: locked
+          ? () {
+        _comingSoonKey.currentState?.triggerFastBlink();
+        ComingSoonOverlay.showComingSoonSnack(context);
+      }
+          : onTap,
+      child: Column(
+        children: [
+          locked
+              ? ComingSoonOverlay(
+              key: _comingSoonKey,
+              shape: BoxShape.rectangle, showLabel: true, iconSize: 16, interactive: false, child: iconSquare)
+              : iconSquare,
+          const SizedBox(height: 6),
+          Text(label, style: AppTextStyles.labelSmall, textAlign: TextAlign.center, maxLines: 2),
+        ],
       ),
     );
   }
@@ -453,9 +647,9 @@ class _QuickAction extends StatelessWidget {
     return GestureDetector(
       onTap: locked
           ? () {
-              _comingSoonKey.currentState?.triggerFastBlink();
-              ComingSoonOverlay.showComingSoonSnack(context);
-            }
+        _comingSoonKey.currentState?.triggerFastBlink();
+        ComingSoonOverlay.showComingSoonSnack(context);
+      }
           : onTap,
       child: Container(
         width: 72,
@@ -499,11 +693,11 @@ class _PortfolioMetric extends StatelessWidget {
     return Expanded(
       child: locked
           ? ComingSoonOverlay(
-              iconSize: 16,
-              showLabel: true,
-              labelFontSize: 10,
-              child: card,
-            )
+        iconSize: 16,
+        showLabel: true,
+        labelFontSize: 10,
+        child: card,
+      )
           : card,
     );
   }

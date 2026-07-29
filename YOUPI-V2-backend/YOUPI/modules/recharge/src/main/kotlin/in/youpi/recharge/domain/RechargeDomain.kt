@@ -17,6 +17,12 @@ data class CreateRechargeRequest(
     val circle: String? = null,
     val planId: String,
     val planAmount: BigDecimal,
+    // Needed to compute expiry_date once the recharge succeeds -- without
+    // this the backend has no idea how long the plan the user picked is
+    // valid for. Comes from PlanResponse.validity (already fetched and
+    // shown to the user before they confirm), just wasn't threaded through
+    // to order creation until now.
+    val planValidityDays: Int,
     val paymentMode: PaymentMode,
     val idempotencyKey: String
 )
@@ -24,6 +30,22 @@ data class CreateRechargeRequest(
 enum class PaymentMode {
     FULL, EMI_3, EMI_6, EMI_12, SMART_SAVER_WALLET
 }
+
+/**
+ * The user's current active recharge, if any -- powers the home screen's
+ * "Active Recharge" card (status + end date instead of a static
+ * placeholder). Null fields mean "no active recharge right now," not an
+ * error -- the endpoint returns 200 with data=null in that case, same
+ * convention as other nullable-result endpoints in this codebase.
+ */
+data class ActiveRechargeResponse(
+    val orderId: UUID,
+    val mobileNumber: String,
+    val operator: String,
+    val planAmount: BigDecimal,
+    val expiryDate: java.time.LocalDate,
+    val daysRemaining: Long
+)
 
 data class ConfirmRechargeRequest(
     val rechargeOrderId: UUID,

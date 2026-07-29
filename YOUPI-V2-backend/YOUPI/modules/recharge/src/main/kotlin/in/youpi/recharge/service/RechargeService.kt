@@ -348,7 +348,8 @@ class RechargeService(
             status = "INITIATED",
             razorpayOrderId = razorpayOrderId,
             goldAutoInvest = false,
-            idempotencyKey = req.idempotencyKey
+            idempotencyKey = req.idempotencyKey,
+            planValidityDays = req.planValidityDays
         )
 
         if (emiMonths != null && emiAmount != null) {
@@ -443,14 +444,65 @@ class RechargeService(
                 }
             }
         } catch (e: Exception) {
-            // Payment is already captured at this point -- an A1Topup
-            // failure must NOT roll back the payment-done state, but it
-            // also must not silently claim success. Leaves the order
-            // PAYMENT_DONE (money in, delivery unresolved) for ops/retry,
-            // same as the original explicit-TODO version did.
-            log.error("A1Topup: recharge call threw for orderId={}", order.id, e)
+            // Payment is already captured at this point. Previously this
+            // left the order at PAYMENT_DONE forever with no automated
+            // resolution -- no Status API integration exists yet to
+            // actually confirm what happened on A1Topup's side. Given that,
+            // treating this the same as a confirmed failure (attempt
+            // refund) is the safer default for the customer: the
+            // alternative was an indefinitely stuck order that only gets
+            // resolved by a support ticket. Residual risk: if the recharge
+            // secretly succeeded despite the thrown exception (e.g. A1Topup
+            // processed it but the response got lost in transit), this
+            // refunds money for a recharge that did go through. Logged
+            // distinctly from the confirmed-failure path below so ops can
+            // spot-check these specific cases against A1Topup's own
+            // transaction log if needed. TODO: replace with a real A1Topup
+            // Status/Enquiry API call once that endpoint is documented --
+            // this is a stopgap, not the final fix.
+            log.error("A1Topup: recharge call threw for orderId={} -- treating as failure for refund purposes (UNCONFIRMED, see comment)", order.id, e)
+            status = "RECHARGE_FAILED"
             a1topupStatus = "FAILED"
             a1topupRawResponse = "error: ${e.message}"
+        }
+
+        // ── Auto-refund on confirmed A1Topup failure ──
+        // Payment was captured but the recharge itself definitively failed
+        // (not "ambiguous, needs status check" -- that case is left alone
+        // above since the recharge may still have gone through). The
+        // customer paid for something they didn't receive; money must go
+        // back automatically, not sit as a silent RECHARGE_FAILED row that
+        // nobody notices until a support ticket shows up.
+        var refundFailureNote: String? = null
+        if (status == "RECHARGE_FAILED") {
+            try {
+                val refund = razorpayClient.refund(
+                    paymentId = razorpayPaymentId,
+                    notes = mapOf(
+                        "reason" to "recharge_delivery_failed",
+                        "rechargeOrderId" to order.id.toString()
+                    )
+                )
+                status = "REFUNDED"
+                log.info(
+                    "Refund issued for orderId={} after A1Topup failure: refundId={}, status={}",
+                    order.id, refund.id, refund.status
+                )
+            } catch (e: Exception) {
+                // Refund itself failed -- this is now a double failure that
+                // NEEDS a human: customer paid, recharge failed, AND the
+                // automatic refund didn't go through either. Do not let this
+                // disappear into a debug log next to routine warnings --
+                // keep status as RECHARGE_FAILED (not REFUNDED, that would
+                // be a lie) and record the refund attempt's own failure so
+                // it's visible on the order itself, not just in logs.
+                log.error(
+                    "REFUND FAILED for orderId={} after A1Topup failure -- customer still owed money, " +
+                            "needs manual refund via Razorpay dashboard. Error: {}",
+                    order.id, e.message, e
+                )
+                refundFailureNote = "Auto-refund failed: ${e.message}. Needs manual refund."
+            }
         }
 
         var updatedOrder = rechargeRepo.updateAfterConfirm(
@@ -460,10 +512,23 @@ class RechargeService(
             a1topupStatus = a1topupStatus,
             a1topupRawResponse = toSafeJson(a1topupRawResponse),
             goldAutoInvest = order.goldAutoInvest,
-            goldTxnId = order.goldTxnId
+            goldTxnId = order.goldTxnId,
+            failureReason = refundFailureNote
         )
 
         log.info("Recharge confirmed via webhook: orderId={}, amount={}", updatedOrder.id, updatedOrder.planAmount)
+
+        // ── Set expiry on confirmed success ──
+        // Only meaningful for a genuinely completed recharge -- REFUNDED,
+        // RECHARGE_FAILED, PENDING_VERIFICATION etc. have no real "active
+        // until" date, so expiry_date stays null for those (findActiveRecharge
+        // only looks at RECHARGE_SUCCESS rows anyway, but leaving it null
+        // elsewhere avoids a misleading date sitting on a failed order).
+        if (updatedOrder.status == "RECHARGE_SUCCESS" && order.planValidityDays != null && order.planValidityDays > 0) {
+            val expiryDate = LocalDate.now().plusDays(order.planValidityDays.toLong())
+            rechargeRepo.setExpiryDate(updatedOrder.id!!, expiryDate)
+            log.info("Recharge expiry set: orderId={}, expiryDate={}", updatedOrder.id, expiryDate)
+        }
 
         // ── Auto gold-invest — ₹249 plan only, non-fatal ──
         if (updatedOrder.planAmount >= GOLD_ELIGIBLE_PLAN_AMOUNT) {
@@ -546,6 +611,22 @@ class RechargeService(
                 goldWarning = if (goldEligible && !order.goldAutoInvest && order.status != "INITIATED")
                     "Gold investment could not be completed for this recharge" else null
             )
+        )
+    }
+
+    // ── Active Recharge (home screen status card) ──
+
+    suspend fun getActiveRecharge(userId: UUID): ActiveRechargeResponse? {
+        val order = rechargeRepo.findActiveRecharge(userId) ?: return null
+        val expiryDate = order.expiryDate ?: return null // shouldn't happen given the query filter, but be defensive
+
+        return ActiveRechargeResponse(
+            orderId = order.id!!,
+            mobileNumber = order.mobileNumber,
+            operator = order.operator,
+            planAmount = order.planAmount,
+            expiryDate = expiryDate,
+            daysRemaining = java.time.temporal.ChronoUnit.DAYS.between(LocalDate.now(), expiryDate).coerceAtLeast(0)
         )
     }
 

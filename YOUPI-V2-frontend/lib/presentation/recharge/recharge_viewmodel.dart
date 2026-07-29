@@ -91,6 +91,12 @@ class RechargeViewModel extends ChangeNotifier {
 
   /// Switches to "pay in full, no EMI" -- backend derives paymentMode as
   /// FULL whenever _selectedEmi is null (see payAndConfirm below).
+  /// EMI removed from the UI for this version (see emi_selection_screen.dart,
+  /// which now calls this unconditionally) -- this getter/setter machinery
+  /// is left in place rather than deleted, since selectPlan() still
+  /// auto-picks an EMI option if the plan has one, and re-enabling EMI in a
+  /// future version should just mean restoring the picker UI, not rebuilding
+  /// this logic.
   void selectFullPayment() {
     _selectedEmi = null;
     notifyListeners();
@@ -155,6 +161,9 @@ class RechargeViewModel extends ChangeNotifier {
         circle: _circle,
         planId: _selectedPlan!.id,
         planAmount: _selectedPlan!.price,
+        // Needed so the backend can compute expiry_date once the recharge
+        // succeeds -- powers the home screen's real "Active Recharge" card.
+        validityDays: _selectedPlan!.validityDays,
         paymentMode: _selectedEmi == null
             ? 'FULL'
             : 'EMI_${_selectedEmi!.months}',

@@ -21,6 +21,21 @@ data class RazorpayOrderResult(
 
 class RazorpayOrderCreationException(message: String) : RuntimeException(message)
 
+@JsonIgnoreProperties(ignoreUnknown = true)
+data class RazorpayRefundResult(
+    val id: String,
+    val amount: Long,
+    val status: String,
+    // Razorpay's response uses snake_case (payment_id) -- this project has
+    // no global snake_case naming strategy configured on the shared
+    // ObjectMapper (see JacksonConfig.kt), unlike RazorpayOrderResult's
+    // fields above which happen to be single words and don't need this.
+    @com.fasterxml.jackson.annotation.JsonProperty("payment_id")
+    val paymentId: String? = null
+)
+
+class RazorpayRefundException(message: String) : RuntimeException(message)
+
 /**
  * Thin client for Razorpay's Orders API.
  *
@@ -87,6 +102,53 @@ class RazorpayClient(
         } catch (e: Exception) {
             log.error("Razorpay order creation failed for receipt={}: {}", receipt, e.message)
             throw RazorpayOrderCreationException("Razorpay order creation failed: ${e.message}")
+        }
+    }
+
+    /**
+     * Refunds a captured payment. Used when payment succeeded but the
+     * downstream service (e.g. A1Topup recharge delivery) failed -- the
+     * customer must get their money back automatically, not just have the
+     * order silently marked RECHARGE_FAILED with cash sitting uncollected.
+     *
+     * @param paymentId the razorpay_payment_id of the CAPTURED payment
+     *   (not the order id -- refunds are issued against payments).
+     * @param amountPaise optional partial-refund amount; omit for a full
+     *   refund of whatever was captured.
+     * @param notes free-form reference info, shows up in Razorpay dashboard
+     *   (e.g. the internal recharge order id, so ops can reconcile).
+     * @throws RazorpayRefundException if keys aren't configured or the API
+     *   call fails. Callers MUST NOT swallow this silently -- a failed
+     *   refund call means the customer is still owed money and needs a
+     *   manual ops follow-up, not just a log line.
+     */
+    suspend fun refund(
+        paymentId: String,
+        amountPaise: Long? = null,
+        notes: Map<String, String> = emptyMap()
+    ): RazorpayRefundResult {
+        if (keyId.isBlank() || keySecret.isBlank()) {
+            throw RazorpayRefundException(
+                "Razorpay API keys not configured (youpi.razorpay.key-id / key-secret)"
+            )
+        }
+
+        val body = buildMap<String, Any> {
+            amountPaise?.let { put("amount", it) }
+            put("notes", notes)
+        }
+
+        return try {
+            webClient.post()
+                .uri("https://api.razorpay.com/v1/payments/$paymentId/refund")
+                .header("Authorization", authHeader)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(body)
+                .retrieve()
+                .awaitBody<RazorpayRefundResult>()
+        } catch (e: Exception) {
+            log.error("Razorpay refund failed for paymentId={}: {}", paymentId, e.message)
+            throw RazorpayRefundException("Razorpay refund failed: ${e.message}")
         }
     }
 }

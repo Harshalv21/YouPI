@@ -29,6 +29,8 @@ data class RechargeOrderEntity(
     val a1topupStatus: String? = null,
     val a1topupRawResponse: String? = null,
     val failureReason: String? = null,
+    val planValidityDays: Int? = null,
+    val expiryDate: LocalDate? = null,
     val goldAutoInvest: Boolean = false,
     val goldTxnId: UUID? = null,
     val idempotencyKey: String,
@@ -51,10 +53,12 @@ interface RechargeOrderRepository : CoroutineCrudRepository<RechargeOrderEntity,
     @Query("""
         INSERT INTO recharge_orders 
         (user_id, mobile_number, operator, circle, plan_id, plan_amount, plan_details, 
-         payment_mode, emi_months, emi_amount, status, razorpay_order_id, gold_auto_invest, idempotency_key)
+         payment_mode, emi_months, emi_amount, status, razorpay_order_id, gold_auto_invest, 
+         idempotency_key, plan_validity_days)
         VALUES 
         (:userId, :mobileNumber, :operator, :circle, :planId, :planAmount, CAST(:planDetails AS jsonb),
-         :paymentMode, :emiMonths, :emiAmount, :status, :razorpayOrderId, :goldAutoInvest, :idempotencyKey)
+         :paymentMode, :emiMonths, :emiAmount, :status, :razorpayOrderId, :goldAutoInvest, 
+         :idempotencyKey, :planValidityDays)
         RETURNING *
     """)
     suspend fun insertOrder(
@@ -71,8 +75,31 @@ interface RechargeOrderRepository : CoroutineCrudRepository<RechargeOrderEntity,
         status: String,
         razorpayOrderId: String?,
         goldAutoInvest: Boolean,
-        idempotencyKey: String
+        idempotencyKey: String,
+        planValidityDays: Int?
     ): RechargeOrderEntity
+
+    // Separate, tiny update -- only fires on confirmed RECHARGE_SUCCESS, so
+    // it's cleaner as its own statement than adding two more always-present
+    // params to the already-large updateAfterConfirm call.
+    @Query("UPDATE recharge_orders SET expiry_date = :expiryDate WHERE id = :id")
+    suspend fun setExpiryDate(id: UUID, expiryDate: LocalDate)
+
+    // Powers the home screen "Active Recharge" card -- most recent
+    // successful recharge for this user that hasn't expired yet. Only one
+    // row ever matters here (LIMIT 1); if the user has multiple numbers
+    // recharged, this shows whichever is most recently active -- fine for
+    // this version since the app only has one primary recharge flow, not
+    // per-number tracking.
+    @Query("""
+        SELECT * FROM recharge_orders 
+        WHERE user_id = :userId 
+          AND status = 'RECHARGE_SUCCESS' 
+          AND expiry_date >= CURRENT_DATE
+        ORDER BY expiry_date DESC
+        LIMIT 1
+    """)
+    suspend fun findActiveRecharge(userId: UUID): RechargeOrderEntity?
 
     // Same reasoning — a1topup_raw_response is JSONB, needs explicit cast on write.
     @Query("""
@@ -83,6 +110,7 @@ interface RechargeOrderRepository : CoroutineCrudRepository<RechargeOrderEntity,
             a1topup_raw_response = CAST(:a1topupRawResponse AS jsonb),
             gold_auto_invest = :goldAutoInvest,
             gold_txn_id = :goldTxnId,
+            failure_reason = :failureReason,
             updated_at = NOW()
         WHERE id = :id
         RETURNING *
@@ -94,7 +122,8 @@ interface RechargeOrderRepository : CoroutineCrudRepository<RechargeOrderEntity,
         a1topupStatus: String?,
         a1topupRawResponse: String?,
         goldAutoInvest: Boolean,
-        goldTxnId: UUID?
+        goldTxnId: UUID?,
+        failureReason: String? = null
     ): RechargeOrderEntity
 
     @Query("SELECT * FROM recharge_orders WHERE user_id = :userId ORDER BY created_at DESC LIMIT :limit OFFSET :offset")

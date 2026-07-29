@@ -5,11 +5,13 @@ import '../../data/models/transaction_model.dart';
 import '../../data/models/wallet_model.dart';
 import '../../data/repositories/wallet_repository.dart';
 import '../../data/repositories/user_repository.dart';
+import '../../data/repositories/recharge_repository.dart';
 import '../../core/services/storage_service.dart';
 
 class HomeViewModel extends ChangeNotifier {
   final WalletRepository _walletRepo = WalletRepository();
   final UserRepository _userRepo = UserRepository();
+  final RechargeRepository _rechargeRepo = RechargeRepository();
 
   bool _isLoading = false;
   String? _error;
@@ -22,6 +24,7 @@ class HomeViewModel extends ChangeNotifier {
 
   WalletBalance? _walletBalance;
   List<TransactionModel> _transactions = [];
+  ActiveRechargeResult? _activeRecharge;
 
   bool get isLoading => _isLoading;
   String? get error => _error;
@@ -29,6 +32,7 @@ class HomeViewModel extends ChangeNotifier {
   bool get isGuest => _isGuest;
   UserModel get user => _user;
   List<Map<String, String>> get offers => _offers;
+  ActiveRechargeResult? get activeRecharge => _activeRecharge;
 
   /// Primary spendable balance (NBFC wallet).
   double get walletBalance =>
@@ -67,6 +71,7 @@ class HomeViewModel extends ChangeNotifier {
       _user = _guestUser;
       _walletBalance = null;
       _transactions = [];
+      _activeRecharge = null;
       _profileLoadFailed = false;
       _isLoading = false;
       notifyListeners();
@@ -79,6 +84,7 @@ class HomeViewModel extends ChangeNotifier {
       _loadProfile(),
       _loadBalance(),
       _loadTransactions(),
+      _loadActiveRecharge(),
     ]);
 
     _isLoading = false;
@@ -110,6 +116,19 @@ class HomeViewModel extends ChangeNotifier {
       _transactions = await _walletRepo.getLedger(type: 'NBFC', page: 0);
     } catch (e) {
       debugPrint('Home: ledger load failed: $e');
+    }
+  }
+
+  Future<void> _loadActiveRecharge() async {
+    try {
+      _activeRecharge = await _rechargeRepo.getActiveRecharge();
+    } catch (e) {
+      // No active recharge is a normal 200/null response, not an
+      // exception -- this only fires on a genuine network/auth failure,
+      // so just fall back to "no active recharge" shown rather than
+      // blocking the rest of the home screen.
+      debugPrint('Home: active recharge load failed: $e');
+      _activeRecharge = null;
     }
   }
 

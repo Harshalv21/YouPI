@@ -16,6 +16,20 @@ class BrowsePlansScreen extends StatefulWidget {
 class _BrowsePlansScreenState extends State<BrowsePlansScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabCtrl;
+  final _searchCtrl = TextEditingController();
+  bool _searchExpanded = false;
+
+  // Price chip filtering -- was non-functional (onSelected: (_) {}) before,
+  // same broken pattern as the old duplicate Search Plans screen. Bucketed
+  // ranges: null = no filter (chip not selected).
+  String? _selectedPriceChip;
+  static const _priceRanges = <String, (double, double)>{
+    '₹100': (0, 100),
+    '₹300': (100, 300),
+    '₹300–₹500': (300, 500),
+    '₹500+': (500, double.infinity),
+  };
+
   @override
   void initState() {
     super.initState();
@@ -24,17 +38,61 @@ class _BrowsePlansScreenState extends State<BrowsePlansScreen>
       context.read<RechargeViewModel>().loadPlans();
     });
   }
+
   @override
-  void dispose() { _tabCtrl.dispose(); super.dispose(); }
+  void dispose() {
+    _tabCtrl.dispose();
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  List<dynamic> _applyFilters(List<dynamic> plans, String query) {
+    var result = plans;
+    if (query.isNotEmpty) {
+      final q = query.toLowerCase();
+      result = result.where((p) =>
+      p.name.toLowerCase().contains(q) ||
+          p.price.toString().contains(q) ||
+          p.dataPerDay.toLowerCase().contains(q) ||
+          p.validityDays.toString().contains(q)).toList();
+    }
+    if (_selectedPriceChip != null) {
+      final range = _priceRanges[_selectedPriceChip]!;
+      result = result.where((p) => p.price >= range.$1 && p.price < range.$2).toList();
+    }
+    return result;
+  }
 
   @override
   Widget build(BuildContext context) {
     return Consumer<RechargeViewModel>(builder: (ctx, vm, _) {
+      final query = _searchCtrl.text;
       return Scaffold(
         backgroundColor: AppColors.backgroundPrimary,
         appBar: AppBar(
-          title: Text('Browse Plans', style: AppTextStyles.headlineMedium),
+          title: _searchExpanded
+              ? TextField(
+            controller: _searchCtrl,
+            autofocus: true,
+            style: AppTextStyles.bodyMedium,
+            decoration: InputDecoration(
+              hintText: 'Search for a plan, e.g. 349 or 2GB...',
+              hintStyle: AppTextStyles.bodyMedium.copyWith(color: AppColors.textSecondary),
+              border: InputBorder.none,
+            ),
+            onChanged: (_) => setState(() {}),
+          )
+              : Text('Browse Plans', style: AppTextStyles.headlineMedium),
           backgroundColor: AppColors.backgroundPrimary,
+          actions: [
+            IconButton(
+              icon: Icon(_searchExpanded ? Icons.close_rounded : Icons.search_rounded),
+              onPressed: () => setState(() {
+                if (_searchExpanded) _searchCtrl.clear();
+                _searchExpanded = !_searchExpanded;
+              }),
+            ),
+          ],
           bottom: TabBar(
             controller: _tabCtrl,
             tabs: const [Tab(text: 'All'), Tab(text: 'Popular'), Tab(text: 'Annual')],
@@ -45,35 +103,50 @@ class _BrowsePlansScreenState extends State<BrowsePlansScreen>
         ),
         body: Column(
           children: [
-            // Price chips
+            // Price chips -- now actually functional. Tapping toggles the
+            // filter on/off (tap the selected chip again to clear it).
             SizedBox(
               height: 48,
               child: ListView(
                 scrollDirection: Axis.horizontal,
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                children: ['₹100', '₹300', '₹300–₹500', '₹500+'].map((f) =>
-                  Padding(
+                children: _priceRanges.keys.map((f) {
+                  final selected = _selectedPriceChip == f;
+                  return Padding(
                     padding: const EdgeInsets.only(right: 8),
                     child: FilterChip(
                       label: Text(f, style: AppTextStyles.chipText),
-                      selected: false,
-                      onSelected: (_) {},
+                      selected: selected,
+                      onSelected: (isSelected) => setState(() {
+                        _selectedPriceChip = isSelected ? f : null;
+                      }),
                       backgroundColor: AppColors.backgroundCard,
                       selectedColor: AppColors.primary,
                       side: const BorderSide(color: AppColors.divider),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                     ),
-                  )
-                ).toList(),
+                  );
+                }).toList(),
               ),
             ),
             Expanded(
               child: TabBarView(
                 controller: _tabCtrl,
                 children: [
-                  _PlansList(plans: vm.plans, vm: vm),
-                  _PlansList(plans: vm.plans.where((p) => p.isPopular).toList(), vm: vm),
-                  _PlansList(plans: vm.plans.where((p) => p.validityDays >= 84).toList(), vm: vm),
+                  _PlansList(plans: _applyFilters(vm.plans, query), vm: vm),
+                  // NOTE: "Popular" stays empty for real (non-mock) plans --
+                  // the backend never sets isPopular=true (mPlan doesn't
+                  // provide this concept, and no ranking logic exists yet
+                  // server-side). Not fixed here; needs a backend decision
+                  // on what "popular" means before this tab can show anything.
+                  _PlansList(
+                    plans: _applyFilters(vm.plans.where((p) => p.isPopular).toList(), query),
+                    vm: vm,
+                  ),
+                  _PlansList(
+                    plans: _applyFilters(vm.plans.where((p) => p.validityDays >= 84).toList(), query),
+                    vm: vm,
+                  ),
                 ],
               ),
             ),
@@ -139,9 +212,10 @@ class _PlansList extends StatelessWidget {
                       Text(plan.name, style: AppTextStyles.labelLarge),
                       Text('${plan.dataPerDay}/day • ${plan.validityDays} days • ${plan.callsInfo}',
                           style: AppTextStyles.bodySmall),
-                      if (plan.emiOptions.isNotEmpty)
-                        Text('EMI: ${plan.emiOptions.first.months}×₹${plan.emiOptions.first.monthlyAmount.toStringAsFixed(0)}',
-                            style: AppTextStyles.captionText.copyWith(color: AppColors.primary)),
+                      // EMI line removed -- EMI is off for this version, so
+                      // showing "EMI: 3×₹X" here was stale/misleading even
+                      // though the underlying plan.emiOptions data still
+                      // exists (unused now, same as the rest of the app).
                     ],
                   ),
                 ),
