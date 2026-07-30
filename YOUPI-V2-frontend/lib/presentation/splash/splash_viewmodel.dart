@@ -13,8 +13,14 @@ class SplashViewModel extends ChangeNotifier {
   /// - Token + MPIN set         → MPIN entry (lock screen every open)
   /// - Token but no MPIN yet    → finish MPIN setup
   Future<String> checkAuth() async {
-    await Future.delayed(const Duration(milliseconds: 2000));
+    final results = await Future.wait([
+      _resolveRoute(),
+      Future.delayed(const Duration(milliseconds: 600)),
+    ]);
+    return results[0] as String;
+  }
 
+  Future<String> _resolveRoute() async {
     final isFirst = await StorageService.isFirstLaunch();
     if (isFirst) {
       await StorageService.markLaunched();
@@ -22,18 +28,9 @@ class SplashViewModel extends ChangeNotifier {
     }
 
     final hasToken = await StorageService.hasToken();
-    if (!hasToken) {
-      return '/onboarding/welcome';
-    }
+    if (!hasToken) return '/onboarding/welcome';
 
-    // Logged in. For security, gate the app behind MPIN on every open.
     final hasMpin = await StorageService.hasMpin();
-    if (hasMpin) {
-      // Send to an MPIN entry screen instead of straight to dashboard.
-      return '/auth/mpin-entry';
-    }
-
-    // Token but MPIN never set → complete setup.
-    return '/auth/mpin-setup';
+    return hasMpin ? '/auth/mpin-entry' : '/auth/mpin-setup';
   }
 }
