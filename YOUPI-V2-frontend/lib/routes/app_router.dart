@@ -45,6 +45,9 @@ import '../presentation/wallet/withdraw_screen.dart';
 import '../presentation/wallet/send_money_screen.dart';
 import '../presentation/wallet/transaction_history_screen.dart';
 import '../presentation/settings/settings_screen.dart';
+import '../presentation/settings/privacy_policy_screen.dart';
+import '../presentation/settings/terms_of_service_screen.dart';
+import '../presentation/settings/help_support_screen.dart';
 
 class AppRouter {
   static final _rootNavigatorKey = GlobalKey<NavigatorState>();
@@ -129,6 +132,9 @@ class AppRouter {
       GoRoute(path: '/settings/edit-profile', builder: (c, s) => const EditProfileScreen()),
       GoRoute(path: '/settings/notifications', builder: (c, s) => const NotificationsSettingsScreen()),
       GoRoute(path: '/settings/change-mpin', builder: (c, s) => const ChangeMpinScreen()),
+      GoRoute(path: '/settings/privacy-policy', builder: (c, s) => const PrivacyPolicyScreen()),
+      GoRoute(path: '/settings/terms-of-service', builder: (c, s) => const TermsOfServiceScreen()),
+      GoRoute(path: '/settings/help-support', builder: (c, s) => const HelpSupportScreen()),
       ShellRoute(
         builder: (context, state, child) => MainShell(child: child),
         routes: [

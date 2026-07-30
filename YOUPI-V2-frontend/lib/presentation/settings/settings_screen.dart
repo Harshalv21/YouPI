@@ -87,11 +87,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 8),
           ...[
             _SettingsTile('Help & Support', Icons.help_outline_rounded,
-                    () => _showComingSoon(context, 'Help & Support')),
+        () => context.push('/settings/help-support')),
             _SettingsTile('Privacy Policy', Icons.privacy_tip_outlined,
-                    () => _showComingSoon(context, 'Privacy Policy')),
+                    () => context.push('/settings/privacy-policy')),
             _SettingsTile('Terms of Service', Icons.description_outlined,
-                    () => _showComingSoon(context, 'Terms of Service')),
+                    () => context.push('/settings/terms-of-service')),
           ],
           const SizedBox(height: 16),
           YoupiCard(
