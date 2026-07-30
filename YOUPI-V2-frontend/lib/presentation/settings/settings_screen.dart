@@ -297,7 +297,15 @@ class _ChangeMpinScreenState extends State<ChangeMpinScreen> {
         if (_currentMpin.length == 4) _verifyAndProceed();
       } else if (_step == 'new' && _newMpin.length < 4) {
         _newMpin += d;
-        if (_newMpin.length == 4) _step = 'confirm';
+        if (_newMpin.length == 4) {
+          if (_newMpin == _currentMpin) {
+            // Naya MPIN purane jaisa hi hai -- yahi rok do
+            _newMpin = '';
+            _showSameAsOldMpinDialog();
+          } else {
+            _step = 'confirm';
+          }
+        }
       } else if (_step == 'confirm' && _confirmNew.length < 4) {
         _confirmNew += d;
         if (_confirmNew.length == 4) _saveMpin();
@@ -371,6 +379,29 @@ class _ChangeMpinScreenState extends State<ChangeMpinScreen> {
         });
       }
     }
+  }
+
+  void _showSameAsOldMpinDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.backgroundCard,
+        icon: const Icon(Icons.info_outline_rounded,
+            color: AppColors.error, size: 36),
+        title: Text('MPIN Not Changed', style: AppTextStyles.headlineSmall),
+        content: Text(
+          'This MPIN was already set previously. Please set a fresh MPIN.',
+          style: AppTextStyles.bodyMedium
+              .copyWith(color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('OK', style: AppTextStyles.tealLink),
+          ),
+        ],
+      ),
+    );
   }
 
   @override

@@ -98,7 +98,7 @@ class TermsOfServiceScreen extends StatelessWidget {
         LegalSection(
           heading: '14. Grievance Redressal',
           body:
-              'Contact support@you-pi.in or in-app support first. Unresolved complaints can be escalated to grievance@you-pi.in. For YouPi Credit, unresolved complaints may be escalated further to the Lending Partner\'s grievance/nodal officer (in your KFS) and then to RBI\'s integrated ombudsman mechanism.',
+            "Contact connect@you-pi.in or use in-app support for any queries, support requests, or complaints. For YouPi Credit, unresolved complaints may be escalated to the Lending Partner's grievance/nodal officer (as mentioned in your KFS) and then to RBI's Integrated Ombudsman mechanism, where applicable.",
         ),
         LegalSection(
           heading: '15. Disclaimers',
@@ -146,7 +146,7 @@ class TermsOfServiceScreen extends StatelessWidget {
               'Nexospendz Finothrive Private Limited\n'
               'Registered office: Lucknow, Uttar Pradesh, India\n'
               'Website: you-pi.in\n'
-              'Support: support@you-pi.in | Complaints: grievance@you-pi.in',
+              'Support: connect@you-pi.in',
         ),
       ],
     );

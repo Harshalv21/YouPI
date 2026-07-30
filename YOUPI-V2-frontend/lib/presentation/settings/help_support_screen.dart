@@ -25,23 +25,23 @@ class HelpSupportScreen extends StatelessWidget {
           const _SupportTile(
             icon: Icons.support_agent,
             title: 'Customer Support',
-            subtitle: 'support@you-pi.in',
+            subtitle: 'connect@you-pi.in',
           ),
           const SizedBox(height: 12),
           const _SupportTile(
             icon: Icons.report_problem_outlined,
             title: 'Complaints & Grievance',
-            subtitle: 'grievance@you-pi.in',
+            subtitle: 'connect@you-pi.in',
           ),
           const SizedBox(height: 12),
           const _SupportTile(
             icon: Icons.privacy_tip_outlined,
             title: 'Privacy Queries',
-            subtitle: 'privacy@you-pi.in',
+            subtitle: 'connect@you-pi.in',
           ),
           const SizedBox(height: 24),
           Text(
-            'For YouPi Credit loan complaints unresolved by our team, you can escalate to your Lending Partner\'s grievance officer (details in your Key Fact Statement) and, where applicable, RBI\'s integrated ombudsman mechanism.',
+            'For any support request, complaint, or privacy-related query, please contact us at connect@you-pi.in. We will assist you as soon as possible.',
             style: AppTextStyles.captionText,
           ),
         ],
