@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../core/services/storage_service.dart';
+import '../core/widgets/coming_soon_dialog.dart';
 import '../presentation/splash/splash_screen.dart';
 import '../presentation/onboarding/welcome_screen.dart';
 import '../presentation/onboarding/onboarding_carousel_screen.dart';
@@ -170,22 +171,29 @@ class _MainShellState extends State<MainShell> {
     '/dashboard/settings',
   ];
 
+  // Tabs jo abhi live nahi hain -- inpe tap karne se navigate nahi hoga,
+  // sirf "Coming Soon" popup dikhega.
+  static const _lockedTabs = {2: 'Invest', 3: 'Wallet'};
+
+  void _handleTabTap(int index) {
+    if (_lockedTabs.containsKey(index)) {
+      showComingSoonDialog(context, featureName: _lockedTabs[index]!);
+      return;
+    }
+    context.go(_tabRoutes[index]);
+  }
+
   @override
   Widget build(BuildContext context) {
     final location = GoRouterState.of(context).matchedLocation;
-
-    // Bug #6 fix: find the matching tab. If the current route isn't a tab
-    // (e.g. /dashboard/bnpl lives in the shell but has no tab), keep the nav
-    // bar but DON'T force-highlight Home — show no active tab instead of a wrong one.
     final matchedIndex =
     _tabRoutes.indexWhere((r) => location.startsWith(r));
 
     return Scaffold(
       body: widget.child,
       bottomNavigationBar: _YoupiBottomNav(
-        // -1 => no tab highlighted (valid for bnpl and other shell-but-not-tab routes)
-        currentIndex: matchedIndex,
-        onTap: (i) => context.go(_tabRoutes[i]),
+               currentIndex: matchedIndex,
+        onTap: _handleTabTap,
       ),
     );
   }

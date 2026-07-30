@@ -174,16 +174,6 @@ class RechargeService(
             // youpi-nat-ip successfully) to isolate whether this is a
             // per-call routing issue or a genuine infra problem. Remove
             // once the IP mismatch is root-caused.
-            try {
-                val myIp = webClient.get()
-                    .uri("https://api.ipify.org?format=text")
-                    .retrieve()
-                    .bodyToMono(String::class.java)
-                    .awaitSingle()
-                log.error("DIAGNOSTIC: outbound IP for this webClient bean = {}", myIp)
-            } catch (e: Exception) {
-                log.error("DIAGNOSTIC: ipify check failed", e)
-            }
 
             // IMPORTANT: build the URI via UriComponentsBuilder + .queryParam()
             // + .encode(), not a manually-concatenated string passed to
@@ -211,12 +201,7 @@ class RechargeService(
             // if it's not at the very start/end after trim, or if trim
             // missed something unexpected. Remove once ruled out.
             val trimmedKey = mplanApiKey.trim()
-            log.error(
-                "DIAGNOSTIC: mplan api key length={}, first4={}, last4={}",
-                trimmedKey.length,
-                trimmedKey.take(4),
-                trimmedKey.takeLast(4)
-            )
+           
 
             val uri = org.springframework.web.util.UriComponentsBuilder
                 .fromHttpUrl(mplanMobilePlansUrl)
@@ -226,9 +211,7 @@ class RechargeService(
                 .build()
                 .encode()
                 .toUri()
-
-            log.error("DIAGNOSTIC: exact outgoing URI = {}", uri)
-
+                
             val response = webClient.get()
                 .uri(uri)
                 .retrieve()
