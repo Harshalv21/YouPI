@@ -271,8 +271,6 @@ class WalletService(
     req: TransferRequest
 ): Result<TransferResponse, WalletException> {
 
-    println(">>> transfer() method called <<<")
-
     if (req.amount <= BigDecimal.ZERO) {
     
             return Result.failure(InsufficientBalanceException(BigDecimal.ZERO, req.amount))
@@ -284,12 +282,6 @@ class WalletService(
             ?: return Result.failure(RecipientNotFoundException(normalizedMobile))
 
         val recipientId = recipientUser.id!!
-
-        // Self-transfer block karo
-
-log.info("SenderId = {}", senderId)
-log.info("RecipientId = {}", recipientId)
-log.info("RecipientMobile = {}", normalizedMobile)
 
 // Self-transfer block karo
 if (senderId == recipientId) {

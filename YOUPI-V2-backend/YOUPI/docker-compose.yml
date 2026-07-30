@@ -69,7 +69,7 @@ services:
       DB_R2DBC_URL: "${DB_R2DBC_URL}"
       DB_JDBC_URL: "${DB_JDBC_URL}"
       DB_USERNAME: "${DB_USERNAME}"
-      DB_PASSWORD: "${DB_PASSWORD}"
+      DB_PASSWORD: "${DB_PASSWORD}" 
 
       # ── Redis (points at the co-located container by DNS name) ──
       REDIS_HOST: "redis"

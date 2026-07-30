@@ -59,6 +59,20 @@ class RateLimitFilter(
             val ip = exchange.request.remoteAddress?.address?.hostAddress ?: "unknown"
             "rl:mpin:${mobile ?: ip}"
         },
+        // Mutates the MPIN credential itself -- used both for first-time setup
+        // and for the "forgot MPIN -> verify via OTP -> set new MPIN" reset
+        // flow. Reachable with any valid (short-lived) MPIN JWT and doesn't
+        // require the OLD MPIN, by design (that's the whole point of the
+        // reset path) -- so if a token ever leaked, this endpoint deserves
+        // its own cap rather than relying only on the 15-min token lifetime.
+        RateLimitRule("/api/v1/auth/mpin/setup", 3, 3600) { exchange ->
+            val userId = exchange.attributes["auth.userId"]?.toString() ?: "anon"
+            "rl:mpin-setup:$userId"
+        },
+        RateLimitRule("/api/v1/auth/firebase/verify", 15, 600) { exchange ->
+            val ip = exchange.request.remoteAddress?.address?.hostAddress ?: "unknown"
+            "rl:fbverify:$ip"
+        },
     )
 
    override fun filter(exchange: ServerWebExchange, chain: WebFilterChain): Mono<Void> {
