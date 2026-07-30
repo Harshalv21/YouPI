@@ -132,36 +132,36 @@ class RechargeService(
     )
 
     private val circleCodeMap = mapOf(
-        "ANDHRA PRADESH" to 2,
-        "ASSAM" to 3,
-        "BIHAR JHARKHAND" to 4,
-        "DELHI NCR" to 5,
-        "GUJARAT" to 6,
-        "HIMACHAL PRADESH" to 7,
-        "HARYANA" to 8,
-        "JAMMU KASHMIR" to 9,
-        "KERALA" to 10,
-        "KARNATAKA" to 11,
-        "KOLKATA" to 12,
-        "MAHARASHTRA" to 13,
-        "MADHYA PRADESH CHHATTISGARH" to 14,
-        "MUMBAI" to 15,
-        "NORTH EAST" to 16,
-        "ORISSA" to 17,
-        "PUNJAB" to 18,
-        "RAJASTHAN" to 19,
-        "TAMIL NADU" to 20,
-        "UP EAST" to 21,
-        "UP WEST" to 22,
-        "WEST BENGAL" to 23,
-        "CHENNAI" to 25
-    )
+    "ANDHRAPRADESH" to 2,
+    "ASSAM" to 3,
+    "BIHARJHARKHAND" to 4,
+    "DELHINCR" to 5,
+    "GUJARAT" to 6,
+    "HIMACHALPRADESH" to 7,
+    "HARYANA" to 8,
+    "JAMMUKASHMIR" to 9,
+    "KERALA" to 10,
+    "KARNATAKA" to 11,
+    "KOLKATA" to 12,
+    "MAHARASHTRA" to 13,
+    "MADHYAPRADESHCHHATTISGARH" to 14,
+    "MUMBAI" to 15,
+    "NORTHEAST" to 16,
+    "ORISSA" to 17,
+    "PUNJAB" to 18,
+    "RAJASTHAN" to 19,
+    "TAMILNADU" to 20,
+    "UPEAST" to 21,
+    "UPWEST" to 22,
+    "WESTBENGAL" to 23,
+    "CHENNAI" to 25
+)
 
     // Normalizes "UP-East", "up_east", "  UP East " etc. into the map's
     // canonical "UP EAST" form so callers don't have to match punctuation
     // exactly.
     private fun normalizeKey(s: String): String =
-        s.trim().uppercase().replace("-", " ").replace("_", " ").replace(Regex("\\s+"), " ")
+    s.trim().uppercase().replace(Regex("[\\s_-]+"), "")
 
     suspend fun fetchPlans(operator: String, circle: String): Result<List<PlanResponse>, RechargeException> {
         // TEMPORARY mock short-circuit -- see mockEnabled doc comment above.
@@ -361,13 +361,16 @@ class RechargeService(
                 .awaitSingle()
 
             val root = objectMapper.readTree(response)
-            val records = root.path("records")
+val records = root.path("records")
 
-            if (root.path("status").asInt(0) != 1 || records.path("status").asInt(0) != 1) {
-                val errorMsg = records.path("msg").asText("Unknown mPlan operator-check error")
-                log.error("mPlan operator-check failed for mobile={}: {}", mobileNumber, errorMsg)
-                return Result.failure(OperatorDetectionException(errorMsg))
-            }
+if (root.path("status").asInt(0) != 1 || records.path("status").asInt(0) != 1) {
+    val errorMsg = records.path("msg").asText("Unknown mPlan operator-check error")
+    // full raw response bhi log karo -- fetchPlansFromApi() jaisa, taaki
+    // pata chale mPlan is number (especially BSNL) ke liye exactly kya bhej raha hai
+    log.error("mPlan operator-check failed for mobile={}: msg={}, fullResponse={}",
+        mobileNumber, errorMsg, response)
+    return Result.failure(OperatorDetectionException(errorMsg))
+}
 
             // Normalize through the SAME function used for plan fetching,
             // so "Jio"/"JIO"/"jio" and "UP East"/"UP EAST" all resolve
