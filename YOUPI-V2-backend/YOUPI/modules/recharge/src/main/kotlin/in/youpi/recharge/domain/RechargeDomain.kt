@@ -32,6 +32,22 @@ enum class PaymentMode {
 }
 
 /**
+ * Response from GET /v1/recharge/operator -- powers the slot-machine
+ * detection UI. operator/circle are already normalized to the same
+ * uppercase format used in operatorCodeMap/circleCodeMap (e.g. "JIO",
+ * "UP EAST"), so Flutter can use them directly for both display and the
+ * subsequent plan-fetch call without any further transformation.
+ */
+data class OperatorDetectionResponse(
+    val operator: String,
+    val circle: String
+)
+
+class OperatorDetectionException(detail: String) : RechargeException(
+    "OPERATOR_DETECTION_FAILED", detail, 502
+)
+
+/**
  * The user's current active recharge, if any -- powers the home screen's
  * "Active Recharge" card (status + end date instead of a static
  * placeholder). Null fields mean "no active recharge right now," not an

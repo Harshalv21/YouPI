@@ -3,7 +3,6 @@ package `in`.youpi.recharge.service
 import `in`.youpi.core.Result
 import `in`.youpi.core.razorpay.RazorpayClient
 import `in`.youpi.core.razorpay.RazorpayOrderCreationException
-import `in`.youpi.gold.GoldRewardService
 import `in`.youpi.invest.service.InvestService
 import `in`.youpi.recharge.a1topup.A1TopupClient
 import `in`.youpi.recharge.domain.*
@@ -42,7 +41,6 @@ class RechargeService(
     private val investService: InvestService,                   // ← recharge → auto gold-invest ke liye
     private val razorpayClient: RazorpayClient,
     private val a1topupClient: A1TopupClient,
-    private val goldRewardService: GoldRewardService,
     @Value("\${mplan.api.key}") private val mplanApiKey: String,
     @Value("\${mplan.api.plans-url}") private val mplanPlansUrl: String,
     @Value("\${mplan.api.mobile-plans-url}") private val mplanMobilePlansUrl: String,
@@ -289,6 +287,65 @@ class RechargeService(
         }
     }
 
+    // ── Operator Detection (mPlan HLR) ──
+    // Response shape confirmed live on 30 July 2026 (after mPlan fixed
+    // their whitelist issue):
+    //   {"status":1,"mobile_number":"...","records":{"status":1,
+    //    "Operator":"Jio","circle":"UP East","comcircle":"UP East",
+    //    "OperatorCode":5,"CircleCode":21},"time":5.22}
+    // Note the OUTER "status" and the INNER "records.status" -- both need
+    // to be 1 for a genuine success; a failure still returns HTTP 200 with
+    // outer status=0 and records.msg holding the error (e.g. the
+    // "You are not authorize." we chased earlier).
+    suspend fun detectOperator(mobileNumber: String): Result<OperatorDetectionResponse, RechargeException> {
+        return try {
+            val uri = org.springframework.web.util.UriComponentsBuilder
+                .fromHttpUrl(mplanOperatorCheckUrl)
+                .queryParam("apikey", mplanApiKey.trim())
+                .queryParam("mobile_number", mobileNumber)
+                .build()
+                .encode()
+                .toUri()
+
+            val response = webClient.get()
+                .uri(uri)
+                .retrieve()
+                .bodyToMono(String::class.java)
+                .awaitSingle()
+
+            val root = objectMapper.readTree(response)
+            val records = root.path("records")
+
+            if (root.path("status").asInt(0) != 1 || records.path("status").asInt(0) != 1) {
+                val errorMsg = records.path("msg").asText("Unknown mPlan operator-check error")
+                log.error("mPlan operator-check failed for mobile={}: {}", mobileNumber, errorMsg)
+                return Result.failure(OperatorDetectionException(errorMsg))
+            }
+
+            // Normalize through the SAME function used for plan fetching,
+            // so "Jio"/"JIO"/"jio" and "UP East"/"UP EAST" all resolve
+            // identically and match operatorCodeMap/circleCodeMap exactly.
+            val operator = normalizeKey(records.path("Operator").asText(""))
+            val circle = normalizeKey(records.path("circle").asText(""))
+
+            if (operator !in operatorCodeMap || circle !in circleCodeMap) {
+                log.error(
+                    "mPlan operator-check returned unmapped operator/circle: operator={}, circle={}, mobile={}",
+                    operator, circle, mobileNumber
+                )
+                return Result.failure(OperatorDetectionException(
+                    "Detected operator/circle not recognized: $operator / $circle"
+                ))
+            }
+
+            log.info("Operator detected: mobile={}, operator={}, circle={}", mobileNumber, operator, circle)
+            Result.success(OperatorDetectionResponse(operator = operator, circle = circle))
+        } catch (e: Exception) {
+            log.error("mPlan operator-check call failed for mobile={}", mobileNumber, e)
+            Result.failure(OperatorDetectionException("Failed to detect operator: ${e.message}"))
+        }
+    }
+
     // ── Order Creation ──
 
     suspend fun createOrder(userId: UUID, req: CreateRechargeRequest): Result<RechargeOrderResponse, RechargeException> {
@@ -530,21 +587,6 @@ class RechargeService(
             val expiryDate = LocalDate.now().plusDays(order.planValidityDays.toLong())
             rechargeRepo.setExpiryDate(updatedOrder.id!!, expiryDate)
             log.info("Recharge expiry set: orderId={}, expiryDate={}", updatedOrder.id, expiryDate)
-        }
-
-        if (updatedOrder.status == "RECHARGE_SUCCESS") {
-            try {
-                goldRewardService.creditRewardForRecharge(
-                    userId = order.userId,
-                    rechargeTxnId = razorpayOrderId,
-                    rechargeAmount = updatedOrder.planAmount
-                )
-            } catch (e: Exception) {
-                // Non-fatal by design -- same reasoning as gold auto-invest
-                // below: recharge already succeeded, a reward-crediting
-                // failure shouldn't roll that back.
-                log.error("Gold coin reward credit failed (non-fatal): orderId={}", updatedOrder.id, e)
-            }
         }
 
         // ── Auto gold-invest — ₹249 plan only, non-fatal ──

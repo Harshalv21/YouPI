@@ -23,7 +23,7 @@ class EmiSelectionScreen extends StatelessWidget {
   // false = normal real flow (Razorpay Checkout -> webhook -> A1Topup ->
   //         animation only on confirmed success).
   // SET BACK TO false BEFORE ANY REAL TESTING OR RELEASE BUILD.
-  static const bool _previewAnimationOnly = true;
+  static const bool _previewAnimationOnly = false;
 
   @override
   Widget build(BuildContext context) {

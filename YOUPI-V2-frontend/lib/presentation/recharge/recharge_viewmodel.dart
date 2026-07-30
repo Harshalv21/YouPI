@@ -19,7 +19,7 @@ class RechargeViewModel extends ChangeNotifier {
   // proper placeholder (GPay-style) instead, and the recharge screen
   // prompts the user to pick a number/contact before proceeding.
   String _mobile = '';
-  String _operator = 'airtel';
+  String _operator = 'BSNL';
   String _circle = 'UP East';
   String _searchQuery = '';
   List<String> _activeFilters = [];
