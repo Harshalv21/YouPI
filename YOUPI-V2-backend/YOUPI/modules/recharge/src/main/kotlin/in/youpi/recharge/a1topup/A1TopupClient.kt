@@ -11,35 +11,22 @@ import org.springframework.http.client.reactive.ReactorClientHttpConnector
 import org.springframework.stereotype.Component
 import org.springframework.web.reactive.function.client.WebClient
 import org.springframework.web.reactive.function.client.awaitBody
+import org.springframework.web.util.UriComponentsBuilder
 import reactor.netty.http.client.HttpClient
 import reactor.netty.transport.ProxyProvider
 import java.time.Duration
 import java.util.concurrent.TimeUnit
 
-/**
- * A1Topup recharge-delivery client.
- *
- * Built against https://a1topup.com/api/prepaid-mobile-recharge --
- * IMPORTANT: that page shows TWO different API docs for what claims to be
- * the same endpoint:
- *   1. business.a1topup.com/recharge/api  (username + pwd)
- *   2. a1topup.com/api/v1/recharge        (api_key)
- * We're using (1) because that's what application.yml already had
- * configured (youpi.a1topup.base-url) before this client existed --
- * presumably confirmed correct during original vendor onboarding. If real
- * calls consistently fail auth, it's worth double-checking with A1Topup
- * support which variant is actually live.
- *
- * KNOWN GAP: the success/error response *shape* shown on their docs site
- * belongs to variant (2), not this one -- variant (1)'s docs page only
- * showed request parameters, not a confirmed response schema. Response
- * parsing below is intentionally defensive (raw string + best-effort field
- * extraction) until a real test call confirms the actual response shape.
- * Once confirmed, tighten `A1TopupRechargeResult` to a proper typed model.
- */
 @Component
 class A1TopupClient(
     @Value("\${youpi.a1topup.base-url}") private val baseUrl: String,
+    // Status/Enquiry API lives at a DIFFERENT path (/recharge/status) than
+    // the recharge-submission API (/recharge/api) -- both are siblings
+    // under the same domain, /recharge/status is NOT a child of base-url.
+    // Kept as a separate config value rather than deriving it by string-
+    // manipulating base-url, since that would silently break if base-url's
+    // shape ever changes.
+    @Value("\${youpi.a1topup.status-url}") private val statusUrl: String,
     @Value("\${youpi.a1topup.username:}") private val username: String,
     @Value("\${youpi.a1topup.password:}") private val password: String,
     @Value("\${youpi.proxy.enabled:true}") private val proxyEnabled: Boolean,
@@ -55,35 +42,13 @@ class A1TopupClient(
         .clientConnector(
             ReactorClientHttpConnector(
                 HttpClient.create()
-                    // Connection establishment timeout -- separate from
-                    // response timeout below; catches DNS/connect-level hangs.
                     .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5_000)
-                    // Overall time to wait for A1Topup's full response after
-                    // the request is sent. Without this, a vendor-side hang
-                    // ties up the calling coroutine (and the webhook request
-                    // that triggered it) indefinitely.
                     .responseTimeout(Duration.ofSeconds(15))
                     .doOnConnected { conn ->
                         conn.addHandlerLast(ReadTimeoutHandler(15, TimeUnit.SECONDS))
                             .addHandlerLast(WriteTimeoutHandler(15, TimeUnit.SECONDS))
                     }
-                    // Explicit, not relying on root logging config: this
-                    // client sends username/password as query params (vendor-
-                    // mandated GET format, no alternative). Wire-logging must
-                    // stay off for THIS client specifically regardless of
-                    // whatever reactor.netty/webclient log level is set
-                    // elsewhere, so credentials can never leak into logs via
-                    // a broad DEBUG/TRACE turned on for debugging something
-                    // unrelated.
                     .wiretap(false)
-                    // Routes through the fixed-IP proxy VM -- A1Topup was
-                    // already IP-whitelisted against whatever Cloud Run IP
-                    // happened to be active at the time, which is why it
-                    // worked so far -- but that's the same unstable-IP
-                    // situation that broke mPlan, and could silently break
-                    // A1Topup too on any future deploy. Routing through the
-                    // proxy VM makes this permanently stable instead of
-                    // working by coincidence.
                     .let { client ->
                         if (proxyEnabled) {
                             log.info("A1TopupClient: routing via proxy {}:{}", proxyHost, proxyPort)
@@ -100,34 +65,48 @@ class A1TopupClient(
         )
         .build()
 
+    // Separate, unbound WebClient for the Status API -- deliberately NOT
+    // built with .baseUrl(), since we pass a fully-absolute URI per call
+    // (see checkStatus below) and don't want any base-URL prefixing to
+    // interfere with that. Same connector settings (timeouts, proxy) as
+    // the main client -- Status API goes through the same whitelisted
+    // proxy IP as the recharge API, so it needs the same routing.
+    private val statusWebClient: WebClient = WebClient.builder()
+        .clientConnector(
+            ReactorClientHttpConnector(
+                HttpClient.create()
+                    .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5_000)
+                    .responseTimeout(Duration.ofSeconds(15))
+                    .doOnConnected { conn ->
+                        conn.addHandlerLast(ReadTimeoutHandler(15, TimeUnit.SECONDS))
+                            .addHandlerLast(WriteTimeoutHandler(15, TimeUnit.SECONDS))
+                    }
+                    .wiretap(false)
+                    .let { client ->
+                        if (proxyEnabled) {
+                            client.proxy { proxySpec ->
+                                proxySpec.type(ProxyProvider.Proxy.HTTP)
+                                    .host(proxyHost)
+                                    .port(proxyPort)
+                            }
+                        } else {
+                            client
+                        }
+                    }
+            )
+        )
+        .build()
+
     companion object {
-        // Confirmed from A1Topup's actual operator-code table (their
-        // dashboard, not the marketing docs page). Only prepaid-mobile
-        // relevant entries included -- DTH/Postpaid codes exist in their
-        // table too but aren't used by this recharge module.
-        //
-        // "VI" (Vodafone-Idea merged brand) -- written confirmation received
-        // via WhatsApp from A1Topup on 2026-07-25: "use VI for Vodafone
-        // Idea" (exact casing: both letters uppercase). This is NOT listed
-        // in their documented Operator Code table (which still only shows
-        // legacy "Vodafone" = V and "Idea" = I separately), but this is a
-        // clearer, written confirmation (not just verbal/phone) -- more
-        // trustworthy than the earlier "Vi" guess, though still worth a
-        // real test recharge before fully relying on it.
         private val CONFIRMED_OPERATOR_CODES = mapOf(
             "AIRTEL" to "A",
-            "JIO" to "RC",       // table shows "RELIANCE - JIO", code RC (not "J")
-            "VODAFONE" to "V",   // legacy brand, pre-merger only
-            "IDEA" to "I",       // legacy brand, pre-merger only
-            "BSNL" to "BT",      // "BSNL - TOPUP" = prepaid recharge; "BSNL - STV" (BR) is a separate special-tariff-voucher product, not used here
-            "VI" to "VI"         // confirmed in writing (WhatsApp) -- see comment above
+            "JIO" to "RC",
+            "VODAFONE" to "V",
+            "IDEA" to "I",
+            "BSNL" to "BT",
+            "VI" to "VI"
         )
 
-        // Confirmed from A1Topup's circle-code table. Keyed by the exact
-        // state/circle label they use, since that's the only thing we can
-        // match without guessing. Our RechargeViewModel currently uses
-        // "UP East" as its circle value, which matches "Uttar Pradesh East"
-        // below via the alias map.
         private val CONFIRMED_CIRCLE_CODES = mapOf(
             "ANDHRA PRADESH" to "13", "ASSAM" to "24", "BIHAR" to "17",
             "CHHATTISGARH" to "27", "GUJARAT" to "12", "HARYANA" to "20",
@@ -138,18 +117,10 @@ class A1TopupClient(
             "UTTAR PRADESH EAST" to "10", "UTTAR PRADESH WEST" to "11",
             "WEST BENGAL" to "2", "MUMBAI" to "3", "DELHI" to "5",
             "CHENNAI" to "7", "NORTH EAST" to "26", "KOLKATA" to "6",
-            // Common aliases our app might use for the same circles:
             "UP EAST" to "10", "UP WEST" to "11", "J&K" to "25"
         )
     }
 
-    /**
-     * Delivers a prepaid recharge via A1Topup.
-     *
-     * @param orderId our internal recharge order ID, sent as A1Topup's
-     *        required `orderid` param -- this is what makes retries safe on
-     *        their end (idempotency by their definition, not just ours).
-     */
     suspend fun rechargeMobile(
         mobileNumber: String,
         operator: String,
@@ -164,9 +135,6 @@ class A1TopupClient(
                         "'VI' specifically needs A1Topup to confirm which legacy code (V or I) to use for merged-brand numbers."
             )
 
-        // circlecode is REQUIRED in practice -- their docs mark it optional,
-        // but live testing confirmed omitting it causes a generic
-        // "Parameter is missing" failure. Don't silently skip it.
         val circleCode = circle?.let { CONFIRMED_CIRCLE_CODES[it.uppercase()] }
             ?: throw ExternalServiceException(
                 "A1Topup",
@@ -178,12 +146,6 @@ class A1TopupClient(
             throw ExternalServiceException("A1Topup", "A1Topup username/password not configured")
         }
 
-        // A1Topup only accepts whole rupees (their own sample requests never
-        // show paise, e.g. "10" not "10.50"). Silently truncating via
-        // toBigInteger() would send the WRONG amount to the vendor with no
-        // error -- a real money mismatch (we'd charge the user ₹10.50 via
-        // Razorpay but only request a ₹10 recharge from A1Topup). Reject
-        // fractional amounts explicitly instead of guessing how to round.
         if (amount.stripTrailingZeros().scale() > 0) {
             throw ExternalServiceException(
                 "A1Topup",
@@ -192,21 +154,14 @@ class A1TopupClient(
             )
         }
 
-        // A1Topup's own "Sample Request" uses GET with query-string params,
-        // and live testing confirmed GET works while POST form-body gave a
-        // generic "Parameter is missing" regardless of which params were
-        // sent -- so GET is what we use, not "GET/POST" interchangeably as
-        // their docs technically claim.
-        //
-        // IMPORTANT: pass RAW (unencoded) values via .queryParam() inside
-        // the UriBuilder-function form, not a manually URLEncoder-encoded
-        // string via .uri(String). The latter double-encodes: WebClient's
-        // .uri(String) treats the string as a URI template and applies its
-        // own encoding pass, so an already-escaped "%24" (from encoding "$"
-        // ourselves) becomes "%2524" on the wire -- silently corrupting the
-        // password before A1Topup even sees it. This was confirmed the
-        // likely cause of a real "Authentication fail!" even with verified-
-        // correct credentials and IP whitelisting.
+        // Log the outgoing request (excluding username/password) so a
+        // failed/pending recharge can be debugged from what we actually
+        // sent, not just what A1Topup sent back.
+        log.info(
+            "A1Topup: sending recharge request for orderId={}: operatorCode={}, circleCode={}, number={}, amount={}",
+            orderId, operatorCode, circleCode, mobileNumber, amount.toBigInteger()
+        )
+
         val rawResponse = try {
             webClient.get()
                 .uri { builder ->
@@ -216,10 +171,6 @@ class A1TopupClient(
                         .queryParam("circlecode", circleCode)
                         .queryParam("operatorcode", operatorCode)
                         .queryParam("number", mobileNumber)
-                        // Whole rupees only, e.g. "10" not "10.00" -- matches
-                        // their documented example format. Safe now: the
-                        // fractional-amount check above already rejected
-                        // anything with paise before we get here.
                         .queryParam("amount", amount.toBigInteger().toString())
                         .queryParam("orderid", orderId)
                         .queryParam("format", "json")
@@ -238,17 +189,52 @@ class A1TopupClient(
     }
 
     /**
-     * Parses A1Topup's confirmed response schema (verified via live testing
-     * against business.a1topup.com/recharge/api, format=json):
-     *   Success: {"txid":"5804","status":"Success","opid":"<operator txn id>","number":"...","amount":"...","orderid":"..."}
-     *   Failure: {"txid":"0","status":"Failure","opid":"<human-readable reason>","number":"...","amount":"...","orderid":"..."}
-     *   Pending: {"txid":"...","status":"Pending","opid":...,...} -- legitimate
-     *            async state, not an error. needsStatusCheck=true tells the
-     *            caller to follow up via the Status API later.
-     * Note "opid" is overloaded -- it's the operator's transaction reference
-     * on success, but carries the failure reason as free text on failure
-     * (confirmed live: opid="Invalid IP 115.96.218.57" for a rejected call).
+     * Follows up on a `Pending` recharge via A1Topup's Status/Enquiry API
+     * (business.a1topup.com/recharge/status). Returns the same result shape
+     * as rechargeMobile() -- Success/Failure/Pending are parsed identically,
+     * since the Status API's response format matches the Recharge API's
+     * (per A1Topup's docs: same txid/status/opid/number/amount/orderid
+     * shape, just format=json).
+     *
+     * Called from RechargeService's reconciliation job for orders still
+     * sitting in PENDING_VERIFICATION -- NOT called inline during the
+     * original webhook handling (A1Topup needs time to actually resolve
+     * the transaction on their end; calling this immediately after a
+     * `Pending` response would likely just get another `Pending` back).
      */
+    suspend fun checkStatus(orderId: String): A1TopupRechargeResult {
+        if (username.isBlank() || password.isBlank()) {
+            throw ExternalServiceException("A1Topup", "A1Topup username/password not configured")
+        }
+
+        // Absolute URI built explicitly (not via a .baseUrl()-bound client)
+        // -- statusUrl is a sibling path to base-url
+        // (.../recharge/status vs .../recharge/api), not a child of it.
+        val uri = UriComponentsBuilder.fromHttpUrl(statusUrl)
+            .queryParam("username", username)
+            .queryParam("pwd", password)
+            .queryParam("orderid", orderId)
+            .queryParam("format", "json")
+            .build()
+            .toUri()
+
+        log.info("A1Topup: checking status for orderId={}", orderId)
+
+        val rawResponse = try {
+            statusWebClient.get()
+                .uri(uri)
+                .retrieve()
+                .awaitBody<String>()
+        } catch (e: Exception) {
+            log.error("A1Topup: status check call failed for orderId={}", orderId, e)
+            throw ExternalServiceException("A1Topup", "Status check failed: ${e.message}", e)
+        }
+
+        log.info("A1Topup: status check raw response for orderId={}: {}", orderId, rawResponse)
+
+        return parseResponse(rawResponse, orderId)
+    }
+
     private fun parseResponse(raw: String, orderId: String): A1TopupRechargeResult {
         return try {
             val parsed = objectMapper.readValue(raw, Map::class.java)
@@ -262,32 +248,20 @@ class A1TopupClient(
                 )
                 "Failure" -> A1TopupRechargeResult(
                     success = false, transactionId = txnId, rawResponse = raw, needsStatusCheck = false,
-                    errorMessage = opid // carries the human-readable reason on failure
+                    errorMessage = opid
                 )
                 "Pending" -> {
-                    // Expected, legitimate async state -- A1Topup is still
-                    // processing. Not an error, so INFO not WARN; the caller
-                    // (needsStatusCheck=true) knows to follow up later via
-                    // the Status API rather than treating this as a failure.
                     log.info("A1Topup: recharge pending for orderId={}, txid={}", orderId, txnId)
                     A1TopupRechargeResult(
                         success = false, transactionId = txnId, rawResponse = raw, needsStatusCheck = true
                     )
                 }
                 else -> {
-                    // Response parsed as JSON but status isn't any of the
-                    // three known values -- genuinely unrecognized, so this
-                    // one does warrant a WARN. Don't guess, flag for the
-                    // Status API to be checked instead of assuming success.
                     log.warn("A1Topup: unrecognized response shape for orderId={}, raw={}", orderId, raw)
                     A1TopupRechargeResult(success = false, transactionId = txnId, rawResponse = raw, needsStatusCheck = true)
                 }
             }
         } catch (e: Exception) {
-            // Not valid JSON (maybe plain text/XML despite format=json) --
-            // don't fail the whole flow on a parse error alone; the HTTP
-            // call itself succeeded, so flag it for manual/Status-API
-            // follow-up rather than silently marking it failed.
             log.warn("A1Topup: response wasn't valid JSON for orderId={}, raw={}", orderId, raw)
             A1TopupRechargeResult(success = false, transactionId = null, rawResponse = raw, needsStatusCheck = true)
         }
@@ -298,11 +272,6 @@ data class A1TopupRechargeResult(
     val success: Boolean,
     val transactionId: String?,
     val rawResponse: String,
-    // true when we genuinely don't know the outcome yet (unparseable/
-    // unrecognized response, or a legitimate Pending) -- caller should
-    // treat this differently from a confirmed failure, e.g. by checking
-    // A1Topup's Status API rather than assuming the recharge didn't go
-    // through.
     val needsStatusCheck: Boolean = false,
     val errorMessage: String? = null
 )

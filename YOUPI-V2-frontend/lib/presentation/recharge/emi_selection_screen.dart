@@ -109,13 +109,14 @@ class EmiSelectionScreen extends StatelessWidget {
                   final ok = await vm.payAndConfirm();
                   if (!ctx.mounted) return;
                   if (ok) {
-                    // Matches backend's GOLD_ELIGIBLE_PLAN_AMOUNT (>= ₹249,
-                    // see RechargeService.kt) -- only qualifying recharges
-                    // get the coin-toss celebration. Coin crediting itself
-                    // happens server-side via the webhook hook -- this just
-                    // plays the celebratory animation, it doesn't credit
-                    // anything client-side.
-                    if (plan.price >= 249) {
+                    // THIS VERSION: coin-count-only testing, no real gold/
+                    // Augmont investment (that's deferred to the next
+                    // version once bank API integration lands). Threshold
+                    // matches backend's GOLD_ELIGIBLE_PLAN_AMOUNT (>= ₹20,
+                    // see RechargeService.kt) -- keep both in sync, or the
+                    // animation and the actual coin credit will disagree
+                    // about which recharges qualify.
+                    if (plan.price >= 20) {
                       await showGoldCoinReward(
                         ctx,
                         plan.price,

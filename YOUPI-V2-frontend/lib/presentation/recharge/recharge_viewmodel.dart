@@ -4,6 +4,8 @@ import '../../core/services/storage_service.dart';
 import '../../data/models/recharge_plan_model.dart';
 import '../../data/repositories/recharge_repository.dart';
 
+enum OperatorDetectionState { idle, detecting, success, failed }
+
 class RechargeViewModel extends ChangeNotifier {
   final RechargeRepository _repo = RechargeRepository();
   final RazorpayService _razorpayService = RazorpayService();
@@ -19,8 +21,14 @@ class RechargeViewModel extends ChangeNotifier {
   // proper placeholder (GPay-style) instead, and the recharge screen
   // prompts the user to pick a number/contact before proceeding.
   String _mobile = '';
-  String _operator = 'BSNL';
+  String _operator = 'airtel';
   String _circle = 'UP East';
+  // Slot-machine detection state -- drives the animated operator chip on
+  // recharge_home_screen.dart. idle = blank/no number yet, detecting =
+  // spin animation playing, success = real detected values landed,
+  // failed = mPlan call errored, falls back to whatever operator/circle
+  // was already set (keeps the flow usable rather than hard-blocking).
+  OperatorDetectionState _detectionState = OperatorDetectionState.idle;
   String _searchQuery = '';
   List<String> _activeFilters = [];
   bool _rechargeSuccess = false;
@@ -51,6 +59,7 @@ class RechargeViewModel extends ChangeNotifier {
   String get mobile => _mobile;
   String get operator => _operator;
   String get circle => _circle;
+  OperatorDetectionState get detectionState => _detectionState;
   bool get rechargeSuccess => _rechargeSuccess;
 
   List<RechargePlanModel> get filteredPlans {
@@ -110,7 +119,49 @@ class RechargeViewModel extends ChangeNotifier {
   void setMobile(String m) {
     _mobile = m;
     StorageService.saveLastRechargeMobile(m);
+    if (m.length == 10) {
+      _detectOperator(m);
+    } else {
+      // Editing/clearing the number -- back to blank state, no stale
+      // detected operator lingering from a previous (different) number.
+      _detectionState = OperatorDetectionState.idle;
+      notifyListeners();
+    }
     notifyListeners();
+  }
+
+  Future<void> _detectOperator(String mobileNumber) async {
+    _detectionState = OperatorDetectionState.detecting;
+    notifyListeners();
+
+    // GPay-style jackpot feel needs the spin visible for at least ~900ms
+    // even when mPlan fails/succeeds almost instantly (its "not authorize"
+    // error currently returns in ~200-400ms, which made the slot-machine
+    // chip look like it glitched straight to red instead of spinning).
+    const minSpinDuration = Duration(milliseconds: 900);
+    final spinTimer = Future.delayed(minSpinDuration);
+
+    try {
+      final result = await _repo.detectOperator(mobileNumber);
+      await spinTimer;
+      // Guard against a stale response landing after the user has already
+      // changed the number again (e.g. typed past 10 digits, or edited
+      // it) -- only apply if this is still the number we detected for.
+      if (_mobile != mobileNumber) return;
+      _operator = result.operator.toLowerCase();
+      _circle = result.circle;
+      _detectionState = OperatorDetectionState.success;
+    } catch (e) {
+      await spinTimer;
+      if (_mobile != mobileNumber) return;
+      // Falls back to whatever operator/circle was already set (the
+      // default, or a previous successful detection) -- keeps the
+      // recharge flow usable rather than hard-blocking on a single
+      // failed mPlan call.
+      _detectionState = OperatorDetectionState.failed;
+    }
+    notifyListeners();
+    loadPlans();
   }
 
   String? _lastOrderId;

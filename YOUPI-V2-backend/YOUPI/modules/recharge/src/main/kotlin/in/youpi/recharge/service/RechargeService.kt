@@ -3,8 +3,10 @@ package `in`.youpi.recharge.service
 import `in`.youpi.core.Result
 import `in`.youpi.core.razorpay.RazorpayClient
 import `in`.youpi.core.razorpay.RazorpayOrderCreationException
+import `in`.youpi.gold.GoldRewardService
 import `in`.youpi.invest.service.InvestService
 import `in`.youpi.recharge.a1topup.A1TopupClient
+import `in`.youpi.recharge.a1topup.A1TopupRechargeResult
 import `in`.youpi.recharge.domain.*
 import `in`.youpi.recharge.repository.RechargeEmiEntity
 import `in`.youpi.recharge.repository.RechargeEmiRepository
@@ -38,7 +40,8 @@ class RechargeService(
     // back to the plain @Primary webClient bean -- that one is intentionally
     // unproxied (used by Razorpay, which doesn't need/want this).
     @Qualifier("proxiedWebClient") private val webClient: WebClient,
-    private val investService: InvestService,                   // ← recharge → auto gold-invest ke liye
+    private val investService: InvestService,                   // ← recharge → auto gold-invest ke liye (LEGACY, disabled this version -- see handleWebhookCaptured)
+    private val goldRewardService: GoldRewardService,            // ← recharge → coin-count reward (THIS VERSION's real gold-crediting path)
     private val razorpayClient: RazorpayClient,
     private val a1topupClient: A1TopupClient,
     @Value("\${mplan.api.key}") private val mplanApiKey: String,
@@ -79,12 +82,40 @@ class RechargeService(
     companion object {
         private val PLAN_CACHE_TTL = Duration.ofMinutes(30)
         private const val PLAN_CACHE_PREFIX = "plans:"
+        // A1Topup pending-reconciliation poll gives up after ~1 hour --
+        // handled via createdAt age check in reconcilePendingRecharges(),
+        // no separate constant/column needed.
 
-        // Gold auto-invest is a promo tied to the ₹249 plan specifically, not
-        // "any recharge amount x goldInvestPercentage". Compared with
-        // compareTo (not ==) because BigDecimal("249") != BigDecimal("249.00")
-        // under equals(), but compareTo treats them as equal in value.
-        private val GOLD_ELIGIBLE_PLAN_AMOUNT = BigDecimal("249")
+        // THIS VERSION: lowered to ₹20 for coin-count-only testing (no real
+        // gold/Augmont investment yet -- that's deferred to the next version
+        // once bank API integration lands). Compared with compareTo (not ==)
+        // because BigDecimal("20") != BigDecimal("20.00") under equals(),
+        // but compareTo treats them as equal in value.
+        // MUST STAY IN SYNC with the Flutter check in emi_selection_screen.dart
+        // (currently `if (plan.price >= 20)`) -- one drifting from the other
+        // means the animation and the actual coin credit disagree.
+        private val GOLD_ELIGIBLE_PLAN_AMOUNT = BigDecimal("20")
+
+        // TEMPORARY: A1Topup's recharge-delivery catalog doesn't support
+        // mPlan's small data-addon denominations -- confirmed via live
+        // testing on 30 July 2026: ₹22 and ₹26 (mPlan data-addon packs)
+        // both came back "Transaction Failed" on A1Topup (both via our API
+        // path AND via A1Topup's own WEB dashboard -- so this isn't an
+        // integration bug, A1Topup genuinely doesn't carry these
+        // denominations), while ₹19 and ₹349 (standard recharge
+        // denominations) both succeeded. mPlan is a plan-BROWSING catalog;
+        // A1Topup is the actual delivery vendor, and their denomination
+        // lists don't fully overlap.
+        //
+        // ₹29 is a conservative floor -- it excludes the two confirmed-bad
+        // amounts (22, 26) while still being low enough to likely include
+        // most standard small recharges. This is a blunt filter, not a
+        // verified denomination list: it may hide some genuinely-valid
+        // plans in the ₹29-100ish range, or (less likely, unconfirmed)
+        // let through some other unsupported amount above ₹29. Replace
+        // with a real cross-check against A1Topup's supported-denomination
+        // list once they provide one (asked, pending as of this comment).
+        private val MIN_DELIVERABLE_AMOUNT = BigDecimal("29")
     }
 
     // ── Plan Fetching (Redis Cached) ──
@@ -174,6 +205,16 @@ class RechargeService(
             // youpi-nat-ip successfully) to isolate whether this is a
             // per-call routing issue or a genuine infra problem. Remove
             // once the IP mismatch is root-caused.
+            try {
+                val myIp = webClient.get()
+                    .uri("https://api.ipify.org?format=text")
+                    .retrieve()
+                    .bodyToMono(String::class.java)
+                    .awaitSingle()
+                log.error("DIAGNOSTIC: outbound IP for this webClient bean = {}", myIp)
+            } catch (e: Exception) {
+                log.error("DIAGNOSTIC: ipify check failed", e)
+            }
 
             // IMPORTANT: build the URI via UriComponentsBuilder + .queryParam()
             // + .encode(), not a manually-concatenated string passed to
@@ -201,7 +242,12 @@ class RechargeService(
             // if it's not at the very start/end after trim, or if trim
             // missed something unexpected. Remove once ruled out.
             val trimmedKey = mplanApiKey.trim()
-           
+            log.error(
+                "DIAGNOSTIC: mplan api key length={}, first4={}, last4={}",
+                trimmedKey.length,
+                trimmedKey.take(4),
+                trimmedKey.takeLast(4)
+            )
 
             val uri = org.springframework.web.util.UriComponentsBuilder
                 .fromHttpUrl(mplanMobilePlansUrl)
@@ -211,7 +257,9 @@ class RechargeService(
                 .build()
                 .encode()
                 .toUri()
-                
+
+            log.error("DIAGNOSTIC: exact outgoing URI = {}", uri)
+
             val response = webClient.get()
                 .uri(uri)
                 .retrieve()
@@ -259,11 +307,27 @@ class RechargeService(
                 }
             }
 
-            val json = objectMapper.writeValueAsString(plans)
+            // Filter out denominations A1Topup can't actually deliver --
+            // see MIN_DELIVERABLE_AMOUNT doc comment above. Done BEFORE
+            // caching, so the filtered-out plans never sit in Redis for
+            // the 30-min TTL either -- otherwise a cache hit would keep
+            // serving undeliverable plans even after this filter is
+            // tightened/replaced later.
+            val deliverablePlans = plans.filter { it.amount >= MIN_DELIVERABLE_AMOUNT }
+            val filteredCount = plans.size - deliverablePlans.size
+            if (filteredCount > 0) {
+                log.info(
+                    "Filtered out {} plan(s) below MIN_DELIVERABLE_AMOUNT ({}) for operator={}, circle={} -- " +
+                            "these are mPlan denominations not known to be deliverable via A1Topup",
+                    filteredCount, MIN_DELIVERABLE_AMOUNT, operator, circle
+                )
+            }
+
+            val json = objectMapper.writeValueAsString(deliverablePlans)
             redisTemplate.opsForValue().set(cacheKey, json, PLAN_CACHE_TTL).awaitSingleOrNull()
 
-            log.info("Plans fetched from mPlan API: operator={}, circle={}, count={}", operator, circle, plans.size)
-            Result.success(plans)
+            log.info("Plans fetched from mPlan API: operator={}, circle={}, count={}", operator, circle, deliverablePlans.size)
+            Result.success(deliverablePlans)
         } catch (e: Exception) {
             log.error("mPlan API call failed for operator={}, circle={}", operator, circle, e)
             Result.failure(RechargeApiException("Failed to fetch plans: ${e.message}"))
@@ -572,48 +636,31 @@ class RechargeService(
             log.info("Recharge expiry set: orderId={}, expiryDate={}", updatedOrder.id, expiryDate)
         }
 
-        // ── Auto gold-invest — ₹249 plan only, non-fatal ──
-        if (updatedOrder.planAmount >= GOLD_ELIGIBLE_PLAN_AMOUNT) {
-            val goldAmount = updatedOrder.planAmount
-                .multiply(goldInvestPercentage)
-                .divide(BigDecimal(100), 2, java.math.RoundingMode.HALF_EVEN)
-
-            if (goldAmount > BigDecimal.ZERO) {
-                try {
-                    val goldResult = investService.buyGold(
-                        userId = order.userId,
-                        amountInr = goldAmount,
-                        idempotencyKey = "recharge-gold-${updatedOrder.id}",
-                        triggeredBy = "AUTO_RECHARGE"
-                    )
-
-                    when (goldResult) {
-                        is Result.Success -> {
-                            rechargeRepo.updateAfterConfirm(
-                                id = updatedOrder.id!!,
-                                status = updatedOrder.status,
-                                razorpayPaymentId = updatedOrder.razorpayPaymentId,
-                                a1topupStatus = updatedOrder.a1topupStatus,
-                                a1topupRawResponse = updatedOrder.a1topupRawResponse ?: "null",
-                                goldAutoInvest = true,
-                                goldTxnId = goldResult.value.txnId
-                            )
-                            log.info("Auto gold-invest succeeded: orderId={}, goldTxnId={}, amount={}",
-                                updatedOrder.id, goldResult.value.txnId, goldAmount)
-                        }
-                        is Result.Failure -> {
-                            // Non-fatal by design -- recharge itself already
-                            // succeeded (or is pending delivery); a gold-side
-                            // failure (e.g. Augmont down) shouldn't roll that
-                            // back. User just doesn't get the bonus gold this
-                            // time; ops can reconcile from the warning in logs.
-                            log.warn("Auto gold-invest failed (non-fatal): orderId={}, reason={}",
-                                updatedOrder.id, goldResult.error.message)
-                        }
-                    }
-                } catch (e: Exception) {
-                    log.error("Auto gold-invest threw unexpected exception (non-fatal): orderId={}", updatedOrder.id, e)
-                }
+        // ── Gold Coin Reward (coin-count only, THIS VERSION) ──
+        // Real backend crediting for the coin-count/balance_rupees system.
+        // Deliberately gated on RECHARGE_SUCCESS specifically (not
+        // PAYMENT_DONE/REFUNDED/PENDING_VERIFICATION) -- don't reward a
+        // recharge that didn't actually reach the user. Non-fatal: a
+        // gold-crediting failure must never roll back an already-successful
+        // recharge; ops can reconcile from the warning in logs. Idempotency
+        // is handled inside GoldRewardService itself (ON CONFLICT on
+        // recharge_txn_id), so a retried webhook delivery is a safe no-op.
+        //
+        // Legacy investService.buyGold() (real Augmont money-based gold
+        // purchase) stays disabled -- not wanted until bank API integration
+        // lands in a future version.
+        if (updatedOrder.status == "RECHARGE_SUCCESS") {
+            try {
+                goldRewardService.creditRewardForRecharge(
+                    userId = order.userId,
+                    rechargeTxnId = updatedOrder.id.toString(),
+                    rechargeAmount = updatedOrder.planAmount
+                )
+                log.info("Gold coin reward credited (if eligible): orderId={}, planAmount={}",
+                    updatedOrder.id, updatedOrder.planAmount)
+            } catch (e: Exception) {
+                log.warn("Gold coin reward crediting failed (non-fatal): orderId={}, reason={}",
+                    updatedOrder.id, e.message)
             }
         }
 
@@ -722,6 +769,183 @@ class RechargeService(
                 planAmount = it.planAmount,
                 a1TopupStatus = it.a1topupStatus,
                 goldTxnId = it.goldTxnId
+            )
+        }
+    }
+
+    // ── A1Topup Pending Resolution (Status API polling + Callback webhook) ──
+
+    /**
+     * Callback webhook -- register this URL with A1Topup (MY ACCOUNT ->
+     * Callback URL setting on their dashboard) so they push status updates
+     * here the moment a pending/disputed transaction resolves, instead of
+     * us finding out only via the next poll cycle.
+     *
+     * Per A1Topup's docs the callback carries txid, status (Success/
+     * Failure), and opid as query params -- NOT a JSON body. txid here is
+     * OUR orderid (the docs say "along with the Operator ID, Status and
+     * txid", and their sample recharge call sends orderid=ours, so txid in
+     * the callback is presumed to echo that back -- confirm this against a
+     * real callback once A1Topup fires one, their docs are a little terse
+     * on this point).
+     */
+    suspend fun handleA1TopupCallback(orderId: String, status: String, opid: String?) {
+        log.info("A1Topup callback received: orderId={}, status={}, opid={}", orderId, status, opid)
+        val result = A1TopupRechargeResult(
+            success = status.equals("Success", ignoreCase = true),
+            transactionId = opid,
+            rawResponse = "callback: orderid=$orderId, status=$status, opid=$opid",
+            needsStatusCheck = false,
+            errorMessage = if (!status.equals("Success", ignoreCase = true)) opid else null
+        )
+        resolveA1TopupOutcome(orderId, result)
+    }
+
+    /**
+     * Backup poller -- picks up any order still PENDING_VERIFICATION after
+     * 2+ minutes and asks A1Topup's Status API directly. Non-fatal per
+     * order: one order's Status API call failing shouldn't stop the rest
+     * of the batch from being checked.
+     *
+     * Deliberately uses only the ALREADY-EXISTING findByStatus() (no new
+     * repository method or DB migration needed) -- filters by age in
+     * memory instead of in the query, and gives up on an order after ~1
+     * hour by checking createdAt rather than maintaining a separate
+     * attempt-counter column. Good enough for now; if pending volume ever
+     * gets large enough that scanning all PENDING_VERIFICATION rows in
+     * memory becomes a real cost, that's the point to add a proper indexed
+     * query + attempt-counter column.
+     */
+    @org.springframework.scheduling.annotation.Scheduled(fixedDelay = 300_000) // every 5 minutes
+    suspend fun reconcilePendingRecharges() {
+        val allPending = try {
+            rechargeRepo.findByStatus("PENDING_VERIFICATION")
+        } catch (e: Exception) {
+            log.error("Reconciliation: failed to fetch pending orders", e)
+            return
+        }
+
+        if (allPending.isEmpty()) return
+
+        val now = Instant.now()
+        val eligible = allPending.filter { order ->
+            val ageSinceUpdate = Duration.between(order.updatedAt, now).seconds
+            val ageSinceCreated = Duration.between(order.createdAt, now).toMinutes()
+            // Give A1Topup at least 2 minutes to resolve naturally before we
+            // start asking, and stop trying after ~1 hour -- a Pending that
+            // hasn't resolved by then almost certainly needs a human, not
+            // more polling.
+            ageSinceUpdate >= 120 && ageSinceCreated < 60
+        }
+
+        if (eligible.isEmpty()) return
+        log.info("Reconciliation: checking {} pending order(s)", eligible.size)
+
+        for (order in eligible) {
+            try {
+                val result = a1topupClient.checkStatus(order.id.toString())
+                if (result.needsStatusCheck) {
+                    // Still genuinely pending / unresolved -- leave as-is,
+                    // try again next cycle (updated_at won't change here,
+                    // so it stays eligible next run too).
+                    log.info("Reconciliation: orderId={} still pending", order.id)
+                } else {
+                    resolveA1TopupOutcome(order.id.toString(), result)
+                }
+            } catch (e: Exception) {
+                log.warn("Reconciliation: status check failed for orderId={} (non-fatal, will retry next cycle)",
+                    order.id, e)
+            }
+        }
+    }
+
+    /**
+     * Shared resolution logic for both the callback and the poller --
+     * updates order status, fires auto-refund on confirmed failure, and
+     * credits the gold coin reward on confirmed success. Mirrors the
+     * success/failure branches in handleWebhookCaptured() (same
+     * razorpayClient.refund(paymentId, notes) call, same updateAfterConfirm
+     * shape), applied to an order that was previously left in
+     * PENDING_VERIFICATION.
+     */
+    private suspend fun resolveA1TopupOutcome(orderId: String, result: A1TopupRechargeResult) {
+        val order = rechargeRepo.findById(java.util.UUID.fromString(orderId)) ?: run {
+            log.warn("Reconciliation: no order found for orderId={}, ignoring", orderId)
+            return
+        }
+
+        // Don't re-process an order that's already been finalized by
+        // another path (e.g. the original webhook eventually resolved it
+        // too, or this callback/poll fired twice) -- idempotency guard.
+        if (order.status != "PENDING_VERIFICATION") {
+            log.info("Reconciliation: orderId={} already resolved (status={}), skipping", orderId, order.status)
+            return
+        }
+
+        if (result.success) {
+            rechargeRepo.updateAfterConfirm(
+                id = order.id!!,
+                status = "RECHARGE_SUCCESS",
+                razorpayPaymentId = order.razorpayPaymentId,
+                a1topupStatus = "SUCCESS",
+                a1topupRawResponse = toSafeJson(result.rawResponse),
+                goldAutoInvest = false,
+                goldTxnId = null
+            )
+            log.info("Reconciliation: orderId={} resolved SUCCESS", orderId)
+
+            if (order.planValidityDays != null && order.planValidityDays > 0) {
+                val expiryDate = LocalDate.now().plusDays(order.planValidityDays.toLong())
+                rechargeRepo.setExpiryDate(order.id!!, expiryDate)
+            }
+
+            if (order.planAmount >= GOLD_ELIGIBLE_PLAN_AMOUNT) {
+                try {
+                    goldRewardService.creditRewardForRecharge(
+                        userId = order.userId,
+                        rechargeTxnId = order.id.toString(),
+                        rechargeAmount = order.planAmount
+                    )
+                } catch (e: Exception) {
+                    log.warn("Reconciliation: gold reward crediting failed (non-fatal): orderId={}", orderId, e)
+                }
+            }
+        } else {
+            // Same refund call/signature as handleWebhookCaptured()'s
+            // confirmed-failure path -- razorpayClient.refund(paymentId,
+            // notes), not (paymentId, amount, reason). Full refund of the
+            // captured payment; A1Topup's own API doesn't support partial
+            // recharge delivery so there's no partial-refund case here.
+            var finalStatus = "RECHARGE_FAILED"
+            var refundFailureNote: String? = null
+            try {
+                val refund = razorpayClient.refund(
+                    paymentId = order.razorpayPaymentId!!,
+                    notes = mapOf(
+                        "reason" to "recharge_delivery_failed",
+                        "rechargeOrderId" to order.id.toString(),
+                        "resolvedVia" to "reconciliation"
+                    )
+                )
+                finalStatus = "REFUNDED"
+                log.info("Reconciliation: orderId={} auto-refunded: refundId={}", orderId, refund.id)
+            } catch (e: Exception) {
+                log.error(
+                    "Reconciliation: REFUND FAILED for orderId={} -- customer still owed money, needs manual refund. Error: {}",
+                    orderId, e.message, e
+                )
+                refundFailureNote = "Auto-refund failed: ${e.message}. Needs manual refund."
+            }
+
+            rechargeRepo.updateAfterConfirm(
+                id = order.id!!,
+                status = finalStatus,
+                razorpayPaymentId = order.razorpayPaymentId,
+                a1topupStatus = "FAILED",
+                a1topupRawResponse = toSafeJson(result.rawResponse),
+                goldAutoInvest = false,
+                goldTxnId = null,
+                failureReason = refundFailureNote
             )
         }
     }

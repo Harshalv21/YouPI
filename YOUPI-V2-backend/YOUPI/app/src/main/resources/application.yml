@@ -134,6 +134,7 @@ youpi:
 
   a1topup:
     base-url: ${A1TOPUP_BASE_URL:https://business.a1topup.com/recharge/api}
+    status-url: ${A1TOPUP_STATUS_URL:https://business.a1topup.com/recharge/status}
     username: ${A1TOPUP_USERNAME:}
     password: ${A1TOPUP_PASSWORD:}
 
@@ -168,7 +169,7 @@ youpi:
 mplan:
   api:
     key: ${MPLAN_API_KEY:}
-    operator-check-url: http://operatorcheck.mplan.in/api/operatorinfo.php
+    operator-check-url: https://operatorcheck.mplan.in/apiv2/operatorinfo
     plans-url: https://www.mplan.in/api/plans.php
     mobile-plans-url: https://www.mplan.in/apiv2/mobileplans
     recharge-url: https://www.mplan.in/api/recharge.php

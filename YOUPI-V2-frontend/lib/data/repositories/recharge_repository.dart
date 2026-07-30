@@ -16,6 +16,22 @@ import '../models/recharge_plan_model.dart';
 class RechargeRepository {
   final Dio _dio = ApiService.instance;
 
+  /// Detects the real operator/circle for a mobile number via mPlan's HLR
+  /// API (backend-side). Values come back already normalized to match
+  /// what getPlans() expects (e.g. "JIO", "UP EAST") -- no further mapping
+  /// needed on the Flutter side.
+  Future<OperatorDetectionResult> detectOperator(String mobileNumber) async {
+    try {
+      final res = await _dio.get('/v1/recharge/operator', queryParameters: {
+        'mobile': mobileNumber,
+      });
+      final data = ApiService.unwrap(res) as Map<String, dynamic>;
+      return OperatorDetectionResult.fromJson(data);
+    } on DioException catch (e) {
+      throw ApiService.toException(e);
+    }
+  }
+
   Future<List<RechargePlanModel>> getPlans({
     required String operator,
     required String circle,
@@ -217,5 +233,19 @@ class ActiveRechargeResult {
     planAmount: (json['planAmount'] as num).toDouble(),
     expiryDate: DateTime.parse(json['expiryDate'] as String),
     daysRemaining: (json['daysRemaining'] as num).toInt(),
+  );
+}
+
+/// Result of operator/circle detection -- backs the slot-machine reveal
+/// animation on the recharge home screen.
+class OperatorDetectionResult {
+  final String operator;
+  final String circle;
+
+  OperatorDetectionResult({required this.operator, required this.circle});
+
+  factory OperatorDetectionResult.fromJson(Map<String, dynamic> json) => OperatorDetectionResult(
+    operator: json['operator'] as String,
+    circle: json['circle'] as String,
   );
 }

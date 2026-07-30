@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
+import '../core/widgets/coming_soon_dialog.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../core/services/storage_service.dart';
-import '../core/widgets/coming_soon_dialog.dart';
 import '../presentation/splash/splash_screen.dart';
 import '../presentation/onboarding/welcome_screen.dart';
 import '../presentation/onboarding/onboarding_carousel_screen.dart';
@@ -171,8 +171,13 @@ class _MainShellState extends State<MainShell> {
     '/dashboard/settings',
   ];
 
-  // Tabs jo abhi live nahi hain -- inpe tap karne se navigate nahi hoga,
-  // sirf "Coming Soon" popup dikhega.
+  // Invest and Wallet aren't part of this release -- backend already
+  // blocks their API routes (403 FEATURE_DISABLED via FeatureGateFilter),
+  // this stops the bottom nav from routing into a screen that'll just hit
+  // raw API errors, showing a clean "Coming Soon" popup instead. Home,
+  // Plans, Settings tabs are untouched. Route definitions themselves are
+  // NOT removed (still there for future re-enabling), only this tap
+  // interception changed.
   static const _lockedTabs = {2: 'Invest', 3: 'Wallet'};
 
   void _handleTabTap(int index) {
@@ -186,13 +191,18 @@ class _MainShellState extends State<MainShell> {
   @override
   Widget build(BuildContext context) {
     final location = GoRouterState.of(context).matchedLocation;
+
+    // Bug #6 fix: find the matching tab. If the current route isn't a tab
+    // (e.g. /dashboard/bnpl lives in the shell but has no tab), keep the nav
+    // bar but DON'T force-highlight Home — show no active tab instead of a wrong one.
     final matchedIndex =
     _tabRoutes.indexWhere((r) => location.startsWith(r));
 
     return Scaffold(
       body: widget.child,
       bottomNavigationBar: _YoupiBottomNav(
-               currentIndex: matchedIndex,
+        // -1 => no tab highlighted (valid for bnpl and other shell-but-not-tab routes)
+        currentIndex: matchedIndex,
         onTap: _handleTabTap,
       ),
     );

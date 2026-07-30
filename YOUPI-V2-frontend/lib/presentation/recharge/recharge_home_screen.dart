@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -75,17 +76,14 @@ class _RechargeHomeScreenState extends State<RechargeHomeScreen> {
                 ),
               ),
               const SizedBox(height: 12),
-              // Operator chips
+              // Operator detection -- casino slot-machine reveal. Blank
+              // before a full number is entered, spins through decoy
+              // operator names while mPlan's HLR call is in flight, then
+              // settles on the real detected operator/circle.
               Wrap(
                 spacing: 8,
                 children: [
-                  Chip(
-                    label: Text('${vm.operator.toUpperCase()} • ${vm.circle}',
-                        style: AppTextStyles.chipText.copyWith(color: AppColors.primary)),
-                    backgroundColor: AppColors.primary.withOpacity(0.1),
-                    side: const BorderSide(color: AppColors.primary),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                  ),
+                  _OperatorSlotChip(vm: vm),
                 ],
               ),
               const SizedBox(height: 20),
@@ -189,7 +187,12 @@ void _showEditMobileDialog(BuildContext context, RechargeViewModel vm) {
             final val = ctrl.text.trim();
             if (val.length == 10) {
               vm.setMobile(val);
-              vm.loadPlans();
+              // NOTE: no explicit loadPlans() here anymore -- setMobile()
+              // now triggers operator detection, which calls loadPlans()
+              // itself once the real operator/circle is known (or
+              // detection fails and falls back). Calling it immediately
+              // here would fetch plans for the stale/default operator
+              // before detection even finishes.
               Navigator.of(ctx).pop();
             }
           },
@@ -198,4 +201,137 @@ void _showEditMobileDialog(BuildContext context, RechargeViewModel vm) {
       ],
     ),
   );
+}
+
+/// Casino slot-machine style operator/circle detection chip.
+///   idle       -- blank ("— • —"), shown before a full 10-digit number
+///   detecting  -- rapidly cycles through decoy operator names (spin
+///                 effect) while the real mPlan HLR call is in flight
+///   success    -- settles on the real detected "JIO • UP EAST" etc.
+///   failed     -- falls back to whatever operator/circle was already
+///                 set, so the flow stays usable rather than blocking
+class _OperatorSlotChip extends StatefulWidget {
+  final RechargeViewModel vm;
+  const _OperatorSlotChip({required this.vm});
+
+  @override
+  State<_OperatorSlotChip> createState() => _OperatorSlotChipState();
+}
+
+class _OperatorSlotChipState extends State<_OperatorSlotChip> {
+  static const _decoyOperators = ['AIRTEL', 'JIO', 'VI', 'BSNL', 'MTNL'];
+  Timer? _spinTimer;
+  int _spinIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncSpinState();
+  }
+
+  @override
+  void didUpdateWidget(covariant _OperatorSlotChip oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // NOTE: widget.vm is the SAME mutable ChangeNotifier instance every
+    // rebuild (Provider doesn't replace it), so comparing oldWidget.vm's
+    // field to widget.vm's field here would always show equal -- both
+    // point at the identical object. Reading the CURRENT state directly
+    // and keeping our own "am I already spinning" flag (via _spinTimer)
+    // is what actually makes start/stop idempotent and correct.
+    _syncSpinState();
+  }
+
+  void _syncSpinState() {
+    final state = widget.vm.detectionState;
+    final isSpinning = _spinTimer != null;
+    if (state == OperatorDetectionState.detecting && !isSpinning) {
+      _spinTimer = Timer.periodic(const Duration(milliseconds: 90), (_) {
+        if (!mounted) return;
+        setState(() => _spinIndex = (_spinIndex + 1) % _decoyOperators.length);
+      });
+    } else if (state != OperatorDetectionState.detecting && isSpinning) {
+      _spinTimer?.cancel();
+      _spinTimer = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    _spinTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = widget.vm.detectionState;
+
+    String displayText;
+    Color color;
+    IconData? icon;
+
+    switch (state) {
+      case OperatorDetectionState.idle:
+        displayText = '— • —';
+        color = AppColors.textSecondary;
+        icon = null;
+        break;
+      case OperatorDetectionState.detecting:
+        displayText = _decoyOperators[_spinIndex];
+        color = AppColors.secondary;
+        icon = Icons.casino_rounded;
+        break;
+      case OperatorDetectionState.success:
+        displayText = '${widget.vm.operator.toUpperCase()} • ${widget.vm.circle}';
+        color = AppColors.primary;
+        icon = Icons.check_circle_rounded;
+        break;
+      case OperatorDetectionState.failed:
+        displayText = '${widget.vm.operator.toUpperCase()} • ${widget.vm.circle}';
+        color = AppColors.error;
+        icon = Icons.warning_amber_rounded;
+        break;
+    }
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color),
+      ),
+      child: ClipRect(
+        child: AnimatedSwitcher(
+          // Fast swaps while spinning (matches the timer interval so the
+          // slide-in never looks laggy behind the text change); a
+          // noticeably slower, more deliberate transition for the final
+          // settle -- that's the "jackpot landing" beat.
+          duration: Duration(
+            milliseconds: state == OperatorDetectionState.detecting ? 90 : 400,
+          ),
+          transitionBuilder: (child, animation) => ClipRect(
+            child: SlideTransition(
+              position: Tween<Offset>(begin: const Offset(0, -1), end: Offset.zero)
+                  .animate(CurvedAnimation(parent: animation, curve: Curves.easeOut)),
+              child: FadeTransition(opacity: animation, child: child),
+            ),
+          ),
+          child: Row(
+            key: ValueKey('$state-$displayText'),
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (icon != null) ...[
+                Icon(icon, size: 14, color: color),
+                const SizedBox(width: 6),
+              ],
+              Text(
+                displayText,
+                style: AppTextStyles.chipText.copyWith(color: color, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

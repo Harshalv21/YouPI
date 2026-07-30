@@ -1,0 +1,33 @@
+﻿ YOUPI-V2-backend/YOUPI/a1topup_pass.txt            |   1 -
+ YOUPI-V2-backend/YOUPI/a1topup_user.txt            |   1 -
+ YOUPI-V2-backend/YOUPI/app/build.gradle.kts        |   9 +-
+ .../main/kotlin/in/youpi/config/FirebaseConfig.kt  |  26 +--
+ .../main/kotlin/in/youpi/config/WebClientConfig.kt |  63 +++++-
+ .../YOUPI/app/src/main/resources/application.yml   |  21 +-
+ .../V12__create_gold_reward_and_wallet.sql         |  40 ++++
+ .../V13__simplify_gold_reward_to_coins.sql         |  30 +++
+ YOUPI-V2-backend/YOUPI/logs.json                   | Bin 0 -> 194682 bytes
+ .../YOUPI/modules/gold/build.gradle.kts            |  19 ++
+ .../src/main/kotlin/in/youpi/gold/GoldRouter.kt    |  63 ++++++
+ .../kotlin/in/youpi/gold/GoldWalletRepository.kt   |  60 ++++++
+ .../kotlin/in/youpi/gold/GoldWithdrawService.kt    | 141 +++++++++++++
+ .../in/youpi/invest/augmont/AugmontClient.kt       |  40 +++-
+ .../in/youpi/payment/service/PaymentService.kt     |  26 ++-
+ .../in/youpi/recharge/a1topup/A1TopupClient.kt     |  45 ++++-
+ .../in/youpi/recharge/service/RechargeService.kt   | 123 +++++++++++-
+ YOUPI-V2-backend/YOUPI/settings.gradle.kts         |   3 +-
+ .../src/main/kotlin/in/youpi/core/CorsConfig.kt    |  10 +-
+ .../kotlin/in/youpi/core/GlobalExceptionHandler.kt |  13 +-
+ .../in/youpi/security/FeatureConfigRouter.kt       |  49 +++++
+ .../kotlin/in/youpi/security/FeatureGateFilter.kt  | 109 ++++++++++
+ .../kotlin/in/youpi/security/FirebaseAuthFilter.kt |   6 +-
+ .../kotlin/in/youpi/security/RateLimitFilter.kt    |  13 +-
+ YOUPI-V2-frontend/assets/images/youpi_coin.png     | Bin 0 -> 2759533 bytes
+ .../lib/core/services/storage_service.dart         |  19 ++
+ .../lib/core/widgets/contact_picker_field.dart     |  16 +-
+ .../lib/presentation/dashboard/home_screen.dart    | 222 ++++++++++++++++++---
+ .../recharge/emi_selection_screen.dart             | 106 +++++-----
+ .../recharge/recharge_home_screen.dart             |  12 +-
+ .../presentation/recharge/recharge_viewmodel.dart  |  44 +++-
+ YOUPI-V2-frontend/pubspec.yaml                     |   2 +-
+ 32 files changed, 1187 insertions(+), 145 deletions(-)

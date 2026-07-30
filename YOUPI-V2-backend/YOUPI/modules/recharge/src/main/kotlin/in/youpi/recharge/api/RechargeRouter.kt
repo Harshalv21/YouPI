@@ -33,6 +33,15 @@ class RechargeRouter(private val rechargeService: RechargeService) {
                     Parameter(name = "circle", description = "Service circle (e.g. UP-East, Delhi)", required = false)
                 ],
                 responses = [SwaggerApiResponse(responseCode = "200", description = "List of recharge plans")])),
+        RouterOperation(path = "/v1/recharge/operator", method = [RequestMethod.GET],
+            operation = Operation(operationId = "detectOperator", summary = "Detect operator/circle from mobile number",
+                description = "Uses mPlan's HLR/Operator Check API to detect a mobile number's real operator and circle. " +
+                        "Returns values already normalized to match operatorCodeMap/circleCodeMap (e.g. \"JIO\", \"UP EAST\").",
+                tags = ["Recharge"],
+                parameters = [
+                    Parameter(name = "mobile", description = "10-digit mobile number", required = true)
+                ],
+                responses = [SwaggerApiResponse(responseCode = "200", description = "Detected operator and circle")])),
         RouterOperation(path = "/v1/recharge/order", method = [RequestMethod.POST],
             operation = Operation(operationId = "createRechargeOrder", summary = "Create recharge order",
                 description = "Creates a new recharge order with optional EMI payment mode. Returns Razorpay order ID.",
@@ -71,18 +80,65 @@ class RechargeRouter(private val rechargeService: RechargeService) {
     fun rechargeRoutes() = coRouter {
         "/v1/recharge".nest {
             GET("/plans") { handleFetchPlans(it) }
+            GET("/operator") { handleDetectOperator(it) }
             POST("/order") { handleCreateOrder(it) }
             POST("/order/{orderId}/confirm") { handleConfirmOrder(it) }
             GET("/order/{orderId}") { handleGetOrderStatus(it) }
             GET("/history") { handleHistory(it) }
             GET("/active") { handleGetActiveRecharge(it) }
         }
+        // A1Topup's callback -- hit directly BY A1TOPUP, not by our app, so
+        // no JWT is sent. This path MUST be added to the security config's
+        // public/unauthenticated allowlist (same way POST /webhooks/razorpay
+        // presumably already is) -- otherwise the JWT auth filter will
+        // reject A1Topup's callback before it ever reaches this handler.
+        // GET+POST both wired since A1Topup's own docs say they may use
+        // either for this.
+        "/v1/webhooks/a1topup-callback".let { path ->
+            GET(path) { handleA1TopupCallback(it) }
+            POST(path) { handleA1TopupCallback(it) }
+        }
+    }
+
+    /**
+     * A1Topup calls this with query params txid (= our orderid), status
+     * (Success/Failure), opid (operator transaction id, or failure reason
+     * text). See A1TopupClient.kt / RechargeService.handleA1TopupCallback
+     * for the resolution logic this triggers.
+     */
+    private suspend fun handleA1TopupCallback(request: ServerRequest): ServerResponse {
+        val orderId = request.queryParam("txid").orElse(null)
+        val status = request.queryParam("status").orElse(null)
+        val opid = request.queryParam("opid").orElse(null)
+
+        if (orderId == null || status == null) {
+            // Don't throw -- A1Topup doesn't care about our error format
+            // and retrying a malformed callback won't help. Just log and
+            // ack so they don't keep retrying a call we can't parse.
+            return ServerResponse.ok().bodyValueAndAwait("ignored: missing txid/status")
+        }
+
+        rechargeService.handleA1TopupCallback(orderId, status, opid)
+        // A1Topup just needs a 200 to consider the callback delivered --
+        // doesn't parse the body.
+        return ServerResponse.ok().bodyValueAndAwait("ok")
     }
 
     private suspend fun handleFetchPlans(request: ServerRequest): ServerResponse {
         val operator = request.queryParam("operator").orElse("JIO")
         val circle = request.queryParam("circle").orElse("UP-East")
         return when (val result = rechargeService.fetchPlans(operator, circle)) {
+            is Result.Success -> ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
+                .bodyValueAndAwait(ApiResponse.ok(result.value))
+            is Result.Failure -> throw result.error
+        }
+    }
+
+    private suspend fun handleDetectOperator(request: ServerRequest): ServerResponse {
+        val mobile = request.queryParam("mobile").orElseThrow {
+            RechargeApiException("Missing required query param: mobile")
+        }
+        return when (val result = rechargeService.detectOperator(mobile)) {
             is Result.Success -> ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
                 .bodyValueAndAwait(ApiResponse.ok(result.value))
             is Result.Failure -> throw result.error
