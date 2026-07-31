@@ -119,6 +119,23 @@ class A1TopupClient(
             "CHENNAI" to "7", "NORTH EAST" to "26", "KOLKATA" to "6",
             "UP EAST" to "10", "UP WEST" to "11", "J&K" to "25"
         )
+
+        // Space/hyphen/underscore-stripped version of CONFIRMED_CIRCLE_CODES'
+        // keys, built once at class-load time. Needed because
+        // RechargeService.kt's detectOperator() now returns circle values in
+        // separator-free form (e.g. "UPEAST", after the BSNL circle-spacing
+        // bugfix on 31 July 2026 -- mPlan's "circle" field had inconsistent
+        // spacing across operators, "UP East" for JIO but "UPEast" for BSNL,
+        // which is why matching got normalized to ignore separators entirely
+        // rather than trying to enforce one canonical spacing). Looking up
+        // circle codes here must use the SAME separator-stripping so a
+        // circle value already normalized upstream still matches this map's
+        // human-readable (spaced) keys.
+        private val NORMALIZED_CIRCLE_CODES: Map<String, String> =
+            CONFIRMED_CIRCLE_CODES.mapKeys { (key, _) -> stripSeparators(key) }
+
+        private fun stripSeparators(s: String): String =
+            s.trim().uppercase().replace(Regex("[\\s_-]+"), "")
     }
 
     suspend fun rechargeMobile(
@@ -135,7 +152,7 @@ class A1TopupClient(
                         "'VI' specifically needs A1Topup to confirm which legacy code (V or I) to use for merged-brand numbers."
             )
 
-        val circleCode = circle?.let { CONFIRMED_CIRCLE_CODES[it.uppercase()] }
+        val circleCode = circle?.let { NORMALIZED_CIRCLE_CODES[stripSeparators(it)] }
             ?: throw ExternalServiceException(
                 "A1Topup",
                 "No confirmed A1Topup circle code for '$circle' -- circlecode is required " +
