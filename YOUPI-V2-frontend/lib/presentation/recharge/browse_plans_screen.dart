@@ -196,48 +196,127 @@ class _PlansList extends StatelessWidget {
           padding: const EdgeInsets.only(bottom: 12),
           child: YoupiCard(
             showGlow: plan.isPopular,
+            padding: EdgeInsets.zero, // hum andar khud padding control karenge (badge full-width chahiye)
             onTap: () {
               vm.selectPlan(plan);
               ctx.push('/plans/emi-select');
             },
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
+                // ---- Top badge strip (category/tier) ----
+                if (plan.tier.isNotEmpty)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withOpacity(0.15),
+                      borderRadius: const BorderRadius.only(
+                        topLeft: Radius.circular(12),
+                        topRight: Radius.circular(12),
+                      ),
+                    ),
+                    child: Text(
+                      plan.tier,
+                      style: AppTextStyles.labelSmall.copyWith(color: AppColors.primary),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+
+                Padding(
+                  padding: const EdgeInsets.all(14),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      if (plan.tier.isNotEmpty)
-                        Text(plan.tier,
-                            style: AppTextStyles.labelSmall.copyWith(color: AppColors.secondary)),
-                      Text(plan.name, style: AppTextStyles.labelLarge),
-                      Text('${plan.dataPerDay}/day • ${plan.validityDays} days • ${plan.callsInfo}',
-                          style: AppTextStyles.bodySmall),
-                      // EMI line removed -- EMI is off for this version, so
-                      // showing "EMI: 3×₹X" here was stale/misleading even
-                      // though the underlying plan.emiOptions data still
-                      // exists (unused now, same as the rest of the app).
+                      // ---- Price + Plan name row ----
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('₹${plan.price.toStringAsFixed(0)}',
+                              style: AppTextStyles.headlineSmall),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              plan.name,
+                              style: AppTextStyles.labelLarge,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            width: 28,
+                            height: 28,
+                            decoration: const BoxDecoration(
+                              color: AppColors.primary,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              Icons.chevron_right_rounded,
+                              size: 20,
+                              color: AppColors.backgroundPrimary,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Divider(color: AppColors.divider, height: 1),
+                      const SizedBox(height: 12),
+
+                      // ---- 2-column grid: Validity | Data / Calls | Extras ----
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: _InfoColumn(label: 'Validity', value: '${plan.validityDays} Days'),
+                          ),
+                          Expanded(
+                            child: _InfoColumn(label: 'Data', value: plan.dataPerDay),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: _InfoColumn(label: 'Calls', value: plan.callsInfo),
+                          ),
+                          Expanded(
+                            child: _InfoColumn(
+                              label: 'SMS/Extras',
+                              value: plan.extras.isNotEmpty ? plan.extras.join(', ') : '—',
+                            ),
+                          ),
+                        ],
+                      ),
                     ],
                   ),
                 ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: AppColors.primary,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text('₹${plan.price.toStringAsFixed(0)}',
-                          style: AppTextStyles.labelLarge.copyWith(color: AppColors.backgroundPrimary)),
-                    ),
-                  ],
-                )
               ],
             ),
           ),
         );
       },
+    );
+  }
+}
+
+class _InfoColumn extends StatelessWidget {
+  final String label;
+  final String value;
+  const _InfoColumn({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: AppTextStyles.bodySmall.copyWith(color: AppColors.textSecondary)),
+        const SizedBox(height: 2),
+        Text(value, style: AppTextStyles.labelMedium, maxLines: 2, overflow: TextOverflow.ellipsis),
+      ],
     );
   }
 }

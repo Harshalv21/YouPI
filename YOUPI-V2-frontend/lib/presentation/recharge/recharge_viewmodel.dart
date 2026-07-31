@@ -11,34 +11,19 @@ class RechargeViewModel extends ChangeNotifier {
   final RazorpayService _razorpayService = RazorpayService();
 
   bool _isLoading = false;
+  bool _isPlansRefreshing = false;
   String? _error;
   List<RechargePlanModel> _plans = [];
   RechargePlanModel? _selectedPlan;
   EmiOption? _selectedEmi;
-  // Empty by default -- was a hardcoded '9876543210' before, which looked
-  // like a real, already-filled-in number and confused users into thinking
-  // someone's actual number was pre-selected. Empty lets the UI show a
-  // proper placeholder (GPay-style) instead, and the recharge screen
-  // prompts the user to pick a number/contact before proceeding.
   String _mobile = '';
   String _operator = 'airtel';
   String _circle = 'UP East';
-  // Slot-machine detection state -- drives the animated operator chip on
-  // recharge_home_screen.dart. idle = blank/no number yet, detecting =
-  // spin animation playing, success = real detected values landed,
-  // failed = mPlan call errored, falls back to whatever operator/circle
-  // was already set (keeps the flow usable rather than hard-blocking).
   OperatorDetectionState _detectionState = OperatorDetectionState.idle;
   String _searchQuery = '';
   List<String> _activeFilters = [];
   bool _rechargeSuccess = false;
 
-  // Recharge-target number is otherwise pure in-memory state -- when the
-  // OS reclaims memory after the app is backgrounded/switched away from
-  // (common on lower-RAM devices), Flutter can recreate the widget tree
-  // and this viewmodel from scratch, silently losing whatever the user
-  // had typed. Persisting to StorageService (same mechanism already used
-  // for the logged-in user's own last-used mobile) survives that.
   RechargeViewModel() {
     _restoreLastRechargeMobile();
   }
@@ -51,7 +36,16 @@ class RechargeViewModel extends ChangeNotifier {
     }
   }
 
+  // isLoading -- true only for the very first plans load (screen just
+  // opened, nothing on screen yet). Drives the full-screen ShimmerList.
   bool get isLoading => _isLoading;
+  // isPlansRefreshing -- true when plans are being silently reloaded
+  // in the background (e.g. after operator detection changes the
+  // operator/circle). The rest of the screen (mobile number, dialog,
+  // scroll position) stays exactly as-is; only used for a small,
+  // optional inline indicator on the plans section itself, not a
+  // full-screen swap.
+  bool get isPlansRefreshing => _isPlansRefreshing;
   String? get error => _error;
   List<RechargePlanModel> get plans => _plans;
   RechargePlanModel? get selectedPlan => _selectedPlan;
@@ -73,8 +67,18 @@ class RechargeViewModel extends ChangeNotifier {
     return filtered;
   }
 
-  Future<void> loadPlans() async {
-    _isLoading = true;
+  /// [silent] -- when true (used for refreshes triggered by operator
+  /// detection), only _isPlansRefreshing toggles, so the screen doesn't
+  /// flash back to the full-screen shimmer/reload state. The very first
+  /// call (from initState, plans list still empty) should NOT pass
+  /// silent:true, so the user still sees the shimmer instead of a blank
+  /// screen while the initial plans load.
+  Future<void> loadPlans({bool silent = false}) async {
+    if (silent) {
+      _isPlansRefreshing = true;
+    } else {
+      _isLoading = true;
+    }
     _error = null;
     notifyListeners();
     try {
@@ -83,6 +87,7 @@ class RechargeViewModel extends ChangeNotifier {
       _error = e.toString();
     } finally {
       _isLoading = false;
+      _isPlansRefreshing = false;
       notifyListeners();
     }
   }
@@ -98,14 +103,6 @@ class RechargeViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Switches to "pay in full, no EMI" -- backend derives paymentMode as
-  /// FULL whenever _selectedEmi is null (see payAndConfirm below).
-  /// EMI removed from the UI for this version (see emi_selection_screen.dart,
-  /// which now calls this unconditionally) -- this getter/setter machinery
-  /// is left in place rather than deleted, since selectPlan() still
-  /// auto-picks an EMI option if the plan has one, and re-enabling EMI in a
-  /// future version should just mean restoring the picker UI, not rebuilding
-  /// this logic.
   void selectFullPayment() {
     _selectedEmi = null;
     notifyListeners();
@@ -122,8 +119,6 @@ class RechargeViewModel extends ChangeNotifier {
     if (m.length == 10) {
       _detectOperator(m);
     } else {
-      // Editing/clearing the number -- back to blank state, no stale
-      // detected operator lingering from a previous (different) number.
       _detectionState = OperatorDetectionState.idle;
       notifyListeners();
     }
@@ -134,34 +129,22 @@ class RechargeViewModel extends ChangeNotifier {
     _detectionState = OperatorDetectionState.detecting;
     notifyListeners();
 
-    // GPay-style jackpot feel needs the spin visible for at least ~900ms
-    // even when mPlan fails/succeeds almost instantly (its "not authorize"
-    // error currently returns in ~200-400ms, which made the slot-machine
-    // chip look like it glitched straight to red instead of spinning).
-    const minSpinDuration = Duration(milliseconds: 900);
-    final spinTimer = Future.delayed(minSpinDuration);
-
     try {
       final result = await _repo.detectOperator(mobileNumber);
-      await spinTimer;
-      // Guard against a stale response landing after the user has already
-      // changed the number again (e.g. typed past 10 digits, or edited
-      // it) -- only apply if this is still the number we detected for.
       if (_mobile != mobileNumber) return;
       _operator = result.operator.toLowerCase();
       _circle = result.circle;
       _detectionState = OperatorDetectionState.success;
     } catch (e) {
-      await spinTimer;
       if (_mobile != mobileNumber) return;
-      // Falls back to whatever operator/circle was already set (the
-      // default, or a previous successful detection) -- keeps the
-      // recharge flow usable rather than hard-blocking on a single
-      // failed mPlan call.
       _detectionState = OperatorDetectionState.failed;
     }
     notifyListeners();
-    loadPlans();
+    // silent:true -- this reload must NOT flip the screen back to the
+    // full-screen shimmer. The user is already looking at the plans list;
+    // we just want the underlying data (now for the correct operator) to
+    // swap in quietly once it's ready.
+    loadPlans(silent: true);
   }
 
   String? _lastOrderId;
@@ -169,31 +152,12 @@ class RechargeViewModel extends ChangeNotifier {
   String? get lastOrderId => _lastOrderId;
   String? get lastRazorpayOrderId => _lastRazorpayOrderId;
 
-  // Distinct from _isLoading -- used by the UI to know we're specifically
-  // waiting on the Razorpay sheet / post-payment confirmation poll, not a
-  // plain network call, so it can show a different message ("Confirming
-  // your payment...") instead of a generic spinner.
   bool _paymentInProgress = false;
   bool get paymentInProgress => _paymentInProgress;
 
-  /// Full real-payment flow:
-  ///  1. Create the order on the backend (status INITIATED).
-  ///  2. Open Razorpay's native Checkout sheet for that order.
-  ///  3. Regardless of what the Checkout sheet itself reports, poll the
-  ///     backend's READ-ONLY status endpoint and wait for the Razorpay
-  ///     webhook to actually confirm the order server-side.
-  ///
-  /// Step 3 is not optional. The client-side Checkout callback is not
-  /// trusted for anything -- that's the exact vulnerability that was fixed
-  /// on the backend (see RechargeService.handleWebhookCaptured). Only the
-  /// server-to-server webhook can move an order past INITIATED.
   Future<bool> payAndConfirm() async {
     if (_selectedPlan == null) return false;
 
-    // Guard against the now-empty default mobile -- previously a fake
-    // '9876543210' silently sailed through to order creation. Now we
-    // actually stop and tell the user, instead of creating an order for
-    // an empty/invalid number.
     if (_mobile.trim().length != 10) {
       _error = 'Please enter a valid 10-digit mobile number.';
       notifyListeners();
@@ -205,15 +169,12 @@ class RechargeViewModel extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Step 1 -- create order
       final order = await _repo.createOrder(
         mobileNumber: _mobile,
         operator: _operator.toUpperCase(),
         circle: _circle,
         planId: _selectedPlan!.id,
         planAmount: _selectedPlan!.price,
-        // Needed so the backend can compute expiry_date once the recharge
-        // succeeds -- powers the home screen's real "Active Recharge" card.
         validityDays: _selectedPlan!.validityDays,
         paymentMode: _selectedEmi == null
             ? 'FULL'
@@ -228,9 +189,6 @@ class RechargeViewModel extends ChangeNotifier {
         return false;
       }
 
-      // Step 2 -- open Checkout. Prefill with the LOGGED-IN user's own
-      // contact (for the receipt), not the recharge target's mobile --
-      // those can be different numbers (recharging someone else).
       _isLoading = false;
       notifyListeners();
 
@@ -256,7 +214,6 @@ class RechargeViewModel extends ChangeNotifier {
         return false;
       }
 
-      // Step 3 -- wait for the webhook, not the client callback.
       _paymentInProgress = true;
       notifyListeners();
       final confirmed = await _pollOrderStatus(order.orderId);
@@ -278,12 +235,6 @@ class RechargeViewModel extends ChangeNotifier {
     }
   }
 
-  /// Polls the read-only order-status endpoint every 2s, up to ~20s,
-  /// waiting for the Razorpay webhook to land server-side.
-  /// Returns true only for a genuinely confirmed order (PAYMENT_DONE /
-  /// RECHARGE_SUCCESS); false for RECHARGE_FAILED or timeout (still
-  /// INITIATED -- caller should tell the user to check history later,
-  /// since the webhook may still land after this poll gives up).
   Future<bool> _pollOrderStatus(String orderId) async {
     const maxAttempts = 10;
     const interval = Duration(seconds: 2);
@@ -293,7 +244,6 @@ class RechargeViewModel extends ChangeNotifier {
         final status = await _repo.getOrderStatus(orderId);
         if (status.isSuccess) return true;
         if (status.isFailed) return false;
-        // still INITIATED -- keep polling
       } catch (_) {
         // transient network hiccup while polling -- don't abort early,
         // just try again next tick.

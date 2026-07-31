@@ -44,6 +44,10 @@ class _RechargeHomeScreenState extends State<RechargeHomeScreen> {
             )
           ],
         ),
+        // isPlansRefreshing (silent reload after operator detection) does
+        // NOT trigger this -- only the genuine first-time load does. That
+        // keeps the screen (mobile number, operator chip, scroll position)
+        // stable instead of flashing back to a full shimmer reload.
         body: vm.isLoading
             ? const ShimmerList()
             : SingleChildScrollView(
@@ -76,10 +80,10 @@ class _RechargeHomeScreenState extends State<RechargeHomeScreen> {
                 ),
               ),
               const SizedBox(height: 12),
-              // Operator detection -- casino slot-machine reveal. Blank
-              // before a full number is entered, spins through decoy
-              // operator names while mPlan's HLR call is in flight, then
-              // settles on the real detected operator/circle.
+              // Operator detection chip -- blank before a full number is
+              // entered, shows a plain "Detecting..." state while mPlan's
+              // HLR call is in flight, then settles on the real detected
+              // operator/circle. (Decoy-name slot-machine spin removed.)
               Wrap(
                 spacing: 8,
                 children: [
@@ -105,20 +109,36 @@ class _RechargeHomeScreenState extends State<RechargeHomeScreen> {
               ...vm.plans.take(3).map((plan) => Padding(
                 padding: const EdgeInsets.only(bottom: 12),
                 child: YoupiCard(
+                  padding: EdgeInsets.zero,
                   onTap: () {
                     vm.selectPlan(plan);
                     ctx.push('/plans/emi-select');
                   },
-                  child: Row(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(children: [
-                              Flexible(child: Text(plan.name, style: AppTextStyles.labelLarge)),
-                              if (plan.isPopular) ...[
-                                const SizedBox(width: 8),
+                      if (plan.tier.isNotEmpty)
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withOpacity(0.15),
+                            borderRadius: const BorderRadius.only(
+                              topLeft: Radius.circular(12),
+                              topRight: Radius.circular(12),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  plan.tier,
+                                  style: AppTextStyles.labelSmall.copyWith(color: AppColors.primary),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              if (plan.isPopular)
                                 Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                   decoration: BoxDecoration(
@@ -129,24 +149,57 @@ class _RechargeHomeScreenState extends State<RechargeHomeScreen> {
                                       style: AppTextStyles.labelSmall.copyWith(
                                           color: AppColors.backgroundPrimary)),
                                 ),
-                              ]
-                            ]),
-                            const SizedBox(height: 4),
-                            Text(
-                              '${plan.dataPerDay}/day • ${plan.validityDays} Days • ${plan.callsInfo}',
-                              style: AppTextStyles.bodySmall,
+                            ],
+                          ),
+                        ),
+                      Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(plan.name,
+                                      style: AppTextStyles.labelLarge,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '${plan.dataPerDay}/day • ${plan.validityDays} Days • ${plan.callsInfo}',
+                                    style: AppTextStyles.bodySmall,
+                                  ),
+                                  if (plan.extras.isNotEmpty)
+                                    Text(plan.extras.first,
+                                        style: AppTextStyles.captionText.copyWith(color: AppColors.secondary)),
+                                ],
+                              ),
                             ),
-                            if (plan.extras.isNotEmpty)
-                              Text(plan.extras.first, style: AppTextStyles.captionText.copyWith(color: AppColors.secondary)),
+                            const SizedBox(width: 12),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text('₹${plan.price.toStringAsFixed(0)}',
+                                    style: AppTextStyles.headlineSmall.copyWith(color: AppColors.primary)),
+                                const SizedBox(height: 6),
+                                Container(
+                                  width: 28,
+                                  height: 28,
+                                  decoration: const BoxDecoration(
+                                    color: AppColors.primary,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Icon(
+                                    Icons.chevron_right_rounded,
+                                    size: 20,
+                                    color: AppColors.backgroundPrimary,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ],
                         ),
-                      ),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text('₹${plan.price.toStringAsFixed(0)}',
-                              style: AppTextStyles.headlineSmall.copyWith(color: AppColors.primary)),
-                        ],
                       ),
                     ],
                   ),
@@ -203,93 +256,47 @@ void _showEditMobileDialog(BuildContext context, RechargeViewModel vm) {
   );
 }
 
-/// Casino slot-machine style operator/circle detection chip.
+/// Operator/circle detection chip.
 ///   idle       -- blank ("— • —"), shown before a full 10-digit number
-///   detecting  -- rapidly cycles through decoy operator names (spin
-///                 effect) while the real mPlan HLR call is in flight
+///   detecting  -- shows a simple "Detecting..." state with a small
+///                 spinner while the real mPlan HLR call is in flight
+///                 (no decoy operator-name cycling anymore)
 ///   success    -- settles on the real detected "JIO • UP EAST" etc.
 ///   failed     -- falls back to whatever operator/circle was already
 ///                 set, so the flow stays usable rather than blocking
-class _OperatorSlotChip extends StatefulWidget {
+class _OperatorSlotChip extends StatelessWidget {
   final RechargeViewModel vm;
   const _OperatorSlotChip({required this.vm});
 
   @override
-  State<_OperatorSlotChip> createState() => _OperatorSlotChipState();
-}
-
-class _OperatorSlotChipState extends State<_OperatorSlotChip> {
-  static const _decoyOperators = ['AIRTEL', 'JIO', 'VI', 'BSNL', 'MTNL'];
-  Timer? _spinTimer;
-  int _spinIndex = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    _syncSpinState();
-  }
-
-  @override
-  void didUpdateWidget(covariant _OperatorSlotChip oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    // NOTE: widget.vm is the SAME mutable ChangeNotifier instance every
-    // rebuild (Provider doesn't replace it), so comparing oldWidget.vm's
-    // field to widget.vm's field here would always show equal -- both
-    // point at the identical object. Reading the CURRENT state directly
-    // and keeping our own "am I already spinning" flag (via _spinTimer)
-    // is what actually makes start/stop idempotent and correct.
-    _syncSpinState();
-  }
-
-  void _syncSpinState() {
-    final state = widget.vm.detectionState;
-    final isSpinning = _spinTimer != null;
-    if (state == OperatorDetectionState.detecting && !isSpinning) {
-      _spinTimer = Timer.periodic(const Duration(milliseconds: 90), (_) {
-        if (!mounted) return;
-        setState(() => _spinIndex = (_spinIndex + 1) % _decoyOperators.length);
-      });
-    } else if (state != OperatorDetectionState.detecting && isSpinning) {
-      _spinTimer?.cancel();
-      _spinTimer = null;
-    }
-  }
-
-  @override
-  void dispose() {
-    _spinTimer?.cancel();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final state = widget.vm.detectionState;
+    final state = vm.detectionState;
+
+    // Nothing shown while idle or detecting -- no placeholder text, no
+    // spinner, no chip at all. Matches apps like GPay where the UI stays
+    // silent during the fetch and the result just appears once it's ready.
+    if (state == OperatorDetectionState.idle ||
+        state == OperatorDetectionState.detecting) {
+      return const SizedBox.shrink();
+    }
 
     String displayText;
     Color color;
     IconData? icon;
 
     switch (state) {
-      case OperatorDetectionState.idle:
-        displayText = '— • —';
-        color = AppColors.textSecondary;
-        icon = null;
-        break;
-      case OperatorDetectionState.detecting:
-        displayText = _decoyOperators[_spinIndex];
-        color = AppColors.secondary;
-        icon = Icons.casino_rounded;
-        break;
       case OperatorDetectionState.success:
-        displayText = '${widget.vm.operator.toUpperCase()} • ${widget.vm.circle}';
+        displayText = '${vm.operator.toUpperCase()} • ${vm.circle}';
         color = AppColors.primary;
         icon = Icons.check_circle_rounded;
         break;
       case OperatorDetectionState.failed:
-        displayText = '${widget.vm.operator.toUpperCase()} • ${widget.vm.circle}';
+        displayText = '${vm.operator.toUpperCase()} • ${vm.circle}';
         color = AppColors.error;
         icon = Icons.warning_amber_rounded;
         break;
+      default:
+        return const SizedBox.shrink();
     }
 
     return AnimatedContainer(
@@ -302,13 +309,7 @@ class _OperatorSlotChipState extends State<_OperatorSlotChip> {
       ),
       child: ClipRect(
         child: AnimatedSwitcher(
-          // Fast swaps while spinning (matches the timer interval so the
-          // slide-in never looks laggy behind the text change); a
-          // noticeably slower, more deliberate transition for the final
-          // settle -- that's the "jackpot landing" beat.
-          duration: Duration(
-            milliseconds: state == OperatorDetectionState.detecting ? 90 : 400,
-          ),
+          duration: const Duration(milliseconds: 400),
           transitionBuilder: (child, animation) => ClipRect(
             child: SlideTransition(
               position: Tween<Offset>(begin: const Offset(0, -1), end: Offset.zero)
