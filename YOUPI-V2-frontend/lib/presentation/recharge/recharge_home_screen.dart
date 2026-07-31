@@ -8,7 +8,8 @@ import '../../core/constants/app_text_styles.dart';
 import '../../core/widgets/shimmer_loader.dart';
 import '../../core/widgets/youpi_button.dart';
 import '../../core/widgets/youpi_card.dart';
-import '../../core/widgets/contact_picker_field.dart';
+import 'recharge_contact_picker_screen.dart';
+import 'recharge_history_screen.dart';
 import 'recharge_viewmodel.dart';
 
 class RechargeHomeScreen extends StatefulWidget {
@@ -22,7 +23,9 @@ class _RechargeHomeScreenState extends State<RechargeHomeScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<RechargeViewModel>().loadPlans();
+      final vm = context.read<RechargeViewModel>();
+      vm.loadPlans();
+      vm.loadRecentRecharges(); // NEW: fetch last few recharges for this number
     });
   }
 
@@ -37,17 +40,10 @@ class _RechargeHomeScreenState extends State<RechargeHomeScreen> {
           actions: [
             IconButton(
               icon: const Icon(Icons.search_rounded),
-              // Was '/plans/search' -- that screen's filter chips were
-              // non-functional and duplicated this Browse Plans screen.
-              // Consolidated to one working plans screen.
               onPressed: () => ctx.push('/plans/browse'),
             )
           ],
         ),
-        // isPlansRefreshing (silent reload after operator detection) does
-        // NOT trigger this -- only the genuine first-time load does. That
-        // keeps the screen (mobile number, operator chip, scroll position)
-        // stable instead of flashing back to a full shimmer reload.
         body: vm.isLoading
             ? const ShimmerList()
             : SingleChildScrollView(
@@ -56,34 +52,41 @@ class _RechargeHomeScreenState extends State<RechargeHomeScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               // Mobile row
-              YoupiCard(
-                onTap: vm.mobile.isEmpty ? () => _showEditMobileDialog(context, vm) : null,
-                child: Row(
-                  children: [
-                    const Icon(Icons.phone_android_rounded, color: AppColors.primary),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: vm.mobile.isEmpty
-                          ? Text(
-                        'Enter mobile number',
-                        style: AppTextStyles.headlineSmall.copyWith(
-                          color: AppColors.textSecondary.withOpacity(0.6),
-                        ),
-                      )
-                          : Text('+91 ${vm.mobile}', style: AppTextStyles.headlineSmall),
+              Row(
+                children: [
+                  Expanded(
+                    child: YoupiCard(
+                      onTap: () => _showEditMobileDialog(context, vm),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.phone_android_rounded, color: AppColors.primary),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: vm.mobile.isEmpty
+                                ? Text(
+                              '00000 00000',
+                              style: AppTextStyles.headlineSmall.copyWith(
+                                color: AppColors.textSecondary.withOpacity(0.6),
+                              ),
+                            )
+                                : Text('+91 ${vm.mobile}', style: AppTextStyles.headlineSmall),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.edit_rounded, color: AppColors.textSecondary, size: 18),
+                            onPressed: () => _showEditMobileDialog(context, vm),
+                          ),
+                        ],
+                      ),
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.edit_rounded, color: AppColors.textSecondary, size: 18),
-                      onPressed: () => _showEditMobileDialog(context, vm),
-                    ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    icon: const Icon(Icons.contacts_rounded, color: AppColors.textSecondary, size: 22),
+                    onPressed: () => _openContactPicker(context, vm),
+                  ),
+                ],
               ),
               const SizedBox(height: 12),
-              // Operator detection chip -- blank before a full number is
-              // entered, shows a plain "Detecting..." state while mPlan's
-              // HLR call is in flight, then settles on the real detected
-              // operator/circle. (Decoy-name slot-machine spin removed.)
               Wrap(
                 spacing: 8,
                 children: [
@@ -91,10 +94,109 @@ class _RechargeHomeScreenState extends State<RechargeHomeScreen> {
                 ],
               ),
               const SizedBox(height: 20),
-              // EMI banner + cashback banner removed -- full-amount-only for
-              // this version, per launch scope. No payment-mode picker
-              // offered anywhere in the recharge flow now (see
-              // emi_selection_screen.dart, which always confirms FULL).
+
+              // ---------------- Recent Recharges strip (NEW) ----------------
+              if (vm.isLoadingRecent)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 20),
+                  child: SizedBox(
+                    height: 84,
+                    child: Center(
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
+                  ),
+                )
+              else if (vm.recentRecharges.isNotEmpty) ...[
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Recent Recharges', style: AppTextStyles.headlineSmall),
+                    TextButton(
+                      onPressed: () async {
+                        await vm.loadAllRechargeHistory();
+                        if (!ctx.mounted) return;
+                        Navigator.of(ctx).push(
+                          MaterialPageRoute(
+                            builder: (_) => RechargeHistoryScreen(
+                              allRecords: vm.allRechargeHistory,
+                            ),
+                          ),
+                        );
+                      },
+                      child: Text(
+                        'View All',
+                        style: AppTextStyles.tealLink.copyWith(decoration: TextDecoration.none),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  height: 84,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: vm.recentRecharges.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 10),
+                    itemBuilder: (context, index) {
+                      final r = vm.recentRecharges[index];
+                      return GestureDetector(
+                        onTap: () {
+                          vm.repeatRecharge(r);
+                          ctx.push('/plans/emi-select');
+                        },
+                        child: Container(
+                          width: 170,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppColors.backgroundCard,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: AppColors.textSecondary.withOpacity(0.1)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                children: [
+                                  Text(r.operator, style: AppTextStyles.labelLarge),
+                                  const Spacer(),
+                                  Text(
+                                    '₹${r.amount.toStringAsFixed(0)}',
+                                    style: AppTextStyles.labelLarge.copyWith(color: AppColors.primary),
+                                  ),
+                                ],
+                              ),
+                              Text(
+                                r.mobileNumber,
+                                style: AppTextStyles.captionText,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    '${r.createdAt.day}/${r.createdAt.month}',
+                                    style: AppTextStyles.captionText,
+                                  ),
+                                  const Icon(Icons.refresh, size: 14, color: AppColors.primary),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 20),
+              ],
+              // -------------- end Recent Recharges strip (NEW) --------------
+
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -213,57 +315,111 @@ class _RechargeHomeScreenState extends State<RechargeHomeScreen> {
   }
 }
 
+Future<void> _openContactPicker(BuildContext context, RechargeViewModel vm) async {
+  final selected = await Navigator.of(context).push<String>(
+    MaterialPageRoute(builder: (_) => const RechargeContactPickerScreen()),
+  );
+  if (selected != null && selected.length == 10) {
+    vm.setMobile(selected);
+    vm.loadRecentRecharges(); // NEW: refresh recent recharges when number changes via contact picker
+  }
+}
+
 void _showEditMobileDialog(BuildContext context, RechargeViewModel vm) {
   final ctrl = TextEditingController(text: vm.mobile);
+  bool showInvalid = false;
+
   showDialog(
     context: context,
-    builder: (ctx) => AlertDialog(
-      backgroundColor: AppColors.backgroundCard,
-      title: Text('Recharge For', style: AppTextStyles.headlineSmall),
-      content: SizedBox(
-        width: double.maxFinite,
-        child: ContactPickerField(
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, setDialogState) => AlertDialog(
+        backgroundColor: AppColors.backgroundCard,
+        title: Text('Enter mobile number', style: AppTextStyles.headlineSmall),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+  decoration: BoxDecoration(
+    border: Border.all(color: AppColors.primary, width: 1.5),
+    borderRadius: BorderRadius.circular(10),
+  ),
+  child: Row(
+    children: [
+      Text('+91', style: AppTextStyles.bodyMedium),
+      const SizedBox(width: 8),
+      Container(
+        width: 1,
+        height: 20,
+        color: AppColors.textSecondary.withOpacity(0.3),
+      ),
+      const SizedBox(width: 8),
+      Expanded(
+        child: TextField(
           controller: ctrl,
-          // Selecting a contact fills the number but doesn't auto-submit --
-          // user still taps Confirm, same as manual entry, so they get a
-          // chance to double check before plans load.
-          onNumberSelected: (number, name) {},
+          autofocus: true,
+          keyboardType: TextInputType.phone,
+          maxLength: 10,
+          enableInteractiveSelection: false,
+          showCursor: true,
+          style: AppTextStyles.bodyMedium,
+          decoration: const InputDecoration(
+            hintText: '00000 00000',
+            counterText: '',
+            border: InputBorder.none,
+            focusedBorder: InputBorder.none,
+            enabledBorder: InputBorder.none,
+            disabledBorder: InputBorder.none,
+            errorBorder: InputBorder.none,
+            focusedErrorBorder: InputBorder.none,
+            contentPadding: EdgeInsets.zero,
+            isDense: true,
+          ),
+          onChanged: (val) {
+            setDialogState(() {
+              showInvalid = val.isNotEmpty && val.length != 10;
+            });
+          },
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(ctx).pop(),
-          child: Text('Cancel', style: AppTextStyles.bodyMedium.copyWith(color: AppColors.textSecondary)),
+    ],
+  ),
+),
+            if (showInvalid)
+              Padding(
+                padding: const EdgeInsets.only(top: 6, left: 4),
+                child: Text(
+                  'Ensure this is a valid mobile number',
+                  style: AppTextStyles.bodySmall.copyWith(color: AppColors.error),
+                ),
+              ),
+          ],
         ),
-        TextButton(
-          onPressed: () {
-            final val = ctrl.text.trim();
-            if (val.length == 10) {
-              vm.setMobile(val);
-              // NOTE: no explicit loadPlans() here anymore -- setMobile()
-              // now triggers operator detection, which calls loadPlans()
-              // itself once the real operator/circle is known (or
-              // detection fails and falls back). Calling it immediately
-              // here would fetch plans for the stale/default operator
-              // before detection even finishes.
-              Navigator.of(ctx).pop();
-            }
-          },
-          child: Text('Confirm', style: AppTextStyles.tealLink),
-        ),
-      ],
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text('Cancel', style: AppTextStyles.bodyMedium.copyWith(color: AppColors.textSecondary)),
+          ),
+          TextButton(
+            onPressed: () {
+              final val = ctrl.text.trim();
+              if (val.length == 10) {
+                vm.setMobile(val);
+                vm.loadRecentRecharges(); // NEW: refresh recent recharges when number changes manually
+                Navigator.of(ctx).pop();
+              } else {
+                setDialogState(() => showInvalid = true);
+              }
+            },
+            child: Text('Confirm', style: AppTextStyles.tealLink),
+          ),
+        ],
+      ),
     ),
   );
 }
 
-/// Operator/circle detection chip.
-///   idle       -- blank ("— • —"), shown before a full 10-digit number
-///   detecting  -- shows a simple "Detecting..." state with a small
-///                 spinner while the real mPlan HLR call is in flight
-///                 (no decoy operator-name cycling anymore)
-///   success    -- settles on the real detected "JIO • UP EAST" etc.
-///   failed     -- falls back to whatever operator/circle was already
-///                 set, so the flow stays usable rather than blocking
 class _OperatorSlotChip extends StatelessWidget {
   final RechargeViewModel vm;
   const _OperatorSlotChip({required this.vm});
@@ -272,9 +428,6 @@ class _OperatorSlotChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = vm.detectionState;
 
-    // Nothing shown while idle or detecting -- no placeholder text, no
-    // spinner, no chip at all. Matches apps like GPay where the UI stays
-    // silent during the fetch and the result just appears once it's ready.
     if (state == OperatorDetectionState.idle ||
         state == OperatorDetectionState.detecting) {
       return const SizedBox.shrink();

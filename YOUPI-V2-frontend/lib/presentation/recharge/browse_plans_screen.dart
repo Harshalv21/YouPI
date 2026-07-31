@@ -19,16 +19,10 @@ class _BrowsePlansScreenState extends State<BrowsePlansScreen>
   final _searchCtrl = TextEditingController();
   bool _searchExpanded = false;
 
-  // Price chip filtering -- was non-functional (onSelected: (_) {}) before,
-  // same broken pattern as the old duplicate Search Plans screen. Bucketed
-  // ranges: null = no filter (chip not selected).
-  String? _selectedPriceChip;
-  static const _priceRanges = <String, (double, double)>{
-    '₹100': (0, 100),
-    '₹300': (100, 300),
-    '₹300–₹500': (300, 500),
-    '₹500+': (500, double.infinity),
-  };
+  // Validity chip filtering -- filters by plan.validityDays instead of price.
+  // null = no filter (chip not selected).
+  int? _selectedValidityChip;
+  static const _validityOptions = <int>[1, 2, 3, 28, 56, 84];
 
   @override
   void initState() {
@@ -56,9 +50,8 @@ class _BrowsePlansScreenState extends State<BrowsePlansScreen>
           p.dataPerDay.toLowerCase().contains(q) ||
           p.validityDays.toString().contains(q)).toList();
     }
-    if (_selectedPriceChip != null) {
-      final range = _priceRanges[_selectedPriceChip]!;
-      result = result.where((p) => p.price >= range.$1 && p.price < range.$2).toList();
+    if (_selectedValidityChip != null) {
+      result = result.where((p) => p.validityDays == _selectedValidityChip).toList();
     }
     return result;
   }
@@ -103,30 +96,31 @@ class _BrowsePlansScreenState extends State<BrowsePlansScreen>
         ),
         body: Column(
           children: [
-            // Price chips -- now actually functional. Tapping toggles the
-            // filter on/off (tap the selected chip again to clear it).
+            // Validity + data-amount chips, all in one continuous scrollable row.
             SizedBox(
               height: 48,
               child: ListView(
                 scrollDirection: Axis.horizontal,
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                children: _priceRanges.keys.map((f) {
-                  final selected = _selectedPriceChip == f;
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: FilterChip(
-                      label: Text(f, style: AppTextStyles.chipText),
-                      selected: selected,
-                      onSelected: (isSelected) => setState(() {
-                        _selectedPriceChip = isSelected ? f : null;
-                      }),
-                      backgroundColor: AppColors.backgroundCard,
-                      selectedColor: AppColors.primary,
-                      side: const BorderSide(color: AppColors.divider),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                    ),
-                  );
-                }).toList(),
+                children: [
+                  ..._validityOptions.map((days) {
+                    final selected = _selectedValidityChip == days;
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: FilterChip(
+                        label: Text('$days ${days == 1 ? 'Day' : 'Days'}', style: AppTextStyles.chipText),
+                        selected: selected,
+                        onSelected: (isSelected) => setState(() {
+                          _selectedValidityChip = isSelected ? days : null;
+                        }),
+                        backgroundColor: AppColors.backgroundCard,
+                        selectedColor: AppColors.primary,
+                        side: const BorderSide(color: AppColors.divider),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                      ),
+                    );
+                  }),
+                ],
               ),
             ),
             Expanded(
@@ -151,26 +145,6 @@ class _BrowsePlansScreenState extends State<BrowsePlansScreen>
               ),
             ),
           ],
-        ),
-        bottomNavigationBar: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: AppColors.backgroundSurface,
-            border: const Border(top: BorderSide(color: AppColors.divider)),
-          ),
-          child: Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: AppColors.secondary.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppColors.secondary.withOpacity(0.4)),
-            ),
-            child: Text(
-              'Yearly Obsidian Elite — Get 20% cashback on all recharges — ₹499',
-              style: AppTextStyles.bodySmall.copyWith(color: AppColors.secondary),
-              textAlign: TextAlign.center,
-            ),
-          ),
         ),
       );
     });
