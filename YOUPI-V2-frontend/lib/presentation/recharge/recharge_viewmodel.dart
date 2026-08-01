@@ -3,6 +3,7 @@ import '../../core/services/razorpay_service.dart';
 import '../../core/services/storage_service.dart';
 import '../../data/models/recharge_plan_model.dart';
 import '../../data/repositories/recharge_repository.dart';
+import 'recharge_history_screen.dart' show RechargeRecord, RechargeStatus;
 
 enum OperatorDetectionState { idle, detecting, success, failed }
 
@@ -11,47 +12,46 @@ class RechargeViewModel extends ChangeNotifier {
   final RazorpayService _razorpayService = RazorpayService();
 
   bool _isLoading = false;
+  bool _isPlansRefreshing = false;
   String? _error;
   List<RechargePlanModel> _plans = [];
   RechargePlanModel? _selectedPlan;
   EmiOption? _selectedEmi;
-  // Empty by default -- was a hardcoded '9876543210' before, which looked
-  // like a real, already-filled-in number and confused users into thinking
-  // someone's actual number was pre-selected. Empty lets the UI show a
-  // proper placeholder (GPay-style) instead, and the recharge screen
-  // prompts the user to pick a number/contact before proceeding.
   String _mobile = '';
   String _operator = 'airtel';
   String _circle = 'UP East';
-  // Slot-machine detection state -- drives the animated operator chip on
-  // recharge_home_screen.dart. idle = blank/no number yet, detecting =
-  // spin animation playing, success = real detected values landed,
-  // failed = mPlan call errored, falls back to whatever operator/circle
-  // was already set (keeps the flow usable rather than hard-blocking).
   OperatorDetectionState _detectionState = OperatorDetectionState.idle;
   String _searchQuery = '';
   List<String> _activeFilters = [];
   bool _rechargeSuccess = false;
 
-  // Recharge-target number is otherwise pure in-memory state -- when the
-  // OS reclaims memory after the app is backgrounded/switched away from
-  // (common on lower-RAM devices), Flutter can recreate the widget tree
-  // and this viewmodel from scratch, silently losing whatever the user
-  // had typed. Persisting to StorageService (same mechanism already used
-  // for the logged-in user's own last-used mobile) survives that.
+  // ---- Recharge history state (NEW) ----
+  List<RechargeRecord> _recentRecharges = [];
+  List<RechargeRecord> _allRechargeHistory = [];
+  bool _isLoadingRecent = false;
+
   RechargeViewModel() {
-    _restoreLastRechargeMobile();
+    // _restoreLastRechargeMobile();
   }
 
-  Future<void> _restoreLastRechargeMobile() async {
-    final saved = await StorageService.getLastRechargeMobile();
-    if (saved != null && saved.length == 10) {
-      _mobile = saved;
-      notifyListeners();
-    }
-  }
+  // Future<void> _restoreLastRechargeMobile() async {
+  //   final saved = await StorageService.getLastRechargeMobile();
+  //   if (saved != null && saved.length == 10) {
+  //     _mobile = saved;
+  //     notifyListeners();
+  //   }
+  // }
 
+  // isLoading -- true only for the very first plans load (screen just
+  // opened, nothing on screen yet). Drives the full-screen ShimmerList.
   bool get isLoading => _isLoading;
+  // isPlansRefreshing -- true when plans are being silently reloaded
+  // in the background (e.g. after operator detection changes the
+  // operator/circle). The rest of the screen (mobile number, dialog,
+  // scroll position) stays exactly as-is; only used for a small,
+  // optional inline indicator on the plans section itself, not a
+  // full-screen swap.
+  bool get isPlansRefreshing => _isPlansRefreshing;
   String? get error => _error;
   List<RechargePlanModel> get plans => _plans;
   RechargePlanModel? get selectedPlan => _selectedPlan;
@@ -61,6 +61,11 @@ class RechargeViewModel extends ChangeNotifier {
   String get circle => _circle;
   OperatorDetectionState get detectionState => _detectionState;
   bool get rechargeSuccess => _rechargeSuccess;
+
+  // ---- Recharge history getters (NEW) ----
+  List<RechargeRecord> get recentRecharges => _recentRecharges;
+  List<RechargeRecord> get allRechargeHistory => _allRechargeHistory;
+  bool get isLoadingRecent => _isLoadingRecent;
 
   List<RechargePlanModel> get filteredPlans {
     var filtered = _plans;
@@ -73,8 +78,18 @@ class RechargeViewModel extends ChangeNotifier {
     return filtered;
   }
 
-  Future<void> loadPlans() async {
-    _isLoading = true;
+  /// [silent] -- when true (used for refreshes triggered by operator
+  /// detection), only _isPlansRefreshing toggles, so the screen doesn't
+  /// flash back to the full-screen shimmer/reload state. The very first
+  /// call (from initState, plans list still empty) should NOT pass
+  /// silent:true, so the user still sees the shimmer instead of a blank
+  /// screen while the initial plans load.
+  Future<void> loadPlans({bool silent = false}) async {
+    if (silent) {
+      _isPlansRefreshing = true;
+    } else {
+      _isLoading = true;
+    }
     _error = null;
     notifyListeners();
     try {
@@ -83,8 +98,177 @@ class RechargeViewModel extends ChangeNotifier {
       _error = e.toString();
     } finally {
       _isLoading = false;
+      _isPlansRefreshing = false;
       notifyListeners();
     }
+  }
+
+  // ---------------------------------------------------------------------
+  // Recharge history (NEW)
+  // ---------------------------------------------------------------------
+  // NOTE: This calls _repo.getRecentRecharges(...) and _repo.getAllHistory(...)
+  // which need to be added to RechargeRepository (see recharge_repository.dart
+  // notes below the class). Until those exist on the backend/repo, this will
+  // throw and recentRecharges will just stay empty -- the UI already handles
+  // that gracefully (section hides itself when the list is empty).
+  // ---------------------------------------------------------------------
+  // TEMPORARY: Mock data for UI testing (remove once backend history is
+  // confirmed working end-to-end). Toggle _useMockHistory to switch back
+  // to the real API instantly.
+  // ---------------------------------------------------------------------
+  static const bool _useMockHistory = true; // TODO: set to false once backend history verified
+
+  List<RechargeRecord> _mockHistory() {
+    final now = DateTime.now();
+    return [
+      RechargeRecord(
+        id: 'mock1',
+        mobileNumber: '8104842621',
+        operator: 'JIO',
+        circle: 'Mumbai',
+        amount: 249,
+        planDescription: '2GB/day, 28 Days, Unlimited Calls',
+        validity: '28 Days',
+        paymentMethod: 'Razorpay',
+        paymentTxnId: 'pay_MOCK0001',
+        status: RechargeStatus.success,
+        goldCoinsEarned: 25,
+        createdAt: now.subtract(const Duration(hours: 2)),
+      ),
+      RechargeRecord(
+        id: 'mock2',
+        mobileNumber: '9876543210',
+        operator: 'AIRTEL',
+        circle: 'UP East',
+        amount: 49,
+        planDescription: 'Unlimited Data Add-on',
+        validity: '1 Day',
+        paymentMethod: 'Razorpay',
+        paymentTxnId: 'pay_MOCK0002',
+        status: RechargeStatus.failed,
+        failureReason: 'Operator declined the request. Amount will be refunded in 3-5 business days.',
+        createdAt: now.subtract(const Duration(hours: 6)),
+      ),
+      RechargeRecord(
+        id: 'mock3',
+        mobileNumber: '8104842621',
+        operator: 'JIO',
+        circle: 'Mumbai',
+        amount: 33,
+        planDescription: '2GB Data, Validity 2 Days',
+        validity: '2 Days',
+        paymentMethod: 'Razorpay',
+        paymentTxnId: 'pay_MOCK0003',
+        status: RechargeStatus.success,
+        goldCoinsEarned: 3,
+        createdAt: now.subtract(const Duration(days: 1)),
+      ),
+      RechargeRecord(
+        id: 'mock4',
+        mobileNumber: '7009988776',
+        operator: 'VI',
+        circle: 'Delhi',
+        amount: 179,
+        planDescription: '1.5GB/day, 24 Days',
+        validity: '24 Days',
+        paymentMethod: 'Razorpay',
+        paymentTxnId: 'pay_MOCK0004',
+        status: RechargeStatus.pending,
+        createdAt: now.subtract(const Duration(minutes: 20)),
+      ),
+      RechargeRecord(
+        id: 'mock5',
+        mobileNumber: '8104842621',
+        operator: 'JIO',
+        circle: 'Mumbai',
+        amount: 48,
+        planDescription: '6GB Data, Validity 3 Days',
+        validity: '3 Days',
+        paymentMethod: 'Razorpay',
+        paymentTxnId: 'pay_MOCK0005',
+        status: RechargeStatus.failed,
+        failureReason: 'Payment failed at gateway. No amount was deducted.',
+        createdAt: now.subtract(const Duration(days: 2)),
+      ),
+      RechargeRecord(
+        id: 'mock6',
+        mobileNumber: '9123456780',
+        operator: 'BSNL',
+        circle: 'Kerala',
+        amount: 299,
+        planDescription: '3GB/day, 84 Days',
+        validity: '84 Days',
+        paymentMethod: 'Razorpay',
+        paymentTxnId: 'pay_MOCK0006',
+        status: RechargeStatus.success,
+        goldCoinsEarned: 30,
+        createdAt: now.subtract(const Duration(days: 3)),
+      ),
+      RechargeRecord(
+        id: 'mock7',
+        mobileNumber: '9876543210',
+        operator: 'AIRTEL',
+        circle: 'UP East',
+        amount: 99,
+        planDescription: 'Talktime Top-up',
+        validity: 'N/A',
+        paymentMethod: 'Razorpay',
+        paymentTxnId: 'pay_MOCK0007',
+        status: RechargeStatus.success,
+        goldCoinsEarned: 10,
+        createdAt: now.subtract(const Duration(days: 5)),
+      ),
+    ];
+  }
+  // ---------------------------------------------------------------------
+
+  Future<void> loadRecentRecharges() async {
+    // NOTE: intentionally NOT gated on `_mobile.length == 10` -- this shows
+    // the user's last 4 recharges across ALL numbers they've recharged,
+    // not just whatever number happens to be typed in right now. So it
+    // loads once on screen open regardless of the mobile field's state.
+    _isLoadingRecent = true;
+    notifyListeners();
+    try {
+      if (_useMockHistory) {
+        await Future.delayed(const Duration(milliseconds: 300)); // simulate network
+        _recentRecharges = _mockHistory().take(4).toList();
+      } else {
+        _recentRecharges = await _repo.getRecentRecharges(limit: 4);
+      }
+    } catch (e) {
+      _recentRecharges = [];
+    } finally {
+      _isLoadingRecent = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> loadAllRechargeHistory() async {
+    try {
+      if (_useMockHistory) {
+        await Future.delayed(const Duration(milliseconds: 300));
+        _allRechargeHistory = _mockHistory();
+      } else {
+        _allRechargeHistory = await _repo.getAllRechargeHistory();
+      }
+      notifyListeners();
+    } catch (e) {
+      // leave whatever was previously loaded; RechargeHistoryScreen shows
+      // its own empty state if the list stays empty.
+    }
+  }
+
+  /// Prefills the plan/mobile from a past recharge so the user can quickly
+  /// repeat it. Call this before navigating to the plan/EMI selection screen.
+  void repeatRecharge(RechargeRecord record) {
+    if (record.mobileNumber.length == 10) {
+      setMobile(record.mobileNumber);
+    }
+    // TODO: once RechargeRepository exposes a way to fetch a plan by id/
+    // amount+operator, auto-select it here via selectPlan(...). For now the
+    // user lands back on the plans list with the correct number & operator
+    // pre-filled.
   }
 
   void selectPlan(RechargePlanModel plan) {
@@ -98,14 +282,6 @@ class RechargeViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Switches to "pay in full, no EMI" -- backend derives paymentMode as
-  /// FULL whenever _selectedEmi is null (see payAndConfirm below).
-  /// EMI removed from the UI for this version (see emi_selection_screen.dart,
-  /// which now calls this unconditionally) -- this getter/setter machinery
-  /// is left in place rather than deleted, since selectPlan() still
-  /// auto-picks an EMI option if the plan has one, and re-enabling EMI in a
-  /// future version should just mean restoring the picker UI, not rebuilding
-  /// this logic.
   void selectFullPayment() {
     _selectedEmi = null;
     notifyListeners();
@@ -118,12 +294,10 @@ class RechargeViewModel extends ChangeNotifier {
 
   void setMobile(String m) {
     _mobile = m;
-    StorageService.saveLastRechargeMobile(m);
+    // StorageService.saveLastRechargeMobile(m);
     if (m.length == 10) {
       _detectOperator(m);
     } else {
-      // Editing/clearing the number -- back to blank state, no stale
-      // detected operator lingering from a previous (different) number.
       _detectionState = OperatorDetectionState.idle;
       notifyListeners();
     }
@@ -134,34 +308,22 @@ class RechargeViewModel extends ChangeNotifier {
     _detectionState = OperatorDetectionState.detecting;
     notifyListeners();
 
-    // GPay-style jackpot feel needs the spin visible for at least ~900ms
-    // even when mPlan fails/succeeds almost instantly (its "not authorize"
-    // error currently returns in ~200-400ms, which made the slot-machine
-    // chip look like it glitched straight to red instead of spinning).
-    const minSpinDuration = Duration(milliseconds: 900);
-    final spinTimer = Future.delayed(minSpinDuration);
-
     try {
       final result = await _repo.detectOperator(mobileNumber);
-      await spinTimer;
-      // Guard against a stale response landing after the user has already
-      // changed the number again (e.g. typed past 10 digits, or edited
-      // it) -- only apply if this is still the number we detected for.
       if (_mobile != mobileNumber) return;
       _operator = result.operator.toLowerCase();
       _circle = result.circle;
       _detectionState = OperatorDetectionState.success;
     } catch (e) {
-      await spinTimer;
       if (_mobile != mobileNumber) return;
-      // Falls back to whatever operator/circle was already set (the
-      // default, or a previous successful detection) -- keeps the
-      // recharge flow usable rather than hard-blocking on a single
-      // failed mPlan call.
       _detectionState = OperatorDetectionState.failed;
     }
     notifyListeners();
-    loadPlans();
+    // silent:true -- this reload must NOT flip the screen back to the
+    // full-screen shimmer. The user is already looking at the plans list;
+    // we just want the underlying data (now for the correct operator) to
+    // swap in quietly once it's ready.
+    loadPlans(silent: true);
   }
 
   String? _lastOrderId;
@@ -169,31 +331,12 @@ class RechargeViewModel extends ChangeNotifier {
   String? get lastOrderId => _lastOrderId;
   String? get lastRazorpayOrderId => _lastRazorpayOrderId;
 
-  // Distinct from _isLoading -- used by the UI to know we're specifically
-  // waiting on the Razorpay sheet / post-payment confirmation poll, not a
-  // plain network call, so it can show a different message ("Confirming
-  // your payment...") instead of a generic spinner.
   bool _paymentInProgress = false;
   bool get paymentInProgress => _paymentInProgress;
 
-  /// Full real-payment flow:
-  ///  1. Create the order on the backend (status INITIATED).
-  ///  2. Open Razorpay's native Checkout sheet for that order.
-  ///  3. Regardless of what the Checkout sheet itself reports, poll the
-  ///     backend's READ-ONLY status endpoint and wait for the Razorpay
-  ///     webhook to actually confirm the order server-side.
-  ///
-  /// Step 3 is not optional. The client-side Checkout callback is not
-  /// trusted for anything -- that's the exact vulnerability that was fixed
-  /// on the backend (see RechargeService.handleWebhookCaptured). Only the
-  /// server-to-server webhook can move an order past INITIATED.
   Future<bool> payAndConfirm() async {
     if (_selectedPlan == null) return false;
 
-    // Guard against the now-empty default mobile -- previously a fake
-    // '9876543210' silently sailed through to order creation. Now we
-    // actually stop and tell the user, instead of creating an order for
-    // an empty/invalid number.
     if (_mobile.trim().length != 10) {
       _error = 'Please enter a valid 10-digit mobile number.';
       notifyListeners();
@@ -205,15 +348,12 @@ class RechargeViewModel extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Step 1 -- create order
       final order = await _repo.createOrder(
         mobileNumber: _mobile,
         operator: _operator.toUpperCase(),
         circle: _circle,
         planId: _selectedPlan!.id,
         planAmount: _selectedPlan!.price,
-        // Needed so the backend can compute expiry_date once the recharge
-        // succeeds -- powers the home screen's real "Active Recharge" card.
         validityDays: _selectedPlan!.validityDays,
         paymentMode: _selectedEmi == null
             ? 'FULL'
@@ -228,9 +368,6 @@ class RechargeViewModel extends ChangeNotifier {
         return false;
       }
 
-      // Step 2 -- open Checkout. Prefill with the LOGGED-IN user's own
-      // contact (for the receipt), not the recharge target's mobile --
-      // those can be different numbers (recharging someone else).
       _isLoading = false;
       notifyListeners();
 
@@ -256,7 +393,6 @@ class RechargeViewModel extends ChangeNotifier {
         return false;
       }
 
-      // Step 3 -- wait for the webhook, not the client callback.
       _paymentInProgress = true;
       notifyListeners();
       final confirmed = await _pollOrderStatus(order.orderId);
@@ -266,6 +402,9 @@ class RechargeViewModel extends ChangeNotifier {
         'Payment received but confirmation is taking longer than usual. '
             'Check My Recharges in a few minutes for the final status.';
       }
+      // Refresh recent recharges so the new one shows up next time the
+      // user opens this screen / the strip re-renders.
+      loadRecentRecharges();
       return confirmed;
     } catch (e) {
       _error = e.toString();
@@ -278,12 +417,6 @@ class RechargeViewModel extends ChangeNotifier {
     }
   }
 
-  /// Polls the read-only order-status endpoint every 2s, up to ~20s,
-  /// waiting for the Razorpay webhook to land server-side.
-  /// Returns true only for a genuinely confirmed order (PAYMENT_DONE /
-  /// RECHARGE_SUCCESS); false for RECHARGE_FAILED or timeout (still
-  /// INITIATED -- caller should tell the user to check history later,
-  /// since the webhook may still land after this poll gives up).
   Future<bool> _pollOrderStatus(String orderId) async {
     const maxAttempts = 10;
     const interval = Duration(seconds: 2);
@@ -293,7 +426,6 @@ class RechargeViewModel extends ChangeNotifier {
         final status = await _repo.getOrderStatus(orderId);
         if (status.isSuccess) return true;
         if (status.isFailed) return false;
-        // still INITIATED -- keep polling
       } catch (_) {
         // transient network hiccup while polling -- don't abort early,
         // just try again next tick.

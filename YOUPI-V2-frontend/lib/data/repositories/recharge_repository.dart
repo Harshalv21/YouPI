@@ -12,6 +12,7 @@
 import 'package:dio/dio.dart';
 import '../../core/services/api_service.dart';
 import '../models/recharge_plan_model.dart';
+import '../../presentation/recharge/recharge_history_screen.dart' show RechargeRecord, RechargeStatus;
 
 class RechargeRepository {
   final Dio _dio = ApiService.instance;
@@ -143,6 +144,61 @@ class RechargeRepository {
     } on DioException catch (e) {
       throw ApiService.toException(e);
     }
+  }
+
+  // -------------------------------------------------------------------
+  // Recharge History screen support (NEW)
+  // -------------------------------------------------------------------
+  // Both of these reuse the existing GET /v1/recharge/history endpoint --
+  // no new backend route needed right now. They just map
+  // RechargeStatusResult -> RechargeRecord (the model the History UI
+  // widgets expect) and, for "recent", filter down to one mobile number.
+  //
+  // IMPORTANT LIMITATION: RechargeStatusResult (as returned today) doesn't
+  // carry circle, validity text, paymentMethod, the Razorpay txn id,
+  // createdAt, failureReason, or goldCoinsEarned. Until the backend's
+  // /v1/recharge/history response is enriched with those fields, this
+  // mapper fills them with safe placeholders so the UI still renders
+  // without crashing. Ping backend (Laksh/Bhupinder) to add these fields
+  // to RechargeHistoryResponse when convenient -- then just delete the
+  // placeholder lines below and map the real fields.
+
+  /// Last [limit] recharges for the logged-in user across ALL numbers
+  /// they've ever recharged (not just the number currently typed into the
+  /// mobile field). Backend already returns history newest-first, so this
+  /// is just take(limit).
+  Future<List<RechargeRecord>> getRecentRecharges({int limit = 4}) async {
+    final all = await getHistory();
+    return all.take(limit).map(_toRechargeRecord).toList();
+  }
+
+  Future<List<RechargeRecord>> getAllRechargeHistory({int page = 0}) async {
+    final all = await getHistory(page: page);
+    return all.map(_toRechargeRecord).toList();
+  }
+
+  RechargeRecord _toRechargeRecord(RechargeStatusResult r) {
+    return RechargeRecord(
+      id: r.orderId,
+      mobileNumber: r.mobileNumber ?? '',
+      operator: r.operator ?? '',
+      circle: '', // TODO: backend to add `circle` to RechargeHistoryResponse
+      amount: r.planAmount ?? 0,
+      planDescription: r.operator ?? '', // TODO: backend to add plan name/desc
+      validity: '', // TODO: backend to add validityDays/label
+      paymentMethod: 'Razorpay',
+      paymentTxnId: r.orderId, // TODO: swap for actual Razorpay payment id once backend exposes it
+      status: _mapStatus(r),
+      failureReason: r.isFailed ? 'Recharge failed. Contact support if amount was deducted.' : null,
+      goldCoinsEarned: null, // TODO: backend to add goldCoinsEarned to RechargeHistoryResponse
+      createdAt: DateTime.now(), // TODO: backend to add createdAt/timestamp to RechargeHistoryResponse
+    );
+  }
+
+  RechargeStatus _mapStatus(RechargeStatusResult r) {
+    if (r.isSuccess) return RechargeStatus.success;
+    if (r.isFailed) return RechargeStatus.failed;
+    return RechargeStatus.pending;
   }
 }
 
