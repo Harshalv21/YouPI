@@ -74,6 +74,7 @@ class _GoldCoinRewardOverlayState extends State<_GoldCoinRewardOverlay>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
   late final List<_Sparkle> _sparkles;
+  late final List<_BurstParticle> _burstParticles;
   final _audioPlayer = AudioPlayer();
 
   // Timeline (fractions of total duration):
@@ -95,6 +96,7 @@ class _GoldCoinRewardOverlayState extends State<_GoldCoinRewardOverlay>
     super.initState();
     _controller = AnimationController(vsync: this, duration: _totalDuration);
     _sparkles = List.generate(26, (i) => _Sparkle(i));
+    _burstParticles = List.generate(16, (i) => _BurstParticle(i));
 
     _controller.forward();
     _audioPlayer.play(AssetSource('sounds/recharge_success.mp3')).catchError((_) {});
@@ -138,7 +140,10 @@ class _GoldCoinRewardOverlayState extends State<_GoldCoinRewardOverlay>
   double _coinYOffset(double t) {
     if (t < _riseEnd) {
       final localT = t / _riseEnd;
-      final eased = Curves.easeOut.transform(localT);
+      // easeOutCubic instead of plain easeOut -- smoother, more
+      // "lifted by energy" deceleration rather than a mechanical linear-ish
+      // slowdown. Matches the brief's "not spawned suddenly" note.
+      final eased = Curves.easeOutCubic.transform(localT);
       return -70 * eased;
     } else if (t < _fallEnd) {
       final localT = (t - _riseEnd) / (_fallEnd - _riseEnd);
@@ -148,7 +153,12 @@ class _GoldCoinRewardOverlayState extends State<_GoldCoinRewardOverlay>
         return -70 + 95 * eased;
       } else {
         final bounceT = (localT - 0.75) / 0.25;
-        final eased = Curves.easeOut.transform(bounceT);
+        // easeOutBack instead of easeOut -- gives the settle a tiny
+        // overshoot/rebound before it fully stops, which reads as WEIGHT
+        // (a real coin has momentum and settles, doesn't just glide to a
+        // stop). This is the single highest-value curve change for making
+        // the coin feel heavy rather than floaty.
+        final eased = Curves.easeOutBack.transform(bounceT);
         return 25 - 25 * eased;
       }
     } else if (t < _holdEnd) {
@@ -160,17 +170,24 @@ class _GoldCoinRewardOverlayState extends State<_GoldCoinRewardOverlay>
 
   double _coinSpin(double t) {
     if (t < _fallEnd) {
-      return t * 10 * math.pi;
+      // Was pure linear (t * 10 * pi) -- a real spinning object doesn't
+      // rotate at a perfectly constant rate while also decelerating
+      // vertically; easing the spin curve to roughly track the same
+      // deceleration as the fall/bounce reads as one coherent physical
+      // object rather than two independent animations layered on top of
+      // each other.
+      final eased = Curves.easeOutCubic.transform((t / _fallEnd).clamp(0.0, 1.0));
+      return eased * 10 * math.pi;
     } else if (t < _holdEnd) {
       final localT = (t - _fallEnd) / (_holdEnd - _fallEnd);
-      final spinAtSettle = _fallEnd * 10 * math.pi;
+      final spinAtSettle = 10 * math.pi;
       return spinAtSettle + (1 - localT) * 0.3 * math.sin(localT * math.pi * 2);
     } else {
       // Continues spinning (slowing down) during the fly-to-badge phase --
       // matches the reference: it's still visibly a spinning coin while
       // in flight, not a static shrinking dot.
       final flyT = (t - _holdEnd) / (1.0 - _holdEnd);
-      final spinAtHoldEnd = _fallEnd * 10 * math.pi;
+      final spinAtHoldEnd = 10 * math.pi;
       return spinAtHoldEnd + flyT * 4 * math.pi;
     }
   }
@@ -248,7 +265,12 @@ class _GoldCoinRewardOverlayState extends State<_GoldCoinRewardOverlay>
                 painter: _SparklePainter(sparkles: _sparkles, t: t, coinCenter: coinPos),
               ),
             ),
-            _buildCoin(coinPos, coinScale, coinOpacity, _coinSpin(t)),
+            Positioned.fill(
+              child: CustomPaint(
+                painter: _BurstPainter(particles: _burstParticles, t: t, burstOrigin: center, burstStart: _fallEnd),
+              ),
+            ),
+            _buildCoin(coinPos, coinScale, coinOpacity, _coinSpin(t), t),
             if (t < _holdEnd) _buildText(t, center),
           ],
         );
@@ -256,7 +278,18 @@ class _GoldCoinRewardOverlayState extends State<_GoldCoinRewardOverlay>
     );
   }
 
-  Widget _buildCoin(Offset pos, double scale, double opacity, double spin) {
+  Widget _buildCoin(Offset pos, double scale, double opacity, double spin, double t) {
+    // Glow pulses gently (breathing effect) during the hold phase, and
+    // stays present but fading during rise/fall/fly -- gives the coin an
+    // ambient light source instead of looking like a flat pasted sprite.
+    // Pure Container/BoxShadow + blur, no shaders needed -- this is the
+    // "soft bloom" from the brief approximated with layout primitives.
+    final glowPulse = t < _fallEnd
+        ? 0.5 + (t / _fallEnd) * 0.3
+        : t < _holdEnd
+        ? 0.8 + math.sin(((t - _fallEnd) / (_holdEnd - _fallEnd)) * math.pi * 3) * 0.2
+        : (1.0 - ((t - _holdEnd) / (1.0 - _holdEnd))).clamp(0.0, 1.0) * 0.8;
+
     return Positioned(
       left: pos.dx - 55,
       top: pos.dy - 55,
@@ -265,22 +298,43 @@ class _GoldCoinRewardOverlayState extends State<_GoldCoinRewardOverlay>
           opacity: opacity.clamp(0.0, 1.0),
           child: Transform.scale(
             scale: scale.clamp(0.0, 1.0),
-            child: Transform(
-              alignment: Alignment.center,
-              transform: Matrix4.identity()
-                ..setEntry(3, 2, 0.003)
-                ..rotateY(spin),
-              child: SizedBox(
-                width: 110,
-                height: 110,
-                child: Image.asset(
-                  'assets/images/youpi_coin.png',
-                  fit: BoxFit.contain,
-                  errorBuilder: (_, __, ___) => Container(
-                    decoration: const BoxDecoration(color: AppColors.secondary, shape: BoxShape.circle),
-                    child: const Icon(Icons.monetization_on_rounded, color: Colors.black, size: 60),
+            child: SizedBox(
+              width: 110,
+              height: 110,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  // Glow layer -- sits behind the coin, larger and blurred.
+                  Container(
+                    width: 110 + glowPulse * 55,
+                    height: 110 + glowPulse * 55,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: RadialGradient(
+                        colors: [
+                          AppColors.secondary.withOpacity(0.35 * glowPulse),
+                          AppColors.secondary.withOpacity(0.0),
+                        ],
+                      ),
+                    ),
                   ),
-                ),
+                  Transform(
+                    alignment: Alignment.center,
+                    transform: Matrix4.identity()
+                      ..setEntry(3, 2, 0.003)
+                      ..rotateY(spin),
+                    child: Image.asset(
+                      'assets/images/youpi_coin.png',
+                      width: 110,
+                      height: 110,
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, __, ___) => Container(
+                        decoration: const BoxDecoration(color: AppColors.secondary, shape: BoxShape.circle),
+                        child: const Icon(Icons.monetization_on_rounded, color: Colors.black, size: 60),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -402,4 +456,72 @@ class _SparklePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _SparklePainter oldDelegate) => oldDelegate.t != t;
+}
+
+/// One-time radial burst -- unlike _Sparkle (which orbits continuously
+/// during the hold phase), these particles fire ONCE right as the coin
+/// bounce-settles (t == _fallEnd), fly outward with simulated gravity/drag,
+/// and fade. This is what gives the landing actual IMPACT -- the brief's
+/// "small metallic impact, tiny spark" note -- rather than the coin just
+/// quietly arriving and sparkles slowly orbiting in afterward.
+class _BurstParticle {
+  final double angle;
+  final double speed;
+  final double size;
+  final Color color;
+
+  _BurstParticle(int seed)
+      : angle = (seed * 0.393) % (2 * math.pi), // spread evenly around 2π
+        speed = 60 + (seed * 13 % 50).toDouble(),
+        size = 3 + (seed % 3).toDouble() * 1.4,
+        color = [
+          const Color(0xFFFFD700),
+          const Color(0xFFFFF3B0),
+          const Color(0xFFFFFFFF),
+        ][seed % 3];
+}
+
+class _BurstPainter extends CustomPainter {
+  final List<_BurstParticle> particles;
+  final double t;
+  final Offset burstOrigin;
+  final double burstStart;
+  // How long the burst plays out, as a fraction of total animation time --
+  // short and punchy (impact, not a lingering firework).
+  static const _burstLifespan = 0.12;
+
+  _BurstPainter({
+    required this.particles,
+    required this.t,
+    required this.burstOrigin,
+    required this.burstStart,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final localT = ((t - burstStart) / _burstLifespan).clamp(0.0, 1.0);
+    if (t < burstStart || localT >= 1.0) return;
+
+    // easeOutCubic outward motion (fast initial burst, decelerating) --
+    // combined with a slight downward gravity drift so it doesn't read as
+    // a perfectly symmetric firework, more like debris settling.
+    final travelT = Curves.easeOutCubic.transform(localT);
+    final opacity = 1.0 - Curves.easeIn.transform(localT);
+
+    for (final p in particles) {
+      final distance = p.speed * travelT;
+      final gravityDrift = 40 * localT * localT; // quadratic, like real gravity
+      final pos = burstOrigin +
+          Offset(math.cos(p.angle) * distance, math.sin(p.angle) * distance + gravityDrift);
+
+      final paint = Paint()
+        ..color = p.color.withOpacity(opacity.clamp(0.0, 1.0))
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1.0);
+
+      canvas.drawCircle(pos, p.size * (1.0 - localT * 0.4), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _BurstPainter oldDelegate) => oldDelegate.t != t;
 }
