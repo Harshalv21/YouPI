@@ -25,6 +25,15 @@ class EmiSelectionScreen extends StatelessWidget {
   // SET BACK TO false BEFORE ANY REAL TESTING OR RELEASE BUILD.
   static const bool _previewAnimationOnly = false;
 
+  // MUST stay in sync with backend GoldRewardService.kt (REWARD_PERCENTAGE,
+  // COIN_VALUE_RUPEES, HALF_UP rounding) and gold_coin_reward_screen.dart's
+  // internal _valueEarned/_coinsEarned -- these are used purely to show the
+  // correct number in Home's post-recharge toast; the ACTUAL credit always
+  // happens server-side off the webhook, this is just display.
+  double _valueForAmount(double rechargeAmount) => rechargeAmount * 0.01;
+  int _coinsForAmount(double rechargeAmount) =>
+      (_valueForAmount(rechargeAmount) / 0.10).round();
+
   @override
   Widget build(BuildContext context) {
     return Consumer<RechargeViewModel>(builder: (ctx, vm, _) {
@@ -100,7 +109,12 @@ class EmiSelectionScreen extends StatelessWidget {
                       plan.price,
                       onNavigateHome: () => ctx.go(
                         '/dashboard/home',
-                        extra: {'justEarnedCoin': true, 'debugBumpCoin': true},
+                        extra: {
+                          'justEarnedCoin': true,
+                          'debugBumpCoin': true,
+                          'earnedCoins': _coinsForAmount(plan.price),
+                          'earnedValue': _valueForAmount(plan.price),
+                        },
                       ),
                     );
                     return;
@@ -120,7 +134,14 @@ class EmiSelectionScreen extends StatelessWidget {
                       await showGoldCoinReward(
                         ctx,
                         plan.price,
-                        onNavigateHome: () => ctx.go('/dashboard/home', extra: {'justEarnedCoin': true}),
+                        onNavigateHome: () => ctx.go(
+                          '/dashboard/home',
+                          extra: {
+                            'justEarnedCoin': true,
+                            'earnedCoins': _coinsForAmount(plan.price),
+                            'earnedValue': _valueForAmount(plan.price),
+                          },
+                        ),
                       );
                     } else {
                       ctx.go('/plans/success');

@@ -116,7 +116,7 @@ class RechargeViewModel extends ChangeNotifier {
   // confirmed working end-to-end). Toggle _useMockHistory to switch back
   // to the real API instantly.
   // ---------------------------------------------------------------------
-  static const bool _useMockHistory = true; // TODO: set to false once backend history verified
+  static const bool _useMockHistory = false; // now using real backend history
 
   List<RechargeRecord> _mockHistory() {
     final now = DateTime.now();

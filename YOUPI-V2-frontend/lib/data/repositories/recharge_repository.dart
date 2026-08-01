@@ -11,6 +11,7 @@
 
 import 'package:dio/dio.dart';
 import '../../core/services/api_service.dart';
+import '../../core/services/storage_service.dart';
 import '../models/recharge_plan_model.dart';
 import '../../presentation/recharge/recharge_history_screen.dart' show RechargeRecord, RechargeStatus;
 
@@ -146,6 +147,23 @@ class RechargeRepository {
     }
   }
 
+  /// Plural: ALL of the user's currently-active recharges, for the home
+  /// screen's horizontally-scrollable strip. Backend already filters out
+  /// expired ones (WHERE expiry_date >= CURRENT_DATE) and sorts
+  /// soonest-expiring first, so a recharge that expired overnight is
+  /// simply absent from this list the next time it's called -- no
+  /// client-side expiry bookkeeping needed.
+  Future<List<ActiveRechargeResult>> getActiveRecharges() async {
+    try {
+      final res = await _dio.get('/v1/recharge/active/all');
+      final data = ApiService.unwrap(res);
+      final list = (data as List<dynamic>? ?? []);
+      return list.map((e) => ActiveRechargeResult.fromJson(e as Map<String, dynamic>)).toList();
+    } on DioException catch (e) {
+      throw ApiService.toException(e);
+    }
+  }
+
   // -------------------------------------------------------------------
   // Recharge History screen support (NEW)
   // -------------------------------------------------------------------
@@ -165,16 +183,34 @@ class RechargeRepository {
 
   /// Last [limit] recharges for the logged-in user across ALL numbers
   /// they've ever recharged (not just the number currently typed into the
-  /// mobile field). Backend already returns history newest-first, so this
-  /// is just take(limit).
+  /// mobile field). Backend already returns history newest-first.
+  /// Filters out anything the user has "cleared" (StorageService's
+  /// on-device hidden list) BEFORE taking the limit, so a hidden entry
+  /// doesn't silently eat one of the visible slots.
   Future<List<RechargeRecord>> getRecentRecharges({int limit = 4}) async {
     final all = await getHistory();
-    return all.take(limit).map(_toRechargeRecord).toList();
+    final hidden = await StorageService.getHiddenHistoryIds();
+    return all
+        .map(_toRechargeRecord)
+        .where((r) => !hidden.contains(r.id))
+        .take(limit)
+        .toList();
   }
 
   Future<List<RechargeRecord>> getAllRechargeHistory({int page = 0}) async {
     final all = await getHistory(page: page);
-    return all.map(_toRechargeRecord).toList();
+    final hidden = await StorageService.getHiddenHistoryIds();
+    return all
+        .map(_toRechargeRecord)
+        .where((r) => !hidden.contains(r.id))
+        .toList();
+  }
+
+  /// "Clears" recharge history from view -- on-device only, see
+  /// StorageService's _keyHiddenHistoryIds doc comment for why this never
+  /// touches the backend records themselves.
+  Future<void> hideFromHistory(Iterable<String> orderIds) async {
+    await StorageService.hideHistoryIds(orderIds);
   }
 
   RechargeRecord _toRechargeRecord(RechargeStatusResult r) {

@@ -75,8 +75,108 @@ class ComingSoonOverlay extends StatefulWidget {
     );
   }
 
+  /// Same message pool as [showComingSoonSnack], but rendered as a
+  /// self-dismissing banner near the TOP of the screen via the app's ROOT
+  /// overlay instead of a bottom SnackBar.
+  ///
+  /// Use this instead of [showComingSoonSnack] whenever the caller might be
+  /// underneath a modal barrier -- e.g. a button inside a `showDialog(...)`
+  /// popup. A SnackBar there calls `ScaffoldMessenger.of(context)`, which
+  /// walks UP the tree past the Dialog to the nearest real Scaffold
+  /// (usually the page behind the dialog) and renders at ITS bottom --
+  /// which sits BELOW the dialog's own barrier in the Overlay stack, so it
+  /// shows up dim and half-hidden at the bottom of a screen the user can't
+  /// even see yet. Inserting into `rootOverlay: true` instead guarantees
+  /// this renders above every barrier/dialog currently on screen, same
+  /// architecture as showGoldCoinReward's overlay in
+  /// gold_coin_reward_screen.dart.
+  static void showComingSoonTopBanner(BuildContext context) {
+    HapticFeedback.lightImpact();
+    final message = (List<String>.from(_snackMessages)..shuffle()).first;
+    final overlayState = Overlay.of(context, rootOverlay: true);
+    late final OverlayEntry entry;
+    var removed = false;
+    void remove() {
+      if (removed) return;
+      removed = true;
+      entry.remove();
+    }
+
+    entry = OverlayEntry(
+      builder: (ctx) => _ComingSoonTopBanner(message: message, onDone: remove),
+    );
+    overlayState.insert(entry);
+  }
+
   @override
   State<ComingSoonOverlay> createState() => ComingSoonOverlayState();
+}
+
+class _ComingSoonTopBanner extends StatefulWidget {
+  final String message;
+  final VoidCallback onDone;
+  const _ComingSoonTopBanner({required this.message, required this.onDone});
+
+  @override
+  State<_ComingSoonTopBanner> createState() => _ComingSoonTopBannerState();
+}
+
+class _ComingSoonTopBannerState extends State<_ComingSoonTopBanner> {
+  bool _visible = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Enter on next frame (lets the slide-in transition actually animate
+    // from off-screen instead of popping in already at Offset.zero).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() => _visible = true);
+      Future.delayed(const Duration(milliseconds: 1500), () {
+        if (!mounted) return;
+        setState(() => _visible = false);
+        Future.delayed(const Duration(milliseconds: 300), widget.onDone);
+      });
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      top: 0,
+      left: 0,
+      right: 0,
+      child: SafeArea(
+        child: IgnorePointer(
+          child: AnimatedSlide(
+            duration: const Duration(milliseconds: 300),
+            curve: _visible ? Curves.easeOutBack : Curves.easeInCubic,
+            offset: _visible ? Offset.zero : const Offset(0, -1.4),
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 250),
+              opacity: _visible ? 1.0 : 0.0,
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: Container(
+                  margin: const EdgeInsets.only(top: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: AppColors.backgroundCard,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: AppColors.secondary.withOpacity(0.3)),
+                  ),
+                  child: Text(
+                    widget.message,
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class ComingSoonOverlayState extends State<ComingSoonOverlay>
@@ -86,7 +186,7 @@ class ComingSoonOverlayState extends State<ComingSoonOverlay>
 
   static const _normalBlink = Duration(milliseconds: 1100);
   static const _fastBlink = Duration(milliseconds: 500);
-  bool _spedUp = false; 
+  bool _spedUp = false;
 
   @override
   void initState() {

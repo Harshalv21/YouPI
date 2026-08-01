@@ -29,7 +29,12 @@ import 'auth_viewmodel.dart';
 ///   OtpVerifyScreen already knows how to route a brand-new vs an existing
 ///   user correctly).
 class LoginMpinScreen extends StatefulWidget {
-  const LoginMpinScreen({super.key});
+  // Passed from MobileEntryScreen with whatever the user just typed there,
+  // so this screen doesn't have to ask again. Optional because this screen
+  // is also reached directly from the Welcome screen with nothing handed in
+  // -- in that case we fall back to StorageService.getLastMobile().
+  final String? mobile;
+  const LoginMpinScreen({super.key, this.mobile});
 
   @override
   State<LoginMpinScreen> createState() => _LoginMpinScreenState();
@@ -59,6 +64,20 @@ class _LoginMpinScreenState extends State<LoginMpinScreen> {
   }
 
   Future<void> _loadRememberedMobile() async {
+    // A mobile handed in directly takes priority -- this is the path
+    // MobileEntryScreen now uses, and it's what makes a fresh reinstall
+    // skip straight to the MPIN pad instead of dead-ending on OTP every
+    // time (see the class doc comment above for the full reasoning).
+    final handedIn = widget.mobile;
+    if (handedIn != null && handedIn.length == 10) {
+      setState(() {
+        _mobile = handedIn;
+        _step = 1; // skip straight to the MPIN pad
+        _checkingRememberedMobile = false;
+      });
+      return;
+    }
+
     final saved = await StorageService.getLastMobile();
     if (!mounted) return;
     if (saved != null && saved.length == 10) {

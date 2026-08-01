@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_text_styles.dart';
+import 'recharge_contact_history_screen.dart';
 
 /// Full-screen "pick a number" page -- matches the native contact-picker
 /// look: search box on top, then a scrollable list of all device contacts
@@ -91,7 +92,13 @@ class _RechargeContactPickerScreenState
   void _pick(String number, [String? name]) {
     final clean = _last10(number);
     if (clean.length != 10) return;
-    Navigator.of(context).pop(clean);
+    // GPay-style: tapping a contact opens their recharge history + browse
+    // plans, it doesn't just fill the number back into the home field.
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => RechargeContactHistoryScreen(mobileNumber: clean, contactName: name),
+      ),
+    );
   }
 
   @override
@@ -105,7 +112,7 @@ class _RechargeContactPickerScreenState
       body: Column(
         children: [
           const SizedBox(height: 12),
-    // Search box to filter the contacts list below
+          // Search box to filter the contacts list below
           // Search box to filter the contacts list below
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),

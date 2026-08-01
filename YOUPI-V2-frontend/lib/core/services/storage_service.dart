@@ -22,6 +22,13 @@ class StorageService {
   // NEW -- gold coin local-persisted stand-in (see doc comments below).
   static const _keyGoldCoinCount = 'gold_coin_count';
   static const _keyGoldCoinValue = 'gold_coin_value';
+  // Recharge history entries the user has "cleared" from view -- this
+  // hides them on-device only. Nothing is deleted server-side: as a
+  // fintech app, recharge orders are financial transaction records that
+  // may need to stay retrievable (disputes, refunds, RBI-related record
+  // keeping), so "clear history" here means "stop showing me this,"
+  // never "delete the underlying order."
+  static const _keyHiddenHistoryIds = 'hidden_history_ids';
 
   // ── Access token ──
   static Future<void> saveToken(String token) async =>
@@ -199,6 +206,22 @@ class StorageService {
     await _storage.delete(key: _keyGoldCoinValue);
   }
 
+  // ── Cleared (hidden) recharge history entries ──
+  // On-device only, per the doc comment on _keyHiddenHistoryIds above.
+  static Future<Set<String>> getHiddenHistoryIds() async {
+    final raw = await _storage.read(key: _keyHiddenHistoryIds);
+    if (raw == null || raw.isEmpty) return {};
+    return raw.split(',').where((s) => s.isNotEmpty).toSet();
+  }
+
+  /// Adds the given order IDs to the hidden set (merges with whatever's
+  /// already hidden -- doesn't overwrite it).
+  static Future<void> hideHistoryIds(Iterable<String> ids) async {
+    final existing = await getHiddenHistoryIds();
+    existing.addAll(ids);
+    await _storage.write(key: _keyHiddenHistoryIds, value: existing.join(','));
+  }
+
   // ── Clear all (sign out) ──
   // Deliberately preserves device_id, last_mobile, AND the gold coin
   // count/value -- signing out shouldn't un-trust this device, make it
@@ -210,6 +233,7 @@ class StorageService {
     final lastMobile = await _storage.read(key: _keyLastMobile);
     final goldCoinCount = await _storage.read(key: _keyGoldCoinCount);
     final goldCoinValue = await _storage.read(key: _keyGoldCoinValue);
+    final hiddenHistoryIds = await _storage.read(key: _keyHiddenHistoryIds);
     await _storage.deleteAll();
     if (deviceId != null) {
       await _storage.write(key: _keyDeviceId, value: deviceId);
@@ -222,6 +246,9 @@ class StorageService {
     }
     if (goldCoinValue != null) {
       await _storage.write(key: _keyGoldCoinValue, value: goldCoinValue);
+    }
+    if (hiddenHistoryIds != null) {
+      await _storage.write(key: _keyHiddenHistoryIds, value: hiddenHistoryIds);
     }
   }
 }

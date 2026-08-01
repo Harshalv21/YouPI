@@ -81,7 +81,10 @@ class AppRouter {
       GoRoute(path: '/auth/mobile', builder: (c, s) => const MobileEntryScreen()),
       GoRoute(path: '/auth/otp', builder: (c, s) => OtpVerifyScreen(mobile: s.extra as String? ?? '')),
       GoRoute(path: '/auth/mpin-entry', builder: (c, s) => const MpinEntryScreen()),
-      GoRoute(path: '/auth/login-mpin', builder: (c, s) => const LoginMpinScreen()),
+      GoRoute(
+        path: '/auth/login-mpin',
+        builder: (c, s) => LoginMpinScreen(mobile: s.extra as String?),
+      ),
       GoRoute(path: '/auth/profile-setup', builder: (c, s) => const UserProfileSetupScreen()),
       GoRoute(
         path: '/auth/mpin-setup',
@@ -145,6 +148,8 @@ class AppRouter {
               return HomeScreen(
                 justEarnedCoin: extra?['justEarnedCoin'] == true,
                 debugBumpCoin: extra?['debugBumpCoin'] == true,
+                earnedCoins: extra?['earnedCoins'] as int?,
+                earnedValue: (extra?['earnedValue'] as num?)?.toDouble(),
               );
             },
           ),

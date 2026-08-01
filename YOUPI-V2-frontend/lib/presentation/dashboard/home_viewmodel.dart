@@ -27,7 +27,7 @@ class HomeViewModel extends ChangeNotifier {
 
   WalletBalance? _walletBalance;
   List<TransactionModel> _transactions = [];
-  ActiveRechargeResult? _activeRecharge;
+  List<ActiveRechargeResult> _activeRecharges = [];
   GoldWalletResult? _goldWallet;
   // DEBUG-ONLY -- purely in-memory, never persisted anywhere, never touches
   // the backend. Exists solely so the badge pop-in animation can be
@@ -49,7 +49,12 @@ class HomeViewModel extends ChangeNotifier {
   bool get isGuest => _isGuest;
   UserModel get user => _user;
   List<Map<String, String>> get offers => _offers;
-  ActiveRechargeResult? get activeRecharge => _activeRecharge;
+  /// All currently-active (non-expired) recharges, soonest-expiring first
+  /// -- powers the home screen's horizontally-scrollable Active Recharge
+  /// strip. Already FIFO: the backend query excludes anything past its
+  /// expiry_date, so an expired recharge simply isn't in this list on the
+  /// next load -- no client-side removal/cleanup needed.
+  List<ActiveRechargeResult> get activeRecharges => _activeRecharges;
 
   /// Gold coin count for the home header popup. 0 if not yet loaded / no
   /// rewards earned -- never null, so UI doesn't need extra null checks.
@@ -118,7 +123,7 @@ class HomeViewModel extends ChangeNotifier {
       _user = _guestUser;
       _walletBalance = null;
       _transactions = [];
-      _activeRecharge = null;
+      _activeRecharges = [];
       _goldWallet = null;
       _profileLoadFailed = false;
       _isLoading = false;
@@ -172,14 +177,14 @@ class HomeViewModel extends ChangeNotifier {
 
   Future<void> _loadActiveRecharge() async {
     try {
-      _activeRecharge = await _rechargeRepo.getActiveRecharge();
+      _activeRecharges = await _rechargeRepo.getActiveRecharges();
     } catch (e) {
-      // No active recharge is a normal 200/null response, not an
+      // No active recharges is a normal 200/[] response, not an
       // exception -- this only fires on a genuine network/auth failure,
       // so just fall back to "no active recharge" shown rather than
       // blocking the rest of the home screen.
       debugPrint('Home: active recharge load failed: $e');
-      _activeRecharge = null;
+      _activeRecharges = [];
     }
   }
 

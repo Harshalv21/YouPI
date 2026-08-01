@@ -35,7 +35,7 @@ android {
         create("release") {
             storeFile = file("my-upload-key.keystore")
             storePassword = "Hind@100B$2026"
-            keyAlias = "my-key-alias"
+            keyAlias = "my-key-alias" 
             keyPassword = "Hind@100B$2026"
         }
     }

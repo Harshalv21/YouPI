@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_dimensions.dart';
 import '../../core/constants/app_text_styles.dart';
+import '../../core/widgets/contact_picker_field.dart';
 import '../../core/widgets/shimmer_loader.dart';
 import '../../core/widgets/youpi_button.dart';
 import '../../core/widgets/youpi_card.dart';
@@ -19,14 +20,42 @@ class RechargeHomeScreen extends StatefulWidget {
 }
 
 class _RechargeHomeScreenState extends State<RechargeHomeScreen> {
+  // GPay-style inline number entry -- replaces the old edit-dialog.
+  // Kept in sync with vm.mobile both ways: typing here calls vm.setMobile,
+  // and picking a number via the full contact-picker screen (_openContactPicker)
+  // pushes the result back into this controller.
+  final _mobileCtrl = TextEditingController();
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final vm = context.read<RechargeViewModel>();
+      // Deliberately NOT prefilling from vm.mobile -- the viewmodel is a
+      // long-lived Provider, so its old value would otherwise "leak" back
+      // in every time this screen re-opens. GPay always starts empty, so
+      // we reset both the field and the viewmodel's state to match.
+      _mobileCtrl.clear();
+      vm.setMobile('');
       vm.loadPlans();
-      vm.loadRecentRecharges(); // NEW: fetch last few recharges for this number
+      vm.loadRecentRecharges();
     });
+    // Handles the plain "typed the number manually, no suggestion tapped"
+    // case -- ContactPickerField's onNumberSelected only fires on a tap.
+    _mobileCtrl.addListener(() {
+      final vm = context.read<RechargeViewModel>();
+      final typed = _mobileCtrl.text.trim();
+      if (typed.length == 10 && typed != vm.mobile) {
+        vm.setMobile(typed);
+        vm.loadRecentRecharges();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _mobileCtrl.dispose();
+    super.dispose();
   }
 
   @override
@@ -51,38 +80,25 @@ class _RechargeHomeScreenState extends State<RechargeHomeScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Mobile row
+              // Mobile row -- GPay-style inline entry with live contact
+              // suggestions (ContactPickerField) + a contacts icon that
+              // opens the full native-style picker for browsing.
               Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(
-                    child: YoupiCard(
-                      onTap: () => _showEditMobileDialog(context, vm),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.phone_android_rounded, color: AppColors.primary),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: vm.mobile.isEmpty
-                                ? Text(
-                              '00000 00000',
-                              style: AppTextStyles.headlineSmall.copyWith(
-                                color: AppColors.textSecondary.withOpacity(0.6),
-                              ),
-                            )
-                                : Text('+91 ${vm.mobile}', style: AppTextStyles.headlineSmall),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.edit_rounded, color: AppColors.textSecondary, size: 18),
-                            onPressed: () => _showEditMobileDialog(context, vm),
-                          ),
-                        ],
-                      ),
+                    child: ContactPickerField(
+                      controller: _mobileCtrl,
+                      onNumberSelected: (number, name) {
+                        vm.setMobile(number);
+                        vm.loadRecentRecharges();
+                      },
                     ),
                   ),
                   const SizedBox(width: 8),
                   IconButton(
                     icon: const Icon(Icons.contacts_rounded, color: AppColors.textSecondary, size: 22),
-                    onPressed: () => _openContactPicker(context, vm),
+                    onPressed: () => _openContactPicker(context, vm, _mobileCtrl),
                   ),
                 ],
               ),
@@ -144,10 +160,12 @@ class _RechargeHomeScreenState extends State<RechargeHomeScreen> {
                     itemBuilder: (context, index) {
                       final r = vm.recentRecharges[index];
                       return GestureDetector(
-                        onTap: () {
-                          vm.repeatRecharge(r);
-                          ctx.push('/plans/emi-select');
-                        },
+                        onTap: () => showModalBottomSheet(
+                          context: ctx,
+                          backgroundColor: Colors.transparent,
+                          isScrollControlled: true,
+                          builder: (_) => RechargeDetailSheet(record: r),
+                        ),
                         child: Container(
                           width: 170,
                           padding: const EdgeInsets.all(12),
@@ -156,35 +174,29 @@ class _RechargeHomeScreenState extends State<RechargeHomeScreen> {
                             borderRadius: BorderRadius.circular(14),
                             border: Border.all(color: AppColors.textSecondary.withOpacity(0.1)),
                           ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
                             children: [
-                              Row(
-                                children: [
-                                  Text(r.operator, style: AppTextStyles.labelLarge),
-                                  const Spacer(),
-                                  Text(
-                                    '₹${r.amount.toStringAsFixed(0)}',
-                                    style: AppTextStyles.labelLarge.copyWith(color: AppColors.primary),
-                                  ),
-                                ],
-                              ),
-                              Text(
-                                r.mobileNumber,
-                                style: AppTextStyles.captionText,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(
-                                    '${r.createdAt.day}/${r.createdAt.month}',
-                                    style: AppTextStyles.captionText,
-                                  ),
-                                  const Icon(Icons.refresh, size: 14, color: AppColors.primary),
-                                ],
+                              ContactAvatar(mobileNumber: r.mobileNumber, radius: 18),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      r.mobileNumber,
+                                      style: AppTextStyles.labelSmall,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      '₹${r.amount.toStringAsFixed(0)}',
+                                      style: AppTextStyles.labelLarge.copyWith(color: AppColors.primary),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ],
                           ),
@@ -315,109 +327,16 @@ class _RechargeHomeScreenState extends State<RechargeHomeScreen> {
   }
 }
 
-Future<void> _openContactPicker(BuildContext context, RechargeViewModel vm) async {
+Future<void> _openContactPicker(
+    BuildContext context, RechargeViewModel vm, TextEditingController mobileCtrl) async {
   final selected = await Navigator.of(context).push<String>(
     MaterialPageRoute(builder: (_) => const RechargeContactPickerScreen()),
   );
   if (selected != null && selected.length == 10) {
+    mobileCtrl.text = selected; // keep the inline field in sync
     vm.setMobile(selected);
     vm.loadRecentRecharges(); // NEW: refresh recent recharges when number changes via contact picker
   }
-}
-
-void _showEditMobileDialog(BuildContext context, RechargeViewModel vm) {
-  final ctrl = TextEditingController(text: vm.mobile);
-  bool showInvalid = false;
-
-  showDialog(
-    context: context,
-    builder: (ctx) => StatefulBuilder(
-      builder: (ctx, setDialogState) => AlertDialog(
-        backgroundColor: AppColors.backgroundCard,
-        title: Text('Enter mobile number', style: AppTextStyles.headlineSmall),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
-  decoration: BoxDecoration(
-    border: Border.all(color: AppColors.primary, width: 1.5),
-    borderRadius: BorderRadius.circular(10),
-  ),
-  child: Row(
-    children: [
-      Text('+91', style: AppTextStyles.bodyMedium),
-      const SizedBox(width: 8),
-      Container(
-        width: 1,
-        height: 20,
-        color: AppColors.textSecondary.withOpacity(0.3),
-      ),
-      const SizedBox(width: 8),
-      Expanded(
-        child: TextField(
-          controller: ctrl,
-          autofocus: true,
-          keyboardType: TextInputType.phone,
-          maxLength: 10,
-          enableInteractiveSelection: false,
-          showCursor: true,
-          style: AppTextStyles.bodyMedium,
-          decoration: const InputDecoration(
-            hintText: '00000 00000',
-            counterText: '',
-            border: InputBorder.none,
-            focusedBorder: InputBorder.none,
-            enabledBorder: InputBorder.none,
-            disabledBorder: InputBorder.none,
-            errorBorder: InputBorder.none,
-            focusedErrorBorder: InputBorder.none,
-            contentPadding: EdgeInsets.zero,
-            isDense: true,
-          ),
-          onChanged: (val) {
-            setDialogState(() {
-              showInvalid = val.isNotEmpty && val.length != 10;
-            });
-          },
-        ),
-      ),
-    ],
-  ),
-),
-            if (showInvalid)
-              Padding(
-                padding: const EdgeInsets.only(top: 6, left: 4),
-                child: Text(
-                  'Ensure this is a valid mobile number',
-                  style: AppTextStyles.bodySmall.copyWith(color: AppColors.error),
-                ),
-              ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: Text('Cancel', style: AppTextStyles.bodyMedium.copyWith(color: AppColors.textSecondary)),
-          ),
-          TextButton(
-            onPressed: () {
-              final val = ctrl.text.trim();
-              if (val.length == 10) {
-                vm.setMobile(val);
-                vm.loadRecentRecharges(); // NEW: refresh recent recharges when number changes manually
-                Navigator.of(ctx).pop();
-              } else {
-                setDialogState(() => showInvalid = true);
-              }
-            },
-            child: Text('Confirm', style: AppTextStyles.tealLink),
-          ),
-        ],
-      ),
-    ),
-  );
 }
 
 class _OperatorSlotChip extends StatelessWidget {

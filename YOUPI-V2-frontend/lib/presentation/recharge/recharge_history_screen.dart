@@ -6,12 +6,89 @@
 // core/constants/app_colors.dart.
 
 import 'package:flutter/material.dart';
+import 'package:flutter_contacts/flutter_contacts.dart';
 import '../../core/constants/app_colors.dart';
+import '../../data/repositories/recharge_repository.dart';
 import '../../core/constants/app_text_styles.dart';
 
 // ---------------------------------------------------------------------------
-// MODEL
+// CONTACT LOOKUP -- resolves a phone number to the matching device contact's
+// name, so history rows can show a name-initial avatar instead of a generic
+// phone icon. Contacts are fetched once (name+phone only) and cached.
+//
+// NOTE: photo support was attempted here but removed -- this project's
+// installed flutter_contacts version doesn't expose a per-id getContact()
+// or a photoOrThumbnail getter (both were unresolved-reference errors).
+// Only the properties:{...} form of getAll() is confirmed to work (it's
+// already used successfully elsewhere in this project). If real contact
+// photos are wanted later, paste pubspec.yaml's flutter_contacts version
+// pin and this can be re-added against the correct API surface.
 // ---------------------------------------------------------------------------
+class ContactLookup {
+  static List<Contact>? _cache;
+
+  static Future<List<Contact>> _all() async {
+    if (_cache != null) return _cache!;
+    await FlutterContacts.permissions.request(PermissionType.read);
+    final granted = await FlutterContacts.permissions.has(PermissionType.read);
+    if (!granted) {
+      _cache = [];
+      return _cache!;
+    }
+    try {
+      _cache = await FlutterContacts.getAll(properties: {ContactProperty.name, ContactProperty.phone});
+    } catch (_) {
+      _cache = [];
+    }
+    return _cache!;
+  }
+
+  static String _last10(String raw) {
+    final digits = raw.replaceAll(RegExp(r'\D'), '');
+    return digits.length >= 10 ? digits.substring(digits.length - 10) : digits;
+  }
+
+  /// Matches by trailing 10 digits (handles +91 prefixes either side).
+  static Future<Contact?> matchNumber(String mobileNumber) async {
+    final contacts = await _all();
+    final target = _last10(mobileNumber);
+    if (target.isEmpty) return null;
+    for (final c in contacts) {
+      for (final p in c.phones) {
+        if (_last10(p.number) == target) return c;
+      }
+    }
+    return null;
+  }
+}
+
+// Avatar that resolves a phone number to the matching contact's name
+// initial. (Photo support removed -- see ContactLookup note above.)
+class ContactAvatar extends StatelessWidget {
+  final String mobileNumber;
+  final double radius;
+
+  const ContactAvatar({super.key, required this.mobileNumber, this.radius = 20});
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Contact?>(
+      future: ContactLookup.matchNumber(mobileNumber),
+      builder: (context, snapshot) {
+        final contact = snapshot.data;
+        final name = contact?.displayName ?? '';
+        final initial = name.isNotEmpty ? name[0].toUpperCase() : (mobileNumber.isNotEmpty ? mobileNumber[0] : '#');
+        return CircleAvatar(
+          radius: radius,
+          backgroundColor: AppColors.primary.withValues(alpha: 0.15),
+          child: Text(initial, style: AppTextStyles.labelSmall.copyWith(color: AppColors.primary)),
+        );
+      },
+    );
+  }
+}
+
+
 enum RechargeStatus { success, failed, pending }
 
 class RechargeRecord {
@@ -74,9 +151,9 @@ class StatusBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
+        color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withOpacity(0.5)),
+        border: Border.all(color: color.withValues(alpha: 0.5)),
       ),
       child: Text(
         label,
@@ -121,11 +198,43 @@ class RechargeHistoryScreen extends StatefulWidget {
 }
 
 class _RechargeHistoryScreenState extends State<RechargeHistoryScreen> {
-  RechargeStatus? _filter; // null = All
+  final RechargeRepository _repo = RechargeRepository();
+  late List<RechargeRecord> _records;
 
-  List<RechargeRecord> get _filtered {
-    if (_filter == null) return widget.allRecords;
-    return widget.allRecords.where((r) => r.status == _filter).toList();
+  @override
+  void initState() {
+    super.initState();
+    _records = List.of(widget.allRecords);
+  }
+
+  Future<void> _confirmAndClear() async {
+    if (_records.isEmpty) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.backgroundCard,
+        title: Text('Clear history?', style: AppTextStyles.headlineSmall),
+        content: Text(
+          'This hides your recharge history from this screen. Your transaction '
+              'records stay safe on our servers and aren\'t deleted.',
+          style: AppTextStyles.bodyMedium.copyWith(color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text('Cancel', style: AppTextStyles.bodyMedium.copyWith(color: AppColors.textSecondary)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text('Clear', style: AppTextStyles.bodyMedium.copyWith(color: AppColors.error)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await _repo.hideFromHistory(_records.map((r) => r.id));
+    if (!mounted) return;
+    setState(() => _records = []);
   }
 
   @override
@@ -136,68 +245,28 @@ class _RechargeHistoryScreenState extends State<RechargeHistoryScreen> {
         backgroundColor: AppColors.backgroundPrimary,
         elevation: 0,
         title: Text('Recharge History', style: AppTextStyles.headlineMedium),
-      ),
-      body: Column(
-        children: [
-          _buildFilterChips(),
-          const SizedBox(height: 8),
-          Expanded(
-            child: _filtered.isEmpty
-                ? _buildEmptyState()
-                : ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
-                    itemCount: _filtered.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 10),
-                    itemBuilder: (context, index) {
-                      final r = _filtered[index];
-                      return _RechargeHistoryTile(
-                        record: r,
-                        onTap: () => _showDetail(context, r),
-                      );
-                    },
-                  ),
-          ),
+        actions: [
+          if (_records.isNotEmpty)
+            IconButton(
+              icon: const Icon(Icons.delete_outline_rounded),
+              tooltip: 'Clear history',
+              onPressed: _confirmAndClear,
+            ),
         ],
       ),
-    );
-  }
-
-  Widget _buildFilterChips() {
-    final options = <String, RechargeStatus?>{
-      'All': null,
-      'Success': RechargeStatus.success,
-      'Failed': RechargeStatus.failed,
-      'Pending': RechargeStatus.pending,
-    };
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Row(
-        children: options.entries.map((e) {
-          final selected = _filter == e.value;
-          return Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: ChoiceChip(
-              label: Text(e.key),
-              selected: selected,
-              onSelected: (_) => setState(() => _filter = e.value),
-              selectedColor: AppColors.primary.withOpacity(0.18),
-              backgroundColor: AppColors.backgroundCard,
-              labelStyle: AppTextStyles.labelSmall.copyWith(
-                color: selected ? AppColors.primary : AppColors.textSecondary,
-                fontWeight: FontWeight.w600,
-              ),
-              side: BorderSide(
-                color: selected
-                    ? AppColors.primary
-                    : AppColors.textSecondary.withOpacity(0.15),
-              ),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-              ),
-            ),
+      body: _records.isEmpty
+          ? _buildEmptyState()
+          : ListView.separated(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        itemCount: _records.length,
+        separatorBuilder: (_, __) => const SizedBox(height: 10),
+        itemBuilder: (context, index) {
+          final r = _records[index];
+          return _RechargeHistoryTile(
+            record: r,
+            onTap: () => _showDetail(context, r),
           );
-        }).toList(),
+        },
       ),
     );
   }
@@ -244,19 +313,11 @@ class _RechargeHistoryTile extends StatelessWidget {
         decoration: BoxDecoration(
           color: AppColors.backgroundCard,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppColors.textSecondary.withOpacity(0.1)),
+          border: Border.all(color: AppColors.textSecondary.withValues(alpha: 0.1)),
         ),
         child: Row(
           children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: AppColors.backgroundPrimary,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(Icons.phone_android, color: AppColors.primary, size: 20),
-            ),
+            ContactAvatar(mobileNumber: record.mobileNumber, radius: 20),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -319,7 +380,7 @@ class RechargeDetailSheet extends StatelessWidget {
               width: 40,
               height: 4,
               decoration: BoxDecoration(
-                color: AppColors.textSecondary.withOpacity(0.2),
+                color: AppColors.textSecondary.withValues(alpha: 0.2),
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -349,7 +410,7 @@ class RechargeDetailSheet extends StatelessWidget {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 decoration: BoxDecoration(
-                  color: AppColors.primary.withOpacity(0.1),
+                  color: AppColors.primary.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Row(

@@ -95,11 +95,25 @@ class MobileEntryScreen extends StatelessWidget {
               label: AppStrings.sendOtp,
               isLoading: vm.isLoading,
               onPressed: vm.isMobileValid
-                  ? () async {
-                final ok = await vm.sendOtp();
-                if (ok && context.mounted) {
-                  context.push('/auth/otp', extra: vm.mobile);
-                }
+                  ? () {
+                // Try MPIN-first login (backend /v1/auth/mpin/verify) --
+                // this was already fully built (AuthRepository.loginWithMpin,
+                // LoginMpinScreen, the /auth/login-mpin route) but never
+                // actually reached from here before now: this button always
+                // sent an OTP unconditionally, so an existing user with a
+                // valid MPIN was forced through OTP every single time --
+                // including right after a reinstall, where there's no local
+                // MPIN hash left to check against, so MpinEntryScreen's
+                // local-only verifyMpin() had nothing to compare against and
+                // always failed.
+                //
+                // LoginMpinScreen itself decides what happens next: on a
+                // correct MPIN it logs the user in directly (no OTP at all);
+                // on MPIN_LOCKED / MPIN_NOT_SET / USER_NOT_FOUND /
+                // DEVICE_NOT_TRUSTED (see MpinLoginResult.shouldFallBackToOtp)
+                // it falls back to sending an OTP itself and pushes
+                // /auth/otp from there.
+                context.push('/auth/login-mpin', extra: vm.mobile);
               }
                   : null,
             ),
