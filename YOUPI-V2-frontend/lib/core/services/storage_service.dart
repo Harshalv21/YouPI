@@ -22,6 +22,18 @@ class StorageService {
   // NEW -- gold coin local-persisted stand-in (see doc comments below).
   static const _keyGoldCoinCount = 'gold_coin_count';
   static const _keyGoldCoinValue = 'gold_coin_value';
+  // NEW -- async coin-animation follow-up. Set when a recharge's PAYMENT
+  // succeeded but fulfillment didn't confirm within emi_selection_screen's
+  // synchronous polling window (see recharge_viewmodel.dart's
+  // _stillProcessing), so the user was sent to Home without ever seeing
+  // the reward animation. home_screen.dart checks this on load/resume and
+  // re-checks the order's status; if it has since resolved to
+  // RECHARGE_SUCCESS, the animation plays right there, asynchronously,
+  // however long after the fact that turns out to be. Cleared once
+  // resolved (success -> animation shown, or failed -> silently dropped)
+  // so it's only ever checked/shown once per order.
+  static const _keyPendingCoinAnimationOrderId = 'pending_coin_anim_order_id';
+  static const _keyPendingCoinAnimationAmount = 'pending_coin_anim_amount';
   // Recharge history entries the user has "cleared" from view -- this
   // hides them on-device only. Nothing is deleted server-side: as a
   // fintech app, recharge orders are financial transaction records that
@@ -145,6 +157,26 @@ class StorageService {
   // shared/reused for a different account.
   static Future<void> saveLastMobile(String mobile) async =>
       await _storage.write(key: _keyLastMobile, value: mobile);
+
+  // ── Async coin-animation follow-up ──
+  static Future<void> setPendingCoinAnimation(String orderId, double amount) async {
+    await _storage.write(key: _keyPendingCoinAnimationOrderId, value: orderId);
+    await _storage.write(key: _keyPendingCoinAnimationAmount, value: amount.toString());
+  }
+
+  static Future<({String orderId, double amount})?> getPendingCoinAnimation() async {
+    final orderId = await _storage.read(key: _keyPendingCoinAnimationOrderId);
+    final amountStr = await _storage.read(key: _keyPendingCoinAnimationAmount);
+    if (orderId == null || amountStr == null) return null;
+    final amount = double.tryParse(amountStr);
+    if (amount == null) return null;
+    return (orderId: orderId, amount: amount);
+  }
+
+  static Future<void> clearPendingCoinAnimation() async {
+    await _storage.delete(key: _keyPendingCoinAnimationOrderId);
+    await _storage.delete(key: _keyPendingCoinAnimationAmount);
+  }
 
   static Future<String?> getLastMobile() async =>
       await _storage.read(key: _keyLastMobile);

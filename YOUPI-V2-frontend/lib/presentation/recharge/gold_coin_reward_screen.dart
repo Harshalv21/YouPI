@@ -216,7 +216,7 @@ class _GoldCoinRewardOverlayState extends State<_GoldCoinRewardOverlay>
 
   List<_DustMote> _buildDust() {
     final rand = math.Random(7);
-    return List.generate(46, (i) {
+    return List.generate(90, (i) {
       final spawn = rand.nextDouble() * _t3; // emitted throughout stages 1-3, faded via envelope
       return _DustMote(
         spawnMs: spawn,
@@ -246,14 +246,14 @@ class _GoldCoinRewardOverlayState extends State<_GoldCoinRewardOverlay>
         angleRad: angleDeg * math.pi / 180,
         size: 1.0 + rand.nextDouble() * 0.8,
       ));
-      t += 150 + rand.nextDouble() * 70;
+      t += 80 + rand.nextDouble() * 40;
     }
     return events;
   }
 
   List<_Diamond> _buildDiamonds() {
     final rand = math.Random(19);
-    return List.generate(7, (i) {
+    return List.generate(14, (i) {
       final angle = rand.nextDouble() * 2 * math.pi;
       final dist = 8 + rand.nextDouble() * 16;
       return _Diamond(
@@ -456,7 +456,7 @@ class _CoinFxPainter extends CustomPainter {
     final glowCenter = Offset(centerX, baseY + glowH * 0.32);
     final glowPaint = Paint()
       ..shader = RadialGradient(colors: [
-        AppColors.secondary.withOpacity(0.26 * intensity),
+        AppColors.secondary.withOpacity(0.4 * intensity),
         AppColors.secondary.withOpacity(0),
       ]).createShader(Rect.fromCircle(center: glowCenter, radius: glowH * 0.72));
     canvas.drawCircle(glowCenter, glowH * 0.72, glowPaint);
@@ -469,7 +469,7 @@ class _CoinFxPainter extends CustomPainter {
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
         colors: [
-          Colors.white.withOpacity(0.5 * intensity * pulse),
+          Colors.white.withOpacity(0.75 * intensity * pulse),
           Colors.white.withOpacity(0),
         ],
       ).createShader(coreRect);
@@ -486,7 +486,7 @@ class _CoinFxPainter extends CustomPainter {
             baseOffset * (1 - frac * 0.3) +
             math.sin(yy * 0.09 + phase + t * 0.006) * (5.5 * (1 - frac * 0.4));
         final yPos = baseY + 6 + yy;
-        final a = (1 - frac) * 0.4 * intensity;
+        final a = (1 - frac) * 0.6 * intensity;
         if (a < 0.02) continue;
         final r = (1 - frac) * 1.8 * intensity + 0.3;
         canvas.drawCircle(Offset(x, yPos), r, Paint()..color = color.withOpacity(a));
@@ -503,7 +503,7 @@ class _CoinFxPainter extends CustomPainter {
       final coinYAtSpawn = posYAt(d.spawnMs);
       final x = centerX + d.side * (18 + d.xJitter) + d.drift * localT * 14;
       final y = coinYAtSpawn + d.baseYOffset - d.rise * localT;
-      final alpha = (1 - localT) * envelope * 0.75;
+      final alpha = (1 - localT) * envelope * 0.95;
       if (alpha <= 0.02) continue;
       final color = d.warm ? const Color(0xFFFFD778) : const Color(0xFFFFF6DE);
       canvas.drawCircle(Offset(x, y), d.size, Paint()..color = color.withOpacity(alpha));

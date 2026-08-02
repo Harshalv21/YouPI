@@ -47,14 +47,14 @@ interface GoldWalletRepository : CoroutineCrudRepository<GoldWalletEntity, UUID>
     @Query(
         """
         INSERT INTO gold_wallet (user_id, coin_count, balance_rupees, updated_at)
-        VALUES (:userId, 1, :rewardValueRupees, now())
+        VALUES (:userId, :coinsToCredit, :rewardValueRupees, now())
         ON CONFLICT (user_id) DO UPDATE
-        SET coin_count = gold_wallet.coin_count + 1,
+        SET coin_count = gold_wallet.coin_count + :coinsToCredit,
             balance_rupees = gold_wallet.balance_rupees + :rewardValueRupees,
             updated_at = now()
         """
     )
-    suspend fun creditCoin(userId: UUID, rewardValueRupees: BigDecimal)
+    suspend fun creditCoin(userId: UUID, coinsToCredit: Int, rewardValueRupees: BigDecimal)
 
     @Query(
         """

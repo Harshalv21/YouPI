@@ -61,4 +61,20 @@ class UserRepository {
       throw ApiService.toException(e);
     }
   }
+
+  /// Registers/refreshes this device's FCM token -- lets the backend push
+  /// a notification straight to this device when a recharge confirms
+  /// after the app has been closed (see PushNotificationService.kt).
+  /// Called on every app launch and whenever Firebase reports a token
+  /// refresh (see push_notification_service.dart).
+  Future<void> updateFcmToken(String token) async {
+    try {
+      await _dio.put('/v1/user/fcm-token', data: {'token': token});
+    } on DioException catch (e) {
+      // Non-fatal by design -- a failed token registration just means
+      // this device won't get the closed-app push this session; it
+      // shouldn't block app startup or surface an error to the user.
+      debugPrint('updateFcmToken failed (non-fatal): ${e.message}');
+    }
+  }
 }

@@ -278,7 +278,7 @@ class A1TopupClient(
                     A1TopupRechargeResult(success = false, transactionId = txnId, rawResponse = raw, needsStatusCheck = true)
                 }
             }
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             log.warn("A1Topup: response wasn't valid JSON for orderId={}, raw={}", orderId, raw)
             A1TopupRechargeResult(success = false, transactionId = null, rawResponse = raw, needsStatusCheck = true)
         }

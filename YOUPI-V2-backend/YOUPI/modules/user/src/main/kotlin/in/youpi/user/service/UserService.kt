@@ -46,6 +46,16 @@ class UserService(
         )
     }
 
+    // Called on every app launch (and on Firebase's token-refresh event)
+    // from the Flutter side -- keeps the row that PushNotificationService.kt
+    // reads always pointed at the current device. Deliberately its own
+    // narrow update, not folded into updateProfile()'s copy(), so a token
+    // refresh never has to send (or risk overwriting) name/email/DOB.
+    suspend fun updateFcmToken(userId: UUID, fcmToken: String) {
+        if (fcmToken.isBlank()) return
+        userRepo.updateFcmToken(userId, fcmToken)
+    }
+
     suspend fun updateProfile(userId: UUID, req: UpdateProfileRequest): UserProfileResponse {
         val user = userRepo.findById(userId)
             ?: throw NotFoundException("User", userId.toString())

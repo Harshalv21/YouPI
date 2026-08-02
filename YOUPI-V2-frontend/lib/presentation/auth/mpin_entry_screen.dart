@@ -38,10 +38,16 @@ class _MpinEntryScreenState extends State<MpinEntryScreen> {
 
   Future<void> _tryBiometric() async {
     final enabled = await StorageService.isBiometricEnabled();
-    if (!enabled) return;
+    if (!enabled) {
+      debugPrint('Biometric: skipped -- not enabled in settings (StorageService.isBiometricEnabled() == false)');
+      return;
+    }
     try {
       final canCheck = await _localAuth.canCheckBiometrics;
-      if (!canCheck) return;
+      if (!canCheck) {
+        debugPrint('Biometric: device reports canCheckBiometrics == false');
+        return;
+      }
       final ok = await _localAuth.authenticate(
         localizedReason: 'Unlock YOUPI',
         options: const AuthenticationOptions(
@@ -49,10 +55,20 @@ class _MpinEntryScreenState extends State<MpinEntryScreen> {
           stickyAuth: true,
         ),
       );
+      debugPrint('Biometric: authenticate() returned $ok');
       if (ok && mounted) {
         context.go('/dashboard/home');
       }
-    } catch (_) {
+    } catch (e) {
+      // BUG FIX: this was previously `catch (_) {}` -- completely silent,
+      // including the most likely real cause (missing native Android
+      // setup: MainActivity must extend FlutterFragmentActivity, and
+      // AndroidManifest.xml needs the USE_BIOMETRIC permission). If that
+      // native config is wrong, local_auth throws here on every attempt
+      // and this screen just quietly falls back to the MPIN pad forever,
+      // which is exactly what "fingerprint not working" looks like from
+      // the outside. Logging it is the only way to actually diagnose it.
+      debugPrint('Biometric: authenticate() threw -- $e');
       // Biometric failed/cancelled → user can still enter MPIN.
     }
   }

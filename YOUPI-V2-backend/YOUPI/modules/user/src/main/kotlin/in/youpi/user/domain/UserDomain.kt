@@ -12,6 +12,8 @@ data class UpdateProfileRequest(
     val dateOfBirth: LocalDate? = null
 )
 
+data class UpdateFcmTokenRequest(val token: String)
+
 data class AadhaarOtpRequest(val aadhaarNumber: String) {
     init {
         require(aadhaarNumber.matches(Regex("^\\d{12}$"))) { "Invalid Aadhaar number" }

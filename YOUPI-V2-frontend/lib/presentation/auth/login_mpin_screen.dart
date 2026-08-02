@@ -204,7 +204,7 @@ class _LoginMpinScreenState extends State<LoginMpinScreen> {
     setState(() => _isSendingOtp = false);
 
     if (ok) {
-      context.push('/auth/otp', extra: _mobile);
+      context.push('/auth/otp', extra: {'mobile': _mobile, 'isRecovery': true});
     } else {
       _showBlockingDialog(
         'Could not send OTP',

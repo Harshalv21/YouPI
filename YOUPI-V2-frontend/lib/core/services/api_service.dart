@@ -1,7 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'storage_service.dart';
-import 'package:flutter/foundation.dart';
 /// Central HTTP client for all YOUPI backend calls.
 ///
 /// Key feature: on a 401, it tries to silently refresh the access token using
@@ -29,8 +28,8 @@ class ApiService {
     debugPrint('🔵 BASE URL: $_baseUrl');
     _dio.options = BaseOptions(
       baseUrl: _baseUrl,
-      connectTimeout: const Duration(seconds: 30),
-      receiveTimeout: const Duration(seconds: 30),
+      connectTimeout: const Duration(seconds: 10),
+      receiveTimeout: const Duration(seconds: 12),
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',

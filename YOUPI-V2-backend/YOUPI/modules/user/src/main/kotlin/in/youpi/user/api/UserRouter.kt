@@ -39,6 +39,14 @@ class UserRouter(private val userService: UserService) {
                 tags = ["User"],
                 requestBody = SwaggerRequestBody(content = [Content(schema = Schema(implementation = UpdateProfileRequest::class))]),
                 responses = [SwaggerApiResponse(responseCode = "200", description = "Updated profile")])),
+        RouterOperation(path = "/v1/user/fcm-token", method = [RequestMethod.PUT],
+            operation = Operation(operationId = "updateFcmToken", summary = "Register/refresh device push token",
+                description = "Saves the device's current FCM token, used to push a notification when a recharge " +
+                        "confirms after the app has been closed. Call on every app launch and whenever Firebase " +
+                        "reports a token refresh.",
+                tags = ["User"],
+                requestBody = SwaggerRequestBody(content = [Content(schema = Schema(implementation = UpdateFcmTokenRequest::class))]),
+                responses = [SwaggerApiResponse(responseCode = "200", description = "Token saved")])),
         RouterOperation(path = "/v1/user/kyc/status", method = [RequestMethod.GET],
             operation = Operation(operationId = "getKycStatus", summary = "Get KYC status",
                 description = "Returns the current KYC verification status and step.",
@@ -73,6 +81,7 @@ class UserRouter(private val userService: UserService) {
         "/v1/user".nest {
             GET("/profile") { handleGetProfile(it) }
             PUT("/profile") { handleUpdateProfile(it) }
+            PUT("/fcm-token") { handleUpdateFcmToken(it) }
             GET("/kyc/status") { handleKycStatus(it) }
             POST("/kyc/aadhaar/otp") { handleAadhaarOtp(it) }
             POST("/kyc/aadhaar/verify") { handleAadhaarVerify(it) }
@@ -87,18 +96,26 @@ class UserRouter(private val userService: UserService) {
         return ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
             .bodyValueAndAwait(ApiResponse.ok(profile))
     }
-    
+
     private suspend fun handleUpdateProfile(request: ServerRequest): ServerResponse {
-    log.info("🟢 handleUpdateProfile CALLED")
-    val userId = request.currentUserId()
-    log.info("🟢 userId = $userId")
-    val body = request.awaitBody<UpdateProfileRequest>()
-    log.info("🟢 body received = $body")
-    val profile = userService.updateProfile(userId, body)
-    log.info("🟢 profile computed = $profile")
-    return ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
-        .bodyValueAndAwait(ApiResponse.ok(profile))
-}
+        log.info("🟢 handleUpdateProfile CALLED")
+        val userId = request.currentUserId()
+        log.info("🟢 userId = $userId")
+        val body = request.awaitBody<UpdateProfileRequest>()
+        log.info("🟢 body received = $body")
+        val profile = userService.updateProfile(userId, body)
+        log.info("🟢 profile computed = $profile")
+        return ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
+            .bodyValueAndAwait(ApiResponse.ok(profile))
+    }
+
+    private suspend fun handleUpdateFcmToken(request: ServerRequest): ServerResponse {
+        val userId = request.currentUserId()
+        val body = request.awaitBody<UpdateFcmTokenRequest>()
+        userService.updateFcmToken(userId, body.token)
+        return ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
+            .bodyValueAndAwait(ApiResponse.ok(mapOf("updated" to true)))
+    }
 
     private suspend fun handleKycStatus(request: ServerRequest): ServerResponse {
         val userId = request.currentUserId()

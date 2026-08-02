@@ -95,25 +95,39 @@ class MobileEntryScreen extends StatelessWidget {
               label: AppStrings.sendOtp,
               isLoading: vm.isLoading,
               onPressed: vm.isMobileValid
-                  ? () {
-                // Try MPIN-first login (backend /v1/auth/mpin/verify) --
-                // this was already fully built (AuthRepository.loginWithMpin,
-                // LoginMpinScreen, the /auth/login-mpin route) but never
-                // actually reached from here before now: this button always
-                // sent an OTP unconditionally, so an existing user with a
-                // valid MPIN was forced through OTP every single time --
-                // including right after a reinstall, where there's no local
-                // MPIN hash left to check against, so MpinEntryScreen's
-                // local-only verifyMpin() had nothing to compare against and
-                // always failed.
+                  ? () async {
+                // BUG FIX: this screen is reached ONLY via "New User?
+                // Register" (Welcome -> onboarding carousel -> here) --
+                // "Existing User? Login" on Welcome already goes straight
+                // to /auth/login-mpin and never touches this screen at
+                // all. A previous session's MPIN-first-login fix was
+                // wrongly applied here too, making this button push
+                // /auth/login-mpin -- which skips straight to an MPIN
+                // PAD (LoginMpinScreen sees a handed-in mobile and jumps
+                // to step 1) for ANY number typed here, including a
+                // genuinely brand-new user who has never set an MPIN.
+                // They'd have to type a meaningless 4-digit guess, get
+                // rejected (USER_NOT_FOUND/MPIN_NOT_SET), and only THEN
+                // fall back to OTP -- instead of the correct
+                // number -> OTP -> name/DOB/email -> set MPIN flow.
                 //
-                // LoginMpinScreen itself decides what happens next: on a
-                // correct MPIN it logs the user in directly (no OTP at all);
-                // on MPIN_LOCKED / MPIN_NOT_SET / USER_NOT_FOUND /
-                // DEVICE_NOT_TRUSTED (see MpinLoginResult.shouldFallBackToOtp)
-                // it falls back to sending an OTP itself and pushes
-                // /auth/otp from there.
-                context.push('/auth/login-mpin', extra: vm.mobile);
+                // OtpVerifyScreen already contains the correct new-vs-
+                // existing routing after verification (isNewUser ->
+                // /auth/profile-setup; existing/recovery -> mpin-setup
+                // with isReset: true) -- this screen just needs to
+                // actually send the OTP and get out of the way.
+                final ok = await vm.sendOtp();
+                if (!context.mounted) return;
+                if (ok) {
+                  context.push('/auth/otp', extra: {'mobile': vm.mobile, 'isRecovery': false});
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(vm.error ?? 'Could not send OTP. Please try again.'),
+                      backgroundColor: AppColors.error,
+                    ),
+                  );
+                }
               }
                   : null,
             ),

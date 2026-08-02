@@ -137,6 +137,7 @@ youpi:
     status-url: ${A1TOPUP_STATUS_URL:https://business.a1topup.com/recharge/status}
     username: ${A1TOPUP_USERNAME:}
     password: ${A1TOPUP_PASSWORD:}
+    callback-token: ${A1TOPUP_CALLBACK_TOKEN:}
 
   augmont:
     base-url: ${AUGMONT_BASE_URL:https://uat-api.augmont.com}

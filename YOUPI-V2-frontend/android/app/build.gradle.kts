@@ -1,3 +1,11 @@
+import java.util.Properties
+import java.io.FileInputStream
+
+val keystoreProperties = Properties()
+val keystorePropertiesFile = rootProject.file("key.properties")
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+}
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -33,10 +41,10 @@ android {
 
     signingConfigs {
         create("release") {
-            storeFile = file("my-upload-key.keystore")
-            storePassword = "Hind@100B$2026"
-            keyAlias = "my-key-alias" 
-            keyPassword = "Hind@100B$2026"
+            storeFile = keystoreProperties["storeFile"]?.let { file(it) }
+            storePassword = keystoreProperties["storePassword"] as String
+            keyAlias = keystoreProperties["keyAlias"] as String
+            keyPassword = keystoreProperties["keyPassword"] as String
         }
     }
 

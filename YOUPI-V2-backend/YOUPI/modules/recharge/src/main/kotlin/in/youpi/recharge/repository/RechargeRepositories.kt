@@ -95,11 +95,36 @@ interface RechargeOrderRepository : CoroutineCrudRepository<RechargeOrderEntity,
         SELECT * FROM recharge_orders 
         WHERE user_id = :userId 
           AND status = 'RECHARGE_SUCCESS' 
-          AND expiry_date >= CURRENT_DATE
+          AND expiry_date >= (NOW() AT TIME ZONE 'Asia/Kolkata')::date
         ORDER BY expiry_date DESC
         LIMIT 1
     """)
     suspend fun findActiveRecharge(userId: UUID): RechargeOrderEntity?
+
+    // Plural version for the home screen's horizontally-scrollable Active
+    // Recharge strip -- returns ALL of this user's currently-active
+    // (non-expired) recharges, not just the single most recent one.
+    // Ordered soonest-expiring first: the one about to expire is shown
+    // first and naturally drops off the front once expiry_date passes,
+    // giving FIFO behaviour for free from the WHERE clause alone (no
+    // separate "remove expired" job needed -- a recharge simply stops
+    // matching this query the day after it expires).
+    //
+    // Uses IST ((NOW() AT TIME ZONE 'Asia/Kolkata')::date), not bare
+    // CURRENT_DATE -- Cloud SQL's server timezone is UTC, so CURRENT_DATE
+    // rolls over ~5.5 hours after midnight IST. Without this, a plan that
+    // "expired today" per the user's own clock would keep showing as
+    // active until the UTC day actually finished, which is what was
+    // happening on the home screen.
+    @Query("""
+        SELECT * FROM recharge_orders 
+        WHERE user_id = :userId 
+          AND status = 'RECHARGE_SUCCESS' 
+          AND expiry_date >= (NOW() AT TIME ZONE 'Asia/Kolkata')::date
+        ORDER BY expiry_date ASC
+        LIMIT 10
+    """)
+    suspend fun findActiveRecharges(userId: UUID): List<RechargeOrderEntity>
 
     // Same reasoning — a1topup_raw_response is JSONB, needs explicit cast on write.
     @Query("""

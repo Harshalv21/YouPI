@@ -11,7 +11,16 @@ import 'auth_viewmodel.dart';
 
 class OtpVerifyScreen extends StatefulWidget {
   final String mobile;
-  const OtpVerifyScreen({super.key, required this.mobile});
+  // true  -> reached via LoginMpinScreen's recovery fallback (failed MPIN
+  //          attempts / unset MPIN / untrusted device). OTP is the only
+  //          proof of identity available here, so a fresh MPIN is forced.
+  // false -> reached via "New User? Register" (MobileEntryScreen). The
+  //          number turned out to already be registered -- most likely the
+  //          user tapped the wrong button on Welcome, or forgot they'd
+  //          already signed up. They haven't failed anything, so they get
+  //          a normal MPIN pad and can log in with their EXISTING MPIN.
+  final bool isRecovery;
+  const OtpVerifyScreen({super.key, required this.mobile, this.isRecovery = false});
 
   @override
   State<OtpVerifyScreen> createState() => _OtpVerifyScreenState();
@@ -105,15 +114,18 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
 
                   if (isNew || !profileDone) {
                     context.go('/auth/profile-setup');
-                  } else {
-                    // Reaching here as an *existing* user with a complete
-                    // profile only happens now via the MPIN-recovery path
-                    // (LoginMpinScreen falls back to OTP after 5 wrong
-                    // attempts, an unset MPIN, or an unrecognised mobile).
-                    // So instead of going straight to the dashboard, make
-                    // them set a new MPIN first -- that's the whole point
-                    // of this recovery step.
+                  } else if (widget.isRecovery) {
+                    // Genuine MPIN-recovery path -- OTP alone is the proof
+                    // of identity here (MPIN itself couldn't be trusted:
+                    // failed attempts, unset, or an untrusted device), so
+                    // force a fresh MPIN before letting them in.
                     context.go('/auth/mpin-setup', extra: {'isReset': true});
+                  } else {
+                    // Reached here via "New User? Register" but the number
+                    // is already registered -- they haven't failed
+                    // anything, so let them try their EXISTING MPIN first
+                    // instead of forcing a reset they don't need.
+                    context.go('/auth/login-mpin', extra: widget.mobile);
                   }
                 }
               },

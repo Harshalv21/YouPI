@@ -20,6 +20,11 @@ data class UserEntity(
     val isActive: Boolean = true,
     val isKycVerified: Boolean = false,
     val userType: String = "NORMAL",
+    // For push notifications (see PushNotificationService.kt) -- refreshed
+    // on every app launch from the Flutter side, so this is always the
+    // most recent device token for this user (single-device assumption,
+    // matches the rest of the auth/session model).
+    val fcmToken: String? = null,
     val createdAt: Instant = Instant.now(),
     val updatedAt: Instant = Instant.now()
 )
@@ -28,6 +33,9 @@ interface UserRepository : CoroutineCrudRepository<UserEntity, UUID> {
     suspend fun findByMobile(mobile: String): UserEntity?
     suspend fun findByFirebaseUid(firebaseUid: String): UserEntity?
     suspend fun existsByMobile(mobile: String): Boolean
+
+    @Query("UPDATE users SET fcm_token = :fcmToken, updated_at = now() WHERE id = :userId")
+    suspend fun updateFcmToken(userId: UUID, fcmToken: String)
 }
 
 // ── OTP Session Entity ──

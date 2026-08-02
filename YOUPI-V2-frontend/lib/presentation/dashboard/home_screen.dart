@@ -12,7 +12,10 @@ import '../../core/widgets/shimmer_loader.dart';
 import '../../core/widgets/youpi_card.dart';
 import '../../data/repositories/recharge_repository.dart';
 import '../../data/repositories/gold_repository.dart';
+import '../../core/services/storage_service.dart';
+import '../../core/services/coin_animation_signal.dart';
 import 'home_viewmodel.dart';
+import '../recharge/gold_coin_reward_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   // Set true only when navigated here right after a qualifying recharge
@@ -55,6 +58,13 @@ class _HomeScreenState extends State<HomeScreen> {
   // separate from the header badge pop-in, which stays permanently updated.
   bool _showEarnedToast = false;
   Timer? _toastTimer;
+  // Mutable so the async follow-up check (_checkPendingCoinAnimation) can
+  // populate these too -- widget.earnedCoins/earnedValue only exist when
+  // Home was reached via a fresh navigation right after a recharge; the
+  // async path resolves later, with Home already sitting there, so it has
+  // no route params to read from and needs its own place to put the numbers.
+  int? _toastCoins;
+  double? _toastValue;
 
   @override
   void initState() {
@@ -78,6 +88,8 @@ class _HomeScreenState extends State<HomeScreen> {
       // (earnedCoins/earnedValue are null if, e.g., a route was reached
       // with justEarnedCoin=true but no numbers were passed).
       if (widget.justEarnedCoin && widget.earnedCoins != null && widget.earnedValue != null) {
+        _toastCoins = widget.earnedCoins;
+        _toastValue = widget.earnedValue;
         // Small delay so the toast slides in just after the coin-fly
         // overlay (gold_coin_reward_screen.dart) finishes landing on the
         // header badge -- feels like a continuation, not two things
@@ -92,13 +104,83 @@ class _HomeScreenState extends State<HomeScreen> {
           });
         });
       }
+      _checkPendingCoinAnimation();
+      // Push notification arriving while Home is already open/foregrounded
+      // (see push_notification_service.dart) fires this signal instead of
+      // relying on initState, since navigating to an already-mounted route
+      // doesn't re-run it.
+      CoinAnimationSignal.tick.addListener(_checkPendingCoinAnimation);
     });
+  }
+
+  // Async follow-up for a recharge whose PAYMENT succeeded but fulfillment
+  // hadn't confirmed by the time emi_selection_screen.dart's synchronous
+  // polling window ran out (see recharge_viewmodel.dart's _stillProcessing
+  // and _pollOrderStatus). Rather than the animation being lost entirely,
+  // Home rechecks the order here -- however long after the original
+  // recharge attempt this turns out to be -- and plays the SAME reward
+  // animation + toast the moment it actually resolves to success.
+  //
+  // Bounded to 5 checks, 15s apart (75s of additional runway on top of the
+  // 50s already spent synchronously) WHILE this Home screen instance stays
+  // mounted. If it's still unresolved after that, the pending record is
+  // left in storage (not cleared) so the NEXT time Home loads -- even a
+  // fresh app open -- it tries again from scratch. Only a confirmed
+  // success or failure clears it for good.
+  Future<void> _checkPendingCoinAnimation() async {
+    final pending = await StorageService.getPendingCoinAnimation();
+    if (pending == null || !mounted) return;
+
+    const maxAttempts = 5;
+    const interval = Duration(seconds: 15);
+    for (var attempt = 0; attempt < maxAttempts; attempt++) {
+      if (!mounted) return;
+      try {
+        final status = await RechargeRepository().getOrderStatus(pending.orderId);
+        if (status.isSuccess) {
+          await StorageService.clearPendingCoinAnimation();
+          if (!mounted) return;
+          final earnedValue = pending.amount * 0.01;
+          final earnedCoins = (earnedValue / 0.10).round();
+          await showGoldCoinReward(
+            context,
+            pending.amount,
+            // Already on Home -- no route change needed, just show the
+            // same toast the normal (synchronous) path shows.
+            onNavigateHome: () {
+              if (!mounted) return;
+              context.read<HomeViewModel>().loadHome();
+              _toastCoins = earnedCoins;
+              _toastValue = earnedValue;
+              setState(() => _showEarnedToast = true);
+              _toastTimer?.cancel();
+              _toastTimer = Timer(const Duration(milliseconds: 3000), () {
+                if (!mounted) return;
+                setState(() => _showEarnedToast = false);
+              });
+            },
+          );
+          return;
+        }
+        if (status.isFailed) {
+          // Genuinely failed -- nothing to animate, stop checking this one.
+          await StorageService.clearPendingCoinAnimation();
+          return;
+        }
+      } catch (_) {
+        // Transient network hiccup -- just try again next tick.
+      }
+      await Future.delayed(interval);
+    }
+    // Still unresolved after 75s -- leave the pending record in place for
+    // the next Home load to pick up again.
   }
 
   @override
   void dispose() {
     _audioPlayer.dispose();
     _toastTimer?.cancel();
+    CoinAnimationSignal.tick.removeListener(_checkPendingCoinAnimation);
     super.dispose();
   }
 
@@ -376,7 +458,15 @@ class _HomeScreenState extends State<HomeScreen> {
             // recharge, then slides back out on its own. Sits in a
             // SafeArea of its own (not the one above) so it floats over
             // the header row instead of pushing it down.
-            if (widget.justEarnedCoin && widget.earnedCoins != null && widget.earnedValue != null)
+            //
+            // Reads _toastCoins/_toastValue (mutable state), not
+            // widget.earnedCoins/earnedValue directly -- this same toast
+            // needs to render for TWO different triggers: the normal
+            // sync path (fresh navigation right after a recharge, numbers
+            // come from route params) AND the async follow-up path
+            // (_checkPendingCoinAnimation, numbers computed later while
+            // this same Home instance is already sitting there).
+            if (_toastCoins != null && _toastValue != null)
               Positioned(
                 top: 0,
                 left: 0,
@@ -384,8 +474,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: SafeArea(
                   child: _GoldCoinEarnedToast(
                     visible: _showEarnedToast,
-                    coins: widget.earnedCoins!,
-                    value: widget.earnedValue!,
+                    coins: _toastCoins!,
+                    value: _toastValue!,
                   ),
                 ),
               ),

@@ -52,7 +52,21 @@ import '../presentation/settings/help_support_screen.dart';
 class AppRouter {
   static final _rootNavigatorKey = GlobalKey<NavigatorState>();
 
-  static GoRouter get router => GoRouter(
+  // BUG FIX: this used to be `static GoRouter get router => GoRouter(...)`
+  // -- a getter that constructed a BRAND NEW GoRouter (with fresh, reset
+  // navigation state) on every single access. Harmless while the only
+  // reference was main.dart's one-time `routerConfig: AppRouter.router`
+  // at app startup, but push_notification_service.dart now needs to
+  // navigate the SAME router instance that's actually mounted in the
+  // widget tree when a notification is tapped -- a second call to the
+  // old getter would have silently created an orphaned router that no
+  // navigation calls could ever visibly affect. Lazy-cached singleton
+  // fixes that while keeping the exact same external API (`AppRouter.router`
+  // still just works, from anywhere).
+  static GoRouter? _router;
+  static GoRouter get router => _router ??= _buildRouter();
+
+  static GoRouter _buildRouter() => GoRouter(
     navigatorKey: _rootNavigatorKey,
     initialLocation: '/splash',
     redirect: (context, state) async {
@@ -79,7 +93,23 @@ class AppRouter {
       GoRoute(path: '/onboarding/welcome', builder: (c, s) => const WelcomeScreen()),
       GoRoute(path: '/onboarding/carousel', builder: (c, s) => const OnboardingCarouselScreen()),
       GoRoute(path: '/auth/mobile', builder: (c, s) => const MobileEntryScreen()),
-      GoRoute(path: '/auth/otp', builder: (c, s) => OtpVerifyScreen(mobile: s.extra as String? ?? '')),
+      GoRoute(
+        path: '/auth/otp',
+        builder: (c, s) {
+          final extra = s.extra;
+          if (extra is Map) {
+            return OtpVerifyScreen(
+              mobile: extra['mobile'] as String? ?? '',
+              isRecovery: extra['isRecovery'] == true,
+            );
+          }
+          // Backward-compat fallback -- shouldn't happen anymore now that
+          // both callers (mobile_entry_screen.dart, login_mpin_screen.dart)
+          // pass the Map form above, but a bare String extra defaults to
+          // isRecovery: false rather than crashing.
+          return OtpVerifyScreen(mobile: extra as String? ?? '');
+        },
+      ),
       GoRoute(path: '/auth/mpin-entry', builder: (c, s) => const MpinEntryScreen()),
       GoRoute(
         path: '/auth/login-mpin',

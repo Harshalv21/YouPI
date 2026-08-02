@@ -13,6 +13,7 @@ import io.swagger.v3.oas.annotations.parameters.RequestBody as SwaggerRequestBod
 import io.swagger.v3.oas.annotations.responses.ApiResponse as SwaggerApiResponse
 import org.springdoc.core.annotations.RouterOperation
 import org.springdoc.core.annotations.RouterOperations
+import org.slf4j.LoggerFactory
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.http.MediaType
@@ -20,7 +21,25 @@ import org.springframework.web.bind.annotation.RequestMethod
 import org.springframework.web.reactive.function.server.*
 
 @Configuration
-class RechargeRouter(private val rechargeService: RechargeService) {
+class RechargeRouter(
+    private val rechargeService: RechargeService,
+    // Shared secret appended to the callback URL registered with A1Topup
+    // (e.g. .../a1topup-callback?token=<this value>). A1Topup's callback
+    // has NO other authentication (no JWT -- they hit it directly, not
+    // through the app -- and no HMAC signature like Razorpay's webhook
+    // provides). Without this check, anyone who knows/observes a live
+    // orderId (e.g. their own, from the app's own order-creation response)
+    // could forge a "Success" callback for it directly and skip real
+    // A1Topup fulfillment entirely -- see resolveA1TopupOutcome()'s
+    // `order.status != "PENDING_VERIFICATION"` guard, which only blocks
+    // RE-processing an already-finalized order, not a FIRST forged call.
+    // MUST be set in Cloud Run env (youpi.a1topup.callback-token) to a
+    // long random value, and that exact value included in the callback
+    // URL given to A1Topup when registering it on their dashboard.
+    @org.springframework.beans.factory.annotation.Value("\${youpi.a1topup.callback-token:}")
+    private val a1topupCallbackToken: String,
+) {
+    private val log = LoggerFactory.getLogger(javaClass)
 
     @Bean
     @RouterOperations(
@@ -75,7 +94,12 @@ class RechargeRouter(private val rechargeService: RechargeService) {
             operation = Operation(operationId = "getActiveRecharge", summary = "Get current active recharge",
                 description = "Returns the user's currently active (not-yet-expired) recharge for the home screen status card, or null if none.",
                 tags = ["Recharge"],
-                responses = [SwaggerApiResponse(responseCode = "200", description = "Active recharge, or null")]))
+                responses = [SwaggerApiResponse(responseCode = "200", description = "Active recharge, or null")])),
+        RouterOperation(path = "/v1/recharge/active/all", method = [RequestMethod.GET],
+            operation = Operation(operationId = "getActiveRecharges", summary = "Get all current active recharges",
+                description = "Returns ALL of the user's currently active (not-yet-expired) recharges, soonest-expiring first, for the home screen's horizontally-scrollable Active Recharge strip.",
+                tags = ["Recharge"],
+                responses = [SwaggerApiResponse(responseCode = "200", description = "List of active recharges (may be empty)")]))
     )
     fun rechargeRoutes() = coRouter {
         "/v1/recharge".nest {
@@ -86,6 +110,7 @@ class RechargeRouter(private val rechargeService: RechargeService) {
             GET("/order/{orderId}") { handleGetOrderStatus(it) }
             GET("/history") { handleHistory(it) }
             GET("/active") { handleGetActiveRecharge(it) }
+            GET("/active/all") { handleGetActiveRecharges(it) }
         }
         // A1Topup's callback -- hit directly BY A1TOPUP, not by our app, so
         // no JWT is sent. This path MUST be added to the security config's
@@ -107,6 +132,24 @@ class RechargeRouter(private val rechargeService: RechargeService) {
      * for the resolution logic this triggers.
      */
     private suspend fun handleA1TopupCallback(request: ServerRequest): ServerResponse {
+        // Fail closed: an unconfigured secret must never mean "accept
+        // anything" -- same fail-closed principle already used for the
+        // Razorpay HMAC secret in PaymentService.kt.
+        if (a1topupCallbackToken.isBlank()) {
+            log.error("A1Topup callback rejected: youpi.a1topup.callback-token is not configured")
+            return ServerResponse.status(org.springframework.http.HttpStatus.FORBIDDEN)
+                .bodyValueAndAwait("callback not configured")
+        }
+        val providedToken = request.queryParam("token").orElse("")
+        if (!java.security.MessageDigest.isEqual(
+                providedToken.toByteArray(), a1topupCallbackToken.toByteArray()
+            )
+        ) {
+            log.warn("A1Topup callback rejected: invalid or missing token (from {})", request.remoteAddress().orElse(null))
+            return ServerResponse.status(org.springframework.http.HttpStatus.FORBIDDEN)
+                .bodyValueAndAwait("invalid token")
+        }
+
         val orderId = request.queryParam("txid").orElse(null)
         val status = request.queryParam("status").orElse(null)
         val opid = request.queryParam("opid").orElse(null)
@@ -190,6 +233,13 @@ class RechargeRouter(private val rechargeService: RechargeService) {
     private suspend fun handleGetActiveRecharge(request: ServerRequest): ServerResponse {
         val userId = request.currentUserId()
         val active = rechargeService.getActiveRecharge(userId)
+        return ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
+            .bodyValueAndAwait(ApiResponse.ok(active))
+    }
+
+    private suspend fun handleGetActiveRecharges(request: ServerRequest): ServerResponse {
+        val userId = request.currentUserId()
+        val active = rechargeService.getActiveRecharges(userId)
         return ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
             .bodyValueAndAwait(ApiResponse.ok(active))
     }

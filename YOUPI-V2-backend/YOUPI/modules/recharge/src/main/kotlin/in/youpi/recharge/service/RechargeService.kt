@@ -3,6 +3,8 @@ package `in`.youpi.recharge.service
 import `in`.youpi.core.Result
 import `in`.youpi.core.razorpay.RazorpayClient
 import `in`.youpi.core.razorpay.RazorpayOrderCreationException
+import `in`.youpi.events.PushNotificationService
+import `in`.youpi.auth.repository.UserRepository
 import `in`.youpi.gold.GoldRewardService
 import `in`.youpi.invest.service.InvestService
 import `in`.youpi.recharge.a1topup.A1TopupClient
@@ -26,6 +28,7 @@ import java.math.BigDecimal
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
 import java.util.UUID
 
 @Service
@@ -44,6 +47,12 @@ class RechargeService(
     private val goldRewardService: GoldRewardService,            // ← recharge → coin-count reward (THIS VERSION's real gold-crediting path)
     private val razorpayClient: RazorpayClient,
     private val a1topupClient: A1TopupClient,
+    // Push notification for the "app was fully closed by the time
+    // fulfillment confirmed" case -- see PushNotificationService.kt's doc
+    // comment for the full picture of why this exists alongside the
+    // client-side sync/async polling.
+    private val pushNotificationService: PushNotificationService,
+    private val userRepository: UserRepository,
     @Value("\${mplan.api.key}") private val mplanApiKey: String,
     @Value("\${mplan.api.plans-url}") private val mplanPlansUrl: String,
     @Value("\${mplan.api.mobile-plans-url}") private val mplanMobilePlansUrl: String,
@@ -116,6 +125,14 @@ class RechargeService(
         // with a real cross-check against A1Topup's supported-denomination
         // list once they provide one (asked, pending as of this comment).
         private val MIN_DELIVERABLE_AMOUNT = BigDecimal("29")
+
+        // Cloud Run's JVM default timezone is UTC, not IST -- using bare
+        // LocalDate.now() anywhere in this file rolls over to "tomorrow"
+        // ~5.5 hours early from an Indian user's perspective. All expiry
+        // and days-remaining math below uses this explicit IST zone
+        // instead, so "today"/"expires today" matches what's actually
+        // today on the user's phone.
+        private val IST = ZoneId.of("Asia/Kolkata")
     }
 
     // ── Plan Fetching (Redis Cached) ──
@@ -132,36 +149,36 @@ class RechargeService(
     )
 
     private val circleCodeMap = mapOf(
-    "ANDHRAPRADESH" to 2,
-    "ASSAM" to 3,
-    "BIHARJHARKHAND" to 4,
-    "DELHINCR" to 5,
-    "GUJARAT" to 6,
-    "HIMACHALPRADESH" to 7,
-    "HARYANA" to 8,
-    "JAMMUKASHMIR" to 9,
-    "KERALA" to 10,
-    "KARNATAKA" to 11,
-    "KOLKATA" to 12,
-    "MAHARASHTRA" to 13,
-    "MADHYAPRADESHCHHATTISGARH" to 14,
-    "MUMBAI" to 15,
-    "NORTHEAST" to 16,
-    "ORISSA" to 17,
-    "PUNJAB" to 18,
-    "RAJASTHAN" to 19,
-    "TAMILNADU" to 20,
-    "UPEAST" to 21,
-    "UPWEST" to 22,
-    "WESTBENGAL" to 23,
-    "CHENNAI" to 25
-)
+        "ANDHRAPRADESH" to 2,
+        "ASSAM" to 3,
+        "BIHARJHARKHAND" to 4,
+        "DELHINCR" to 5,
+        "GUJARAT" to 6,
+        "HIMACHALPRADESH" to 7,
+        "HARYANA" to 8,
+        "JAMMUKASHMIR" to 9,
+        "KERALA" to 10,
+        "KARNATAKA" to 11,
+        "KOLKATA" to 12,
+        "MAHARASHTRA" to 13,
+        "MADHYAPRADESHCHHATTISGARH" to 14,
+        "MUMBAI" to 15,
+        "NORTHEAST" to 16,
+        "ORISSA" to 17,
+        "PUNJAB" to 18,
+        "RAJASTHAN" to 19,
+        "TAMILNADU" to 20,
+        "UPEAST" to 21,
+        "UPWEST" to 22,
+        "WESTBENGAL" to 23,
+        "CHENNAI" to 25
+    )
 
     // Normalizes "UP-East", "up_east", "  UP East " etc. into the map's
     // canonical "UP EAST" form so callers don't have to match punctuation
     // exactly.
     private fun normalizeKey(s: String): String =
-    s.trim().uppercase().replace(Regex("[\\s_-]+"), "")
+        s.trim().uppercase().replace(Regex("[\\s_-]+"), "")
 
     suspend fun fetchPlans(operator: String, circle: String): Result<List<PlanResponse>, RechargeException> {
         // TEMPORARY mock short-circuit -- see mockEnabled doc comment above.
@@ -361,16 +378,16 @@ class RechargeService(
                 .awaitSingle()
 
             val root = objectMapper.readTree(response)
-val records = root.path("records")
+            val records = root.path("records")
 
-if (root.path("status").asInt(0) != 1 || records.path("status").asInt(0) != 1) {
-    val errorMsg = records.path("msg").asText("Unknown mPlan operator-check error")
-    // full raw response bhi log karo -- fetchPlansFromApi() jaisa, taaki
-    // pata chale mPlan is number (especially BSNL) ke liye exactly kya bhej raha hai
-    log.error("mPlan operator-check failed for mobile={}: msg={}, fullResponse={}",
-        mobileNumber, errorMsg, response)
-    return Result.failure(OperatorDetectionException(errorMsg))
-}
+            if (root.path("status").asInt(0) != 1 || records.path("status").asInt(0) != 1) {
+                val errorMsg = records.path("msg").asText("Unknown mPlan operator-check error")
+                // full raw response bhi log karo -- fetchPlansFromApi() jaisa, taaki
+                // pata chale mPlan is number (especially BSNL) ke liye exactly kya bhej raha hai
+                log.error("mPlan operator-check failed for mobile={}: msg={}, fullResponse={}",
+                    mobileNumber, errorMsg, response)
+                return Result.failure(OperatorDetectionException(errorMsg))
+            }
 
             // Normalize through the SAME function used for plan fetching,
             // so "Jio"/"JIO"/"jio" and "UP East"/"UP EAST" all resolve
@@ -634,7 +651,7 @@ if (root.path("status").asInt(0) != 1 || records.path("status").asInt(0) != 1) {
         // only looks at RECHARGE_SUCCESS rows anyway, but leaving it null
         // elsewhere avoids a misleading date sitting on a failed order).
         if (updatedOrder.status == "RECHARGE_SUCCESS" && order.planValidityDays != null && order.planValidityDays > 0) {
-            val expiryDate = LocalDate.now().plusDays(order.planValidityDays.toLong())
+            val expiryDate = LocalDate.now(IST).plusDays(order.planValidityDays.toLong())
             rechargeRepo.setExpiryDate(updatedOrder.id!!, expiryDate)
             log.info("Recharge expiry set: orderId={}, expiryDate={}", updatedOrder.id, expiryDate)
         }
@@ -665,9 +682,50 @@ if (root.path("status").asInt(0) != 1 || records.path("status").asInt(0) != 1) {
                 log.warn("Gold coin reward crediting failed (non-fatal): orderId={}, reason={}",
                     updatedOrder.id, e.message)
             }
+
+            // Push notification -- covers the case where the app was fully
+            // closed by the time this webhook landed, so neither of the
+            // client-side polling mechanisms (emi_selection_screen.dart's
+            // sync poll, home_screen.dart's async follow-up) could ever
+            // fire. Non-fatal, same reasoning as the gold-credit try/catch
+            // above -- a push failure must never affect the recharge
+            // itself, which has already fully succeeded by this point.
+            try {
+                sendRechargeSuccessPushIfEligible(order.userId, updatedOrder.id.toString(), updatedOrder.planAmount)
+            } catch (e: Exception) {
+                log.warn("Push notification dispatch failed (non-fatal): orderId={}, reason={}",
+                    updatedOrder.id, e.message)
+            }
         }
 
         return true
+    }
+
+    // MUST stay in sync with GoldRewardService.kt's MIN_RECHARGE_FOR_REWARD /
+    // REWARD_PERCENTAGE / COIN_VALUE_RUPEES -- duplicated here (rather than
+    // having creditRewardForRecharge() return the computed values) because
+    // changing that function's signature would ripple into its other
+    // callers/tests. Same duplication pattern already used on the Flutter
+    // side (emi_selection_screen.dart's _valueForAmount/_coinsForAmount).
+    private suspend fun sendRechargeSuccessPushIfEligible(userId: UUID, orderId: String, planAmount: BigDecimal) {
+        if (planAmount < GoldRewardService.MIN_RECHARGE_FOR_REWARD) return
+
+        val earnedValueRupees = planAmount
+            .multiply(GoldRewardService.REWARD_PERCENTAGE)
+            .setScale(2, java.math.RoundingMode.HALF_UP)
+        val earnedCoins = earnedValueRupees
+            .divide(GoldRewardService.COIN_VALUE_RUPEES, 0, java.math.RoundingMode.HALF_UP)
+            .toInt()
+            .coerceAtLeast(0)
+
+        val user = userRepository.findById(userId) ?: return
+        pushNotificationService.sendRechargeSuccessPush(
+            fcmToken = user.fcmToken,
+            orderId = orderId,
+            amountRupees = planAmount,
+            earnedCoins = earnedCoins,
+            earnedValueRupees = earnedValueRupees
+        )
     }
 
     // ── Status Check (client polls this after Razorpay checkout closes) ──
@@ -718,8 +776,29 @@ if (root.path("status").asInt(0) != 1 || records.path("status").asInt(0) != 1) {
             operator = order.operator,
             planAmount = order.planAmount,
             expiryDate = expiryDate,
-            daysRemaining = java.time.temporal.ChronoUnit.DAYS.between(LocalDate.now(), expiryDate).coerceAtLeast(0)
+            daysRemaining = java.time.temporal.ChronoUnit.DAYS.between(LocalDate.now(IST), expiryDate).coerceAtLeast(0)
         )
+    }
+
+    // Plural: powers the home screen's horizontally-scrollable Active
+    // Recharge strip when the user has more than one currently-active
+    // recharge (e.g. recharged 2+ numbers, or a data add-on stacked on top
+    // of a base plan on the same day). The repository query already does
+    // the FIFO filtering (expiry_date >= CURRENT_DATE), so a recharge that
+    // expired overnight simply isn't in this list the next time the home
+    // screen loads -- no separate cleanup/expiry job needed.
+    suspend fun getActiveRecharges(userId: UUID): List<ActiveRechargeResponse> {
+        return rechargeRepo.findActiveRecharges(userId).mapNotNull { order ->
+            val expiryDate = order.expiryDate ?: return@mapNotNull null
+            ActiveRechargeResponse(
+                orderId = order.id!!,
+                mobileNumber = order.mobileNumber,
+                operator = order.operator,
+                planAmount = order.planAmount,
+                expiryDate = expiryDate,
+                daysRemaining = java.time.temporal.ChronoUnit.DAYS.between(LocalDate.now(IST), expiryDate).coerceAtLeast(0)
+            )
+        }
     }
 
     // ── Get Order Status ──
@@ -898,7 +977,7 @@ if (root.path("status").asInt(0) != 1 || records.path("status").asInt(0) != 1) {
             log.info("Reconciliation: orderId={} resolved SUCCESS", orderId)
 
             if (order.planValidityDays != null && order.planValidityDays > 0) {
-                val expiryDate = LocalDate.now().plusDays(order.planValidityDays.toLong())
+                val expiryDate = LocalDate.now(IST).plusDays(order.planValidityDays.toLong())
                 rechargeRepo.setExpiryDate(order.id!!, expiryDate)
             }
 
@@ -912,6 +991,17 @@ if (root.path("status").asInt(0) != 1 || records.path("status").asInt(0) != 1) {
                 } catch (e: Exception) {
                     log.warn("Reconciliation: gold reward crediting failed (non-fatal): orderId={}", orderId, e)
                 }
+            }
+
+            // This reconciliation path specifically is the delayed-
+            // confirmation case (order sat in PENDING_VERIFICATION long
+            // enough that the poller had to step in) -- exactly the
+            // scenario where the user has most likely already closed the
+            // app by now. The push is what reaches them here.
+            try {
+                sendRechargeSuccessPushIfEligible(order.userId, order.id.toString(), order.planAmount)
+            } catch (e: Exception) {
+                log.warn("Reconciliation: push notification dispatch failed (non-fatal): orderId={}", orderId, e)
             }
         } else {
             // Same refund call/signature as handleWebhookCaptured()'s

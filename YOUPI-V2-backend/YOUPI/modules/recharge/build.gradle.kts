@@ -10,6 +10,9 @@ dependencies {
     api(project(":shared:events"))
     api(project(":modules:invest"))
     api(project(":modules:gold"))
+    // For UserRepository -- looking up the recharge recipient's fcm_token
+    // to send the push notification on RECHARGE_SUCCESS.
+    api(project(":modules:auth"))
     implementation(libs.spring.boot.starter.webflux)
     implementation(libs.spring.boot.starter.data.r2dbc)
     implementation(libs.spring.boot.starter.data.redis.reactive)

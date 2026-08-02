@@ -10,13 +10,19 @@ import 'presentation/recharge/recharge_viewmodel.dart';
 import 'presentation/invest/invest_viewmodel.dart';
 import 'package:youpi/presentation/settings/settings_viewmodel.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'core/services/push_notification_service.dart';
 
- Future<void> main() async {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await Firebase.initializeApp();
   ApiService.initialize();
   runApp(const YoupiApp());
+
+  // Fire-and-forget, after runApp -- the permission prompt + token fetch
+  // shouldn't delay the splash screen. See push_notification_service.dart
+  // for why this exists (closed-app recharge-success animation delivery).
+  PushNotificationService.init();
 }
 
 

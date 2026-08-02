@@ -24,6 +24,11 @@ class RechargeViewModel extends ChangeNotifier {
   String _searchQuery = '';
   List<String> _activeFilters = [];
   bool _rechargeSuccess = false;
+  // true when the PAYMENT itself succeeded but the recharge fulfillment
+  // (A1Topup) didn't confirm within the polling window -- distinct from a
+  // genuine failure (cancelled/rejected payment). The caller should show a
+  // "still processing" message and let the user continue, not an error.
+  bool _stillProcessing = false;
 
   // ---- Recharge history state (NEW) ----
   List<RechargeRecord> _recentRecharges = [];
@@ -61,6 +66,7 @@ class RechargeViewModel extends ChangeNotifier {
   String get circle => _circle;
   OperatorDetectionState get detectionState => _detectionState;
   bool get rechargeSuccess => _rechargeSuccess;
+  bool get stillProcessing => _stillProcessing;
 
   // ---- Recharge history getters (NEW) ----
   List<RechargeRecord> get recentRecharges => _recentRecharges;
@@ -345,6 +351,7 @@ class RechargeViewModel extends ChangeNotifier {
 
     _isLoading = true;
     _error = null;
+    _stillProcessing = false;
     notifyListeners();
 
     try {
@@ -398,9 +405,14 @@ class RechargeViewModel extends ChangeNotifier {
       final confirmed = await _pollOrderStatus(order.orderId);
       _rechargeSuccess = confirmed;
       if (!confirmed) {
+        _stillProcessing = true;
         _error =
         'Payment received but confirmation is taking longer than usual. '
             'Check My Recharges in a few minutes for the final status.';
+        // Hand off to Home's async follow-up check instead of just
+        // dropping this order on the floor -- see storage_service.dart's
+        // doc comment on setPendingCoinAnimation for the full mechanism.
+        await StorageService.setPendingCoinAnimation(order.orderId, _selectedPlan!.price);
       }
       // Refresh recent recharges so the new one shows up next time the
       // user opens this screen / the strip re-renders.
@@ -418,7 +430,14 @@ class RechargeViewModel extends ChangeNotifier {
   }
 
   Future<bool> _pollOrderStatus(String orderId) async {
-    const maxAttempts = 10;
+    // Was 10 attempts x 2s = 20s total -- too short. A1Topup fulfillment can
+    // genuinely take longer than that (we've seen real orders sit in
+    // PENDING for well over a minute), and when it does, payAndConfirm()
+    // returned false even though the PAYMENT itself succeeded -- which
+    // skipped the gold coin animation entirely and showed an error snackbar
+    // instead, even though nothing had actually failed. 25 x 2s = 50s gives
+    // real fulfillment much more room to land within this synchronous wait.
+    const maxAttempts = 25;
     const interval = Duration(seconds: 2);
     for (var attempt = 0; attempt < maxAttempts; attempt++) {
       await Future.delayed(interval);

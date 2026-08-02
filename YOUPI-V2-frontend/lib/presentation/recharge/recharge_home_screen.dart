@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
@@ -180,22 +181,36 @@ class _RechargeHomeScreenState extends State<RechargeHomeScreen> {
                               ContactAvatar(mobileNumber: r.mobileNumber, radius: 18),
                               const SizedBox(width: 10),
                               Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Text(
-                                      r.mobileNumber,
-                                      style: AppTextStyles.labelSmall,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      '₹${r.amount.toStringAsFixed(0)}',
-                                      style: AppTextStyles.labelLarge.copyWith(color: AppColors.primary),
-                                    ),
-                                  ],
+                                child: FutureBuilder<Contact?>(
+                                  future: ContactLookup.matchNumber(r.mobileNumber),
+                                  builder: (context, snapshot) {
+                                    final name = snapshot.data?.displayName;
+                                    final hasName = name != null && name.trim().isNotEmpty;
+                                    return Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(
+                                          hasName ? name : r.mobileNumber,
+                                          style: AppTextStyles.labelSmall,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        if (hasName)
+                                          Text(
+                                            r.mobileNumber,
+                                            style: AppTextStyles.captionText.copyWith(color: AppColors.textSecondary),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          '₹${r.amount.toStringAsFixed(0)}',
+                                          style: AppTextStyles.labelLarge.copyWith(color: AppColors.primary),
+                                        ),
+                                      ],
+                                    );
+                                  },
                                 ),
                               ),
                             ],

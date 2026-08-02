@@ -146,6 +146,20 @@ class EmiSelectionScreen extends StatelessWidget {
                     } else {
                       ctx.go('/plans/success');
                     }
+                  } else if (vm.stillProcessing) {
+                    // Payment genuinely succeeded -- fulfillment just
+                    // hasn't confirmed within the polling window yet.
+                    // Not an error: send them to Home (Active Recharge /
+                    // History will pick up the final status once it
+                    // resolves) instead of a scary red snackbar for
+                    // something that didn't actually fail.
+                    ctx.go('/dashboard/home');
+                    ScaffoldMessenger.of(ctx).showSnackBar(
+                      SnackBar(
+                        content: Text(vm.error ?? 'Payment received — confirming your recharge.'),
+                        backgroundColor: AppColors.backgroundCard,
+                      ),
+                    );
                   } else if (vm.error != null) {
                     ScaffoldMessenger.of(ctx).showSnackBar(
                       SnackBar(content: Text(vm.error!)),

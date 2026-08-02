@@ -22,6 +22,17 @@ class GoldRewardService(
         // log line, and the actual DB credit will disagree with each other.
         val MIN_RECHARGE_FOR_REWARD: BigDecimal = BigDecimal("20")
         val REWARD_PERCENTAGE: BigDecimal = BigDecimal("0.01")
+
+        // 1 YouPI Gold Coin = ₹0.10. Coins credited per recharge = reward
+        // value in rupees (1% of recharge) divided by this, rounded to the
+        // nearest whole coin -- e.g. a ₹350 recharge earns ₹3.50 (1%),
+        // which is 3.50 / 0.10 = 35 coins. The coin count is just a display
+        // denomination of the SAME rupee value already being credited to
+        // balance_rupees below, not a second/different reward -- a user's
+        // actual worth is still exactly 1% of what they recharged, only
+        // now expressed as a coin count instead of always "+1 coin" per
+        // recharge regardless of amount.
+        val COIN_VALUE_RUPEES: BigDecimal = BigDecimal("0.10")
     }
 
     /**
@@ -40,12 +51,20 @@ class GoldRewardService(
             .multiply(REWARD_PERCENTAGE)
             .setScale(2, RoundingMode.HALF_UP)
 
+        // Coins are a denomination of rewardValueRupees (see COIN_VALUE_RUPEES
+        // doc comment above), not a separate amount -- balance_rupees below
+        // still gets the exact 1% rupee value either way.
+        val coinsToCredit = rewardValueRupees
+            .divide(COIN_VALUE_RUPEES, 0, RoundingMode.HALF_UP)
+            .toInt()
+            .coerceAtLeast(0)
+
         val insertedId = goldRewardLedgerRepository.insertIfNotExists(
             userId, rechargeTxnId, rechargeAmount, rewardValueRupees
         )
 
         if (insertedId == null) return // webhook retry, already credited — skip
 
-        goldWalletRepository.creditCoin(userId, rewardValueRupees)
+        goldWalletRepository.creditCoin(userId, coinsToCredit, rewardValueRupees)
     }
 }

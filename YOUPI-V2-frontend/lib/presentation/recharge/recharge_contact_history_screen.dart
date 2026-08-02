@@ -52,6 +52,16 @@ class _RechargeContactHistoryScreenState extends State<RechargeContactHistoryScr
   String _searchQuery = '';
   String _activeTab = '';
   String? _payError;
+  // BUG FIX: previously the catch block below just flipped _loadingPlans
+  // to false and swallowed the exception entirely -- a failed plans load
+  // (rate limit, timeout, mPlan's "not authorize" issue, anything) looked
+  // IDENTICAL to a genuine "this operator has no plans" empty state, with
+  // no way to tell which one happened and no way to retry without leaving
+  // the screen. This is very likely what's behind the "load plans for a
+  // second contact and nothing shows" report -- the second call may be
+  // failing (e.g. a backend/HLR rate limit on rapid repeat lookups) and
+  // we were never showing that failure.
+  String? _plansError;
 
   // Real categories from mPlan (via backend's PlanResponse.category, which
   // Flutter's RechargePlanModel already carries in `.tier`) -- e.g.
@@ -120,7 +130,80 @@ class _RechargeContactHistoryScreenState extends State<RechargeContactHistoryScr
     }
   }
 
+  // Auto-detected operator (mPlan HLR lookup) can be wrong for a recently
+  // number-ported (MNP) SIM -- the carrier's own HLR record updates almost
+  // instantly on a port, but third-party lookup providers like mPlan can
+  // lag behind by anywhere from minutes to days. This is a real, common
+  // scenario for Indian telecom (not a bug we can "fix" upstream), so --
+  // same as GPay/PhonePe/Paytm -- the user needs a manual override instead
+  // of being stuck with whatever mPlan says.
+  static const _operatorOptions = ['JIO', 'AIRTEL', 'VI', 'BSNL', 'MTNL'];
+
+  void _showOperatorPicker() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.backgroundCard,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+              child: Text('Select operator', style: AppTextStyles.headlineSmall),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+              child: Text(
+                'We detected $_operator automatically. If this number was recently ported, pick the correct one below.',
+                style: AppTextStyles.bodySmall.copyWith(color: AppColors.textSecondary),
+              ),
+            ),
+            ..._operatorOptions.map((op) => ListTile(
+              title: Text(op, style: AppTextStyles.bodyMedium),
+              trailing: op == _operator.toUpperCase()
+                  ? Icon(Icons.check_circle_rounded, color: AppColors.primary, size: 20)
+                  : null,
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                if (op != _operator.toUpperCase()) _changeOperator(op);
+              },
+            )),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _changeOperator(String newOperator) async {
+    setState(() {
+      _loadingPlans = true;
+      _plansError = null;
+    });
+    try {
+      final plans = await _repo.getPlans(operator: newOperator, circle: _circle);
+      if (!mounted) return;
+      setState(() {
+        _operator = newOperator;
+        _plans = plans;
+        _loadingPlans = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      debugPrint('Manual operator change failed for $newOperator/$_circle: $e');
+      setState(() {
+        _loadingPlans = false;
+        _plansError = 'Please check your connection and try again.';
+      });
+    }
+  }
+
   Future<void> _loadPlans() async {
+    setState(() => _plansError = null);
     try {
       final detection = await _repo.detectOperator(widget.mobileNumber);
       final plans = await _repo.getPlans(
@@ -142,7 +225,22 @@ class _RechargeContactHistoryScreenState extends State<RechargeContactHistoryScr
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _loadingPlans = false);
+      // The RAW error (rate limit / timeout / mPlan's "not authorize" / etc.)
+      // is logged here for OUR debugging only -- during dev, run this with
+      // `flutter run` (not a release build) and watch the console, or check
+      // `adb logcat` on a release build, to see the real reason.
+      //
+      // It must NEVER be shown to the user directly -- no real fintech app
+      // surfaces raw backend/vendor error strings (confusing, unprofessional,
+      // and can leak implementation details like vendor names/internal error
+      // codes). The UI always gets a short, generic, actionable message
+      // instead, same as PhonePe/GPay/Paytm do for any plan/catalog load
+      // failure.
+      debugPrint('Plans load failed for ${widget.mobileNumber}: $e');
+      setState(() {
+        _loadingPlans = false;
+        _plansError = 'Please check your connection and try again.';
+      });
     }
   }
 
@@ -342,6 +440,33 @@ class _RechargeContactHistoryScreenState extends State<RechargeContactHistoryScr
                     Expanded(
                       child: _loadingPlans
                           ? const Center(child: CircularProgressIndicator())
+                          : _plansError != null
+                          ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.wifi_off_rounded, color: AppColors.textSecondary, size: 32),
+                              const SizedBox(height: 10),
+                              Text('Couldn\'t load plans',
+                                  style: AppTextStyles.labelLarge, textAlign: TextAlign.center),
+                              const SizedBox(height: 4),
+                              Text(_plansError!,
+                                  style: AppTextStyles.bodySmall.copyWith(color: AppColors.textSecondary),
+                                  textAlign: TextAlign.center),
+                              const SizedBox(height: 12),
+                              TextButton(
+                                onPressed: () {
+                                  setState(() => _loadingPlans = true);
+                                  _loadPlans();
+                                },
+                                child: const Text('Retry'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
                           : _visiblePlans.isEmpty
                           ? Center(
                         child: Text('No plans found',
@@ -379,6 +504,15 @@ class _RechargeContactHistoryScreenState extends State<RechargeContactHistoryScr
                 const SizedBox(width: 8),
                 Text('· ${_operator.toUpperCase()} $_circle',
                     style: AppTextStyles.captionText.copyWith(color: AppColors.textSecondary)),
+                const SizedBox(width: 6),
+                GestureDetector(
+                  onTap: _showOperatorPicker,
+                  child: Text('Change',
+                      style: AppTextStyles.captionText.copyWith(
+                        color: AppColors.primary,
+                        decoration: TextDecoration.underline,
+                      )),
+                ),
               ],
             ],
           ),
