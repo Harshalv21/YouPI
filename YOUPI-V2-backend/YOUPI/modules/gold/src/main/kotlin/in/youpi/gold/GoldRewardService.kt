@@ -13,14 +13,14 @@ class GoldRewardService(
 ) {
 
     companion object {
-        // THIS VERSION: lowered to ₹20 for coin-count-only testing (no real
-        // gold/Augmont investment yet -- deferred to the next version once
-        // bank API integration lands). MUST STAY IN SYNC with:
+        // Reverted to ₹249 for real launch (was temporarily lowered to ₹20
+        // during testing for coin-count-only verification). MUST STAY IN
+        // SYNC with:
         //   - RechargeService.kt's GOLD_ELIGIBLE_PLAN_AMOUNT
-        //   - emi_selection_screen.dart's `if (plan.price >= 20)` check
+        //   - emi_selection_screen.dart's `if (plan.price >= 249)` check
         // If any of these three drift apart, the animation, the "eligible"
         // log line, and the actual DB credit will disagree with each other.
-        val MIN_RECHARGE_FOR_REWARD: BigDecimal = BigDecimal("20")
+        val MIN_RECHARGE_FOR_REWARD: BigDecimal = BigDecimal("249")
         val REWARD_PERCENTAGE: BigDecimal = BigDecimal("0.01")
 
         // 1 YouPI Gold Coin = ₹0.10. Coins credited per recharge = reward

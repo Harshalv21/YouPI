@@ -123,14 +123,13 @@ class EmiSelectionScreen extends StatelessWidget {
                   final ok = await vm.payAndConfirm();
                   if (!ctx.mounted) return;
                   if (ok) {
-                    // THIS VERSION: coin-count-only testing, no real gold/
-                    // Augmont investment (that's deferred to the next
-                    // version once bank API integration lands). Threshold
-                    // matches backend's GOLD_ELIGIBLE_PLAN_AMOUNT (>= ₹20,
-                    // see RechargeService.kt) -- keep both in sync, or the
+                    // Reverted to ₹249 for real launch (was temporarily
+                    // ₹20 during testing). Threshold matches backend's
+                    // GOLD_ELIGIBLE_PLAN_AMOUNT (>= ₹249, see
+                    // RechargeService.kt) -- keep both in sync, or the
                     // animation and the actual coin credit will disagree
                     // about which recharges qualify.
-                    if (plan.price >= 20) {
+                    if (plan.price >= 249) {
                       await showGoldCoinReward(
                         ctx,
                         plan.price,

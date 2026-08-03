@@ -283,6 +283,31 @@ class RechargeViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  // BUG FIX: setMobile() triggers _detectOperator() asynchronously
+  // (fire-and-forget, not awaited) -- fine for the normal browse-plans
+  // flow, where the user views/taps through at least one more screen
+  // before payAndConfirm() ever runs, giving the network round-trip
+  // plenty of time to finish. But recharge_contact_history_screen.dart's
+  // "Repeat recharge" button calls payAndConfirm() IMMEDIATELY after
+  // setMobile(), with no user-interaction delay in between -- the async
+  // detection almost never finishes in time, so payAndConfirm() was
+  // reading _operator/_circle while they were still at their stale
+  // default ('airtel' / 'UP East', see field declarations above) or
+  // left over from whatever number was detected last. This is exactly
+  // why a repeat-recharge on a JIO number could create an order tagged
+  // AIRTEL (wrong operator sent to the backend/A1Topup), and why some
+  // repeat-recharge attempts simply never completed. Callers who already
+  // have a correctly-detected operator/circle for this exact number
+  // (recharge_contact_history_screen.dart's own _operator/_circle,
+  // populated by its own _loadPlans()) should call this instead of
+  // relying on setMobile()'s internal race-prone re-detection.
+  void setOperatorAndCircle(String operator, String circle) {
+    _operator = operator.toLowerCase();
+    _circle = circle;
+    _detectionState = OperatorDetectionState.success;
+    notifyListeners();
+  }
+
   void selectEmi(EmiOption emi) {
     _selectedEmi = emi;
     notifyListeners();
@@ -298,10 +323,25 @@ class RechargeViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setMobile(String m) {
+  // BUG FIX: setMobile() used to ALWAYS kick off _detectOperator() in the
+  // background, with no way to opt out. A caller like _repeatRecharge()
+  // (recharge_contact_history_screen.dart) that already has the CORRECT,
+  // already-detected operator/circle for this exact number would call
+  // setMobile() then immediately setOperatorAndCircle() to correct it --
+  // but that only wins the RACE if the background detection is slower.
+  // If _detectOperator()'s network call resolved (or failed) AFTER
+  // setOperatorAndCircle() but WHILE payAndConfirm() was still running,
+  // it would silently overwrite the correct values with a fresh (and for
+  // some numbers, wrong/stale/failed) detection result -- explains a
+  // repeat-recharge on a JIO number creating an order tagged AIRTEL, and
+  // some repeat-recharge attempts hanging entirely (createOrder() sent a
+  // corrupted/failed-detection operator value). autoDetectOperator: false
+  // removes the race at its ROOT -- no background task is ever started,
+  // so nothing can race with the caller's own known-correct values.
+  void setMobile(String m, {bool autoDetectOperator = true}) {
     _mobile = m;
     // StorageService.saveLastRechargeMobile(m);
-    if (m.length == 10) {
+    if (autoDetectOperator && m.length == 10) {
       _detectOperator(m);
     } else {
       _detectionState = OperatorDetectionState.idle;
@@ -345,6 +385,17 @@ class RechargeViewModel extends ChangeNotifier {
 
     if (_mobile.trim().length != 10) {
       _error = 'Please enter a valid 10-digit mobile number.';
+      notifyListeners();
+      return false;
+    }
+
+    // Don't silently pay with a stale/wrong operator if detection never
+    // actually succeeded for this number (mPlan HLR lookup can fail for
+    // specific numbers) -- send them to the manual "Change operator"
+    // picker instead (recharge_contact_history_screen.dart) rather than
+    // risk the recharge going to the wrong network.
+    if (_detectionState == OperatorDetectionState.failed) {
+      _error = 'Could not confirm the operator for this number. Please pick it manually and try again.';
       notifyListeners();
       return false;
     }

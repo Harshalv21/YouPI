@@ -158,7 +158,9 @@ class _RechargeContactHistoryScreenState extends State<RechargeContactHistoryScr
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
               child: Text(
-                'We detected $_operator automatically. If this number was recently ported, pick the correct one below.',
+                _operator.isEmpty
+                    ? 'We couldn\'t auto-detect this number\'s operator. Pick it manually to see plans.'
+                    : 'We detected $_operator automatically. If this number was recently ported, pick the correct one below.',
                 style: AppTextStyles.bodySmall.copyWith(color: AppColors.textSecondary),
               ),
             ),
@@ -263,7 +265,14 @@ class _RechargeContactHistoryScreenState extends State<RechargeContactHistoryScr
       _payError = null;
     });
     final vm = context.read<RechargeViewModel>();
-    vm.setMobile(widget.mobileNumber);
+    // autoDetectOperator: false -- this screen already has the CORRECT,
+    // already-detected operator/circle for this exact number (used in the
+    // "Browse plans · OPERATOR CIRCLE" header above). Letting setMobile()
+    // ALSO kick off its own background re-detection was the actual bug --
+    // see setMobile()'s doc comment in recharge_viewmodel.dart for the
+    // full race-condition explanation.
+    vm.setMobile(widget.mobileNumber, autoDetectOperator: false);
+    vm.setOperatorAndCircle(_operator, _circle);
     vm.selectPlan(match.first);
     final success = await vm.payAndConfirm();
     if (!mounted) return;
@@ -277,7 +286,15 @@ class _RechargeContactHistoryScreenState extends State<RechargeContactHistoryScr
 
   void _selectPlan(RechargePlanModel plan) {
     final vm = context.read<RechargeViewModel>();
-    vm.setMobile(widget.mobileNumber);
+    // Same fix as _repeatRecharge() below -- this screen already has the
+    // CORRECT, already-detected operator/circle for this number (used in
+    // the "Browse plans · OPERATOR CIRCLE" header). Letting setMobile()
+    // ALSO kick off its own redundant background re-detection here was
+    // the same race-condition bug, just on the far more common path (this
+    // is the NORMAL "tap a plan to recharge" flow, not just Repeat) --
+    // see setMobile()'s doc comment in recharge_viewmodel.dart.
+    vm.setMobile(widget.mobileNumber, autoDetectOperator: false);
+    vm.setOperatorAndCircle(_operator, _circle);
     vm.selectPlan(plan);
     context.push('/plans/emi-select');
   }
@@ -462,6 +479,20 @@ class _RechargeContactHistoryScreenState extends State<RechargeContactHistoryScr
                                   _loadPlans();
                                 },
                                 child: const Text('Retry'),
+                              ),
+                              // BUG FIX: previously, if operator
+                              // auto-detection itself failed (some
+                              // numbers' HLR lookups fail/timeout at
+                              // mPlan), _operator stayed empty and the
+                              // "Change operator" link -- which only
+                              // showed inside `if (_operator.isNotEmpty)`
+                              // below -- never appeared. The user was
+                              // stuck retrying the same failing
+                              // detection with no way to just pick their
+                              // operator manually and move on.
+                              TextButton(
+                                onPressed: _showOperatorPicker,
+                                child: const Text('Select operator manually'),
                               ),
                             ],
                           ),

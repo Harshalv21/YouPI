@@ -95,15 +95,14 @@ class RechargeService(
         // handled via createdAt age check in reconcilePendingRecharges(),
         // no separate constant/column needed.
 
-        // THIS VERSION: lowered to ₹20 for coin-count-only testing (no real
-        // gold/Augmont investment yet -- that's deferred to the next version
-        // once bank API integration lands). Compared with compareTo (not ==)
-        // because BigDecimal("20") != BigDecimal("20.00") under equals(),
-        // but compareTo treats them as equal in value.
+        // Reverted to ₹249 for real launch (was temporarily lowered to ₹20
+        // during testing). Compared with compareTo (not ==) because
+        // BigDecimal("249") != BigDecimal("249.00") under equals(), but
+        // compareTo treats them as equal in value.
         // MUST STAY IN SYNC with the Flutter check in emi_selection_screen.dart
-        // (currently `if (plan.price >= 20)`) -- one drifting from the other
+        // (currently `if (plan.price >= 249)`) -- one drifting from the other
         // means the animation and the actual coin credit disagree.
-        private val GOLD_ELIGIBLE_PLAN_AMOUNT = BigDecimal("20")
+        private val GOLD_ELIGIBLE_PLAN_AMOUNT = BigDecimal("249")
 
         // TEMPORARY: A1Topup's recharge-delivery catalog doesn't support
         // mPlan's small data-addon denominations -- confirmed via live
@@ -216,23 +215,6 @@ class RechargeService(
             ?: return Result.failure(RechargeApiException("Unknown circle: $circle"))
 
         return try {
-            // TEMPORARY DIAGNOSTIC -- confirms what outbound IP this exact
-            // webClient bean actually uses, right before the mPlan call.
-            // Cross-checks against A1Topup (which IS known to egress via
-            // youpi-nat-ip successfully) to isolate whether this is a
-            // per-call routing issue or a genuine infra problem. Remove
-            // once the IP mismatch is root-caused.
-            try {
-                val myIp = webClient.get()
-                    .uri("https://api.ipify.org?format=text")
-                    .retrieve()
-                    .bodyToMono(String::class.java)
-                    .awaitSingle()
-                log.error("DIAGNOSTIC: outbound IP for this webClient bean = {}", myIp)
-            } catch (e: Exception) {
-                log.error("DIAGNOSTIC: ipify check failed", e)
-            }
-
             // IMPORTANT: build the URI via UriComponentsBuilder + .queryParam()
             // + .encode(), not a manually-concatenated string passed to
             // .uri(String). The latter does its own encoding pass over an
@@ -250,21 +232,7 @@ class RechargeService(
             // full absolute URI explicitly rather than relying on the
             // uri{builder->} form, which only works against a client-level
             // baseUrl.
-            // TEMPORARY DIAGNOSTIC -- verifies the EXACT api key this code
-            // sends matches the one manually tested via curl (which
-            // succeeds). Masked (not full value) to avoid putting the whole
-            // secret in logs, but length + first/last 4 chars is enough to
-            // catch a hidden extra character (stray quote/newline/space
-            // from Secret Manager) that .trim() wouldn't necessarily catch
-            // if it's not at the very start/end after trim, or if trim
-            // missed something unexpected. Remove once ruled out.
             val trimmedKey = mplanApiKey.trim()
-            log.error(
-                "DIAGNOSTIC: mplan api key length={}, first4={}, last4={}",
-                trimmedKey.length,
-                trimmedKey.take(4),
-                trimmedKey.takeLast(4)
-            )
 
             val uri = org.springframework.web.util.UriComponentsBuilder
                 .fromHttpUrl(mplanMobilePlansUrl)
@@ -274,8 +242,6 @@ class RechargeService(
                 .build()
                 .encode()
                 .toUri()
-
-            log.error("DIAGNOSTIC: exact outgoing URI = {}", uri)
 
             val response = webClient.get()
                 .uri(uri)
