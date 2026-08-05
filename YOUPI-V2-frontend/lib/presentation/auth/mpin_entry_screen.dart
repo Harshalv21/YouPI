@@ -134,117 +134,140 @@ class _MpinEntryScreenState extends State<MpinEntryScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.backgroundPrimary,
+      // BUG FIX: this screen used to be Padding(child: Column(...with a
+      // Spacer()...)) directly in SafeArea -- no scroll fallback at all.
+      // Spacer() demands the Column's remaining space add up to >= 0; on
+      // a short device, with a large system font-scale setting, or with
+      // the number pad's fixed 80x72 keys simply not fitting under the
+      // header + dots + "Forgot MPIN?" link, that assumption breaks and
+      // Flutter throws "RenderFlex overflowed by N pixels" at the bottom
+      // (the yellow/black striped error banner). LayoutBuilder +
+      // SingleChildScrollView + ConstrainedBox(minHeight) + IntrinsicHeight
+      // is the standard fix for a Spacer-based layout that should still
+      // center/spread its content when everything fits, but become
+      // scrollable instead of overflowing when it doesn't.
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(AppDimensions.paddingPage),
-          child: Column(
-            children: [
-              const SizedBox(height: 40),
-              // Lock icon
-              Container(
-                width: 64,
-                height: 64,
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withOpacity(0.1),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: AppColors.primary),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return SingleChildScrollView(
+              padding: const EdgeInsets.all(AppDimensions.paddingPage),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: constraints.maxHeight - (AppDimensions.paddingPage * 2),
                 ),
-                child: const Icon(Icons.lock_rounded,
-                    color: AppColors.primary, size: 30),
-              ),
-              const SizedBox(height: 20),
-              Text('Enter MPIN',
-                  style: AppTextStyles.displaySmall,
-                  textAlign: TextAlign.center),
-              const SizedBox(height: 8),
-              Text('Enter your 4-digit MPIN to continue',
-                  style: AppTextStyles.bodyMedium
-                      .copyWith(color: AppColors.textSecondary),
-                  textAlign: TextAlign.center),
-              const SizedBox(height: 40),
-              // Dots
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(
-                    4,
-                        (i) => Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 8),
-                      width: 16,
-                      height: 16,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: i < _mpin.length
-                            ? AppColors.primary
-                            : AppColors.divider,
-                        boxShadow: i < _mpin.length
-                            ? [
-                          BoxShadow(
-                              color: AppColors.primaryGlow,
-                              blurRadius: 8)
-                        ]
-                            : null,
-                      ),
-                    )),
-              ),
-              const SizedBox(height: 16),
-              if (_checking)
-                const CircularProgressIndicator(color: AppColors.primary),
-              const Spacer(),
-              // Number pad
-              for (final row in [
-                ['1', '2', '3'],
-                ['4', '5', '6'],
-                ['7', '8', '9'],
-                ['⌾', '0', '⌫']
-              ])
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: row.map((d) {
-                    return GestureDetector(
-                      onTap: () {
-                        if (d == '⌫') {
-                          _onDelete();
-                        } else if (d == '⌾') {
-                          _tryBiometric();
-                        } else {
-                          _onDigit(d);
-                        }
-                      },
-                      child: Container(
-                        width: 80,
-                        height: 72,
-                        margin: const EdgeInsets.all(6),
+                child: IntrinsicHeight(
+                  child: Column(
+                    children: [
+                      const SizedBox(height: 40),
+                      // Lock icon
+                      Container(
+                        width: 64,
+                        height: 64,
                         decoration: BoxDecoration(
-                          color: d == '⌾'
-                              ? Colors.transparent
-                              : AppColors.backgroundCard,
-                          borderRadius: BorderRadius.circular(12),
-                          border: d == '⌾'
-                              ? null
-                              : Border.all(color: AppColors.divider),
+                          color: AppColors.primary.withOpacity(0.1),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: AppColors.primary),
                         ),
-                        child: Center(
-                          child: d == '⌫'
-                              ? const Icon(Icons.backspace_rounded,
-                              color: AppColors.textSecondary, size: 20)
-                              : d == '⌾'
-                              ? const Icon(Icons.fingerprint_rounded,
-                              color: AppColors.primary, size: 26)
-                              : Text(d,
-                              style: AppTextStyles.headlineLarge),
-                        ),
+                        child: const Icon(Icons.lock_rounded,
+                            color: AppColors.primary, size: 30),
                       ),
-                    );
-                  }).toList(),
+                      const SizedBox(height: 20),
+                      Text('Enter MPIN',
+                          style: AppTextStyles.displaySmall,
+                          textAlign: TextAlign.center),
+                      const SizedBox(height: 8),
+                      Text('Enter your 4-digit MPIN to continue',
+                          style: AppTextStyles.bodyMedium
+                              .copyWith(color: AppColors.textSecondary),
+                          textAlign: TextAlign.center),
+                      const SizedBox(height: 40),
+                      // Dots
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: List.generate(
+                            4,
+                                (i) => Container(
+                              margin: const EdgeInsets.symmetric(horizontal: 8),
+                              width: 16,
+                              height: 16,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: i < _mpin.length
+                                    ? AppColors.primary
+                                    : AppColors.divider,
+                                boxShadow: i < _mpin.length
+                                    ? [
+                                  BoxShadow(
+                                      color: AppColors.primaryGlow,
+                                      blurRadius: 8)
+                                ]
+                                    : null,
+                              ),
+                            )),
+                      ),
+                      const SizedBox(height: 16),
+                      if (_checking)
+                        const CircularProgressIndicator(color: AppColors.primary),
+                      const Spacer(),
+                      // Number pad
+                      for (final row in [
+                        ['1', '2', '3'],
+                        ['4', '5', '6'],
+                        ['7', '8', '9'],
+                        ['⌾', '0', '⌫']
+                      ])
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: row.map((d) {
+                            return GestureDetector(
+                              onTap: () {
+                                if (d == '⌫') {
+                                  _onDelete();
+                                } else if (d == '⌾') {
+                                  _tryBiometric();
+                                } else {
+                                  _onDigit(d);
+                                }
+                              },
+                              child: Container(
+                                width: 80,
+                                height: 72,
+                                margin: const EdgeInsets.all(6),
+                                decoration: BoxDecoration(
+                                  color: d == '⌾'
+                                      ? Colors.transparent
+                                      : AppColors.backgroundCard,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: d == '⌾'
+                                      ? null
+                                      : Border.all(color: AppColors.divider),
+                                ),
+                                child: Center(
+                                  child: d == '⌫'
+                                      ? const Icon(Icons.backspace_rounded,
+                                      color: AppColors.textSecondary, size: 20)
+                                      : d == '⌾'
+                                      ? const Icon(Icons.fingerprint_rounded,
+                                      color: AppColors.primary, size: 26)
+                                      : Text(d,
+                                      style: AppTextStyles.headlineLarge),
+                                ),
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                      const SizedBox(height: 12),
+                      TextButton(
+                        onPressed: _forgotMpin,
+                        child: Text('Forgot MPIN?', style: AppTextStyles.tealLink),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+                  ),
                 ),
-              const SizedBox(height: 12),
-              TextButton(
-                onPressed: _forgotMpin,
-                child: Text('Forgot MPIN?', style: AppTextStyles.tealLink),
               ),
-              const SizedBox(height: 8),
-            ],
-          ),
+            );
+          },
         ),
       ),
     );

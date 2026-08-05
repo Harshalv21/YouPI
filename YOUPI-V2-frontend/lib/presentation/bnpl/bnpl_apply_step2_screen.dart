@@ -13,30 +13,41 @@ class BnplApplyStep2Screen extends StatelessWidget {
     return Scaffold(
       backgroundColor: AppColors.backgroundPrimary,
       appBar: AppBar(backgroundColor: AppColors.backgroundPrimary, title: const Text('Apply for BNPL')),
-      body: Padding(
-        padding: const EdgeInsets.all(AppDimensions.paddingPage),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            LinearProgressIndicator(value: 2 / 3,
-                backgroundColor: AppColors.divider, valueColor: const AlwaysStoppedAnimation(AppColors.primary)),
-            const SizedBox(height: 8),
-            Text('Step 2 of 3 • Personal Details', style: AppTextStyles.labelMedium),
-            const SizedBox(height: 24),
-            YoupiInput(label: 'City', hint: 'e.g. Lucknow'),
-            const SizedBox(height: 16),
-            YoupiInput(label: 'State', hint: 'e.g. Uttar Pradesh'),
-            const SizedBox(height: 16),
-            YoupiInput(label: 'Bank Account (Optional)', hint: 'XXXXXXXXXXXXXXXX'),
-            const Spacer(),
-            YoupiButton(
-              label: 'Next',
-              onPressed: () => context.push('/bnpl/apply/step3'),
+      // BUG FIX: same Column+Spacer overflow issue as mpin_entry_screen.dart
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          return SingleChildScrollView(
+            padding: const EdgeInsets.all(AppDimensions.paddingPage),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight: constraints.maxHeight - (AppDimensions.paddingPage * 2),
+              ),
+              child: IntrinsicHeight(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    LinearProgressIndicator(value: 2 / 3,
+                        backgroundColor: AppColors.divider, valueColor: const AlwaysStoppedAnimation(AppColors.primary)),
+                    const SizedBox(height: 8),
+                    Text('Step 2 of 3 • Personal Details', style: AppTextStyles.labelMedium),
+                    const SizedBox(height: 24),
+                    YoupiInput(label: 'City', hint: 'e.g. Lucknow'),
+                    const SizedBox(height: 16),
+                    YoupiInput(label: 'State', hint: 'e.g. Uttar Pradesh'),
+                    const SizedBox(height: 16),
+                    YoupiInput(label: 'Bank Account (Optional)', hint: 'XXXXXXXXXXXXXXXX'),
+                    const Spacer(),
+                    YoupiButton(
+                      label: 'Next',
+                      onPressed: () => context.push('/bnpl/apply/step3'),
+                    ),
+                  ],
+                ),
+              ),
             ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
 }
-

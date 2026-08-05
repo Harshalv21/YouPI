@@ -200,101 +200,121 @@ class _MpinSetupScreenState extends State<MpinSetupScreen> {
     return Scaffold(
       backgroundColor: AppColors.backgroundPrimary,
       appBar: AppBar(backgroundColor: AppColors.backgroundPrimary),
-      body: Padding(
-        padding: const EdgeInsets.all(AppDimensions.paddingPage),
-        child: Column(
-          children: [
-            const SizedBox(height: 20),
-            Text(
-                _isConfirming
-                    ? 'Confirm MPIN'
-                    : (widget.isReset ? 'Set a New MPIN' : AppStrings.mpinSetupTitle),
-                style: AppTextStyles.displaySmall, textAlign: TextAlign.center),
-            const SizedBox(height: 8),
-            Text(
-                _isConfirming
-                    ? 'Re-enter your 4-digit MPIN'
-                    : (widget.isReset
-                    ? 'Your identity is verified. Create a new 4-digit MPIN for future logins.'
-                    : AppStrings.mpinSetupSubtitle),
-                style: AppTextStyles.bodyMedium
-                    .copyWith(color: AppColors.textSecondary),
-                textAlign: TextAlign.center),
-            const SizedBox(height: 48),
-            // Dot indicator
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: List.generate(
-                  4,
-                      (i) => Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 8),
-                    width: 16,
-                    height: 16,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: i < current.length
-                          ? AppColors.primary
-                          : AppColors.divider,
-                      boxShadow: i < current.length
-                          ? [
-                        BoxShadow(
-                            color: AppColors.primaryGlow,
-                            blurRadius: 8)
-                      ]
-                          : null,
+      // BUG FIX: same Column+Spacer overflow issue as mpin_entry_screen.dart
+      // -- see that file's doc comment for the full explanation. Wrapped
+      // the same way: LayoutBuilder + SingleChildScrollView +
+      // ConstrainedBox(minHeight) + IntrinsicHeight, so this still centers/
+      // spreads via Spacer() when everything fits, but scrolls instead of
+      // overflowing when it doesn't (small devices, large font-scale, or
+      // this screen's slightly taller content vs mpin_entry -- title +
+      // subtitle + dots + optional loading spinner + full number pad +
+      // trailing spacing).
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          return SingleChildScrollView(
+            padding: const EdgeInsets.all(AppDimensions.paddingPage),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight: constraints.maxHeight - (AppDimensions.paddingPage * 2),
+              ),
+              child: IntrinsicHeight(
+                child: Column(
+                  children: [
+                    const SizedBox(height: 20),
+                    Text(
+                        _isConfirming
+                            ? 'Confirm MPIN'
+                            : (widget.isReset ? 'Set a New MPIN' : AppStrings.mpinSetupTitle),
+                        style: AppTextStyles.displaySmall, textAlign: TextAlign.center),
+                    const SizedBox(height: 8),
+                    Text(
+                        _isConfirming
+                            ? 'Re-enter your 4-digit MPIN'
+                            : (widget.isReset
+                            ? 'Your identity is verified. Create a new 4-digit MPIN for future logins.'
+                            : AppStrings.mpinSetupSubtitle),
+                        style: AppTextStyles.bodyMedium
+                            .copyWith(color: AppColors.textSecondary),
+                        textAlign: TextAlign.center),
+                    const SizedBox(height: 48),
+                    // Dot indicator
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: List.generate(
+                          4,
+                              (i) => Container(
+                            margin: const EdgeInsets.symmetric(horizontal: 8),
+                            width: 16,
+                            height: 16,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: i < current.length
+                                  ? AppColors.primary
+                                  : AppColors.divider,
+                              boxShadow: i < current.length
+                                  ? [
+                                BoxShadow(
+                                    color: AppColors.primaryGlow,
+                                    blurRadius: 8)
+                              ]
+                                  : null,
+                            ),
+                          )),
                     ),
-                  )),
+                    const SizedBox(height: 24),
+                    // Loading indicator (ab _isLoading actually use hota hai)
+                    if (_isLoading)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 8),
+                        child: CircularProgressIndicator(color: AppColors.primary),
+                      ),
+                    const Spacer(),
+                    // Number pad
+                    for (final row in [
+                      ['1', '2', '3'],
+                      ['4', '5', '6'],
+                      ['7', '8', '9'],
+                      ['', '0', '⌫']
+                    ])
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: row
+                            .map((d) => GestureDetector(
+                          onTap: () => d == '⌫'
+                              ? _onDelete()
+                              : d.isNotEmpty
+                              ? _onDigit(d)
+                              : null,
+                          child: Container(
+                            width: 80,
+                            height: 72,
+                            margin: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: d.isEmpty
+                                  ? Colors.transparent
+                                  : AppColors.backgroundCard,
+                              borderRadius: BorderRadius.circular(12),
+                              border: d.isEmpty
+                                  ? null
+                                  : Border.all(color: AppColors.divider),
+                            ),
+                            child: Center(
+                              child: d == '⌫'
+                                  ? const Icon(Icons.backspace_rounded,
+                                  color: AppColors.textSecondary, size: 20)
+                                  : Text(d, style: AppTextStyles.headlineLarge),
+                            ),
+                          ),
+                        ))
+                            .toList(),
+                      ),
+                    const SizedBox(height: 20),
+                  ],
+                ),
+              ),
             ),
-            const SizedBox(height: 24),
-            // Loading indicator (ab _isLoading actually use hota hai)
-            if (_isLoading)
-              const Padding(
-                padding: EdgeInsets.only(top: 8),
-                child: CircularProgressIndicator(color: AppColors.primary),
-              ),
-            const Spacer(),
-            // Number pad
-            for (final row in [
-              ['1', '2', '3'],
-              ['4', '5', '6'],
-              ['7', '8', '9'],
-              ['', '0', '⌫']
-            ])
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: row
-                    .map((d) => GestureDetector(
-                  onTap: () => d == '⌫'
-                      ? _onDelete()
-                      : d.isNotEmpty
-                      ? _onDigit(d)
-                      : null,
-                  child: Container(
-                    width: 80,
-                    height: 72,
-                    margin: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: d.isEmpty
-                          ? Colors.transparent
-                          : AppColors.backgroundCard,
-                      borderRadius: BorderRadius.circular(12),
-                      border: d.isEmpty
-                          ? null
-                          : Border.all(color: AppColors.divider),
-                    ),
-                    child: Center(
-                      child: d == '⌫'
-                          ? const Icon(Icons.backspace_rounded,
-                          color: AppColors.textSecondary, size: 20)
-                          : Text(d, style: AppTextStyles.headlineLarge),
-                    ),
-                  ),
-                ))
-                    .toList(),
-              ),
-            const SizedBox(height: 20),
-          ],
-        ),
+          );
+        },
       ),
     );
   }

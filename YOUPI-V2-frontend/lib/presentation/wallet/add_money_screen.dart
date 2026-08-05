@@ -12,46 +12,58 @@ class AddMoneyScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: AppColors.backgroundPrimary,
       appBar: AppBar(title: const Text('Add Money'), backgroundColor: AppColors.backgroundPrimary),
-      body: Padding(
-        padding: const EdgeInsets.all(AppDimensions.paddingPage),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text('Enter Amount', style: AppTextStyles.displaySmall),
-            const SizedBox(height: 24),
-            TextField(
-              keyboardType: TextInputType.number,
-              style: AppTextStyles.amountLarge,
-              textAlign: TextAlign.center,
-              decoration: InputDecoration(
-                prefixText: '₹ ',
-                hintText: '0',
-                border: InputBorder.none,
-                prefixStyle: AppTextStyles.amountLarge,
-                hintStyle: AppTextStyles.amountLarge.copyWith(color: AppColors.textSecondary),
+      // BUG FIX: same Column+Spacer overflow issue as mpin_entry_screen.dart
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          return SingleChildScrollView(
+            padding: const EdgeInsets.all(AppDimensions.paddingPage),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight: constraints.maxHeight - (AppDimensions.paddingPage * 2),
               ),
-            ),
-            const Divider(color: AppColors.primary, thickness: 2),
-            const SizedBox(height: 20),
-            Wrap(spacing: 8, children: ['₹500', '₹1,000', '₹2,000', '₹5,000']
-                .map((a) => OutlinedButton(
+              child: IntrinsicHeight(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text('Enter Amount', style: AppTextStyles.displaySmall),
+                    const SizedBox(height: 24),
+                    TextField(
+                      keyboardType: TextInputType.number,
+                      style: AppTextStyles.amountLarge,
+                      textAlign: TextAlign.center,
+                      decoration: InputDecoration(
+                        prefixText: '₹ ',
+                        hintText: '0',
+                        border: InputBorder.none,
+                        prefixStyle: AppTextStyles.amountLarge,
+                        hintStyle: AppTextStyles.amountLarge.copyWith(color: AppColors.textSecondary),
+                      ),
+                    ),
+                    const Divider(color: AppColors.primary, thickness: 2),
+                    const SizedBox(height: 20),
+                    Wrap(spacing: 8, children: ['₹500', '₹1,000', '₹2,000', '₹5,000']
+                        .map((a) => OutlinedButton(
                       onPressed: () {},
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.primary,
-                        side: const BorderSide(color: AppColors.primary)),
+                          foregroundColor: AppColors.primary,
+                          side: const BorderSide(color: AppColors.primary)),
                       child: Text(a),
                     )).toList()),
-            const Spacer(),
-            YoupiButton(
-              label: 'Add Money',
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                    content: Text('Money added!'), backgroundColor: AppColors.success));
-                context.pop();
-              },
+                    const Spacer(),
+                    YoupiButton(
+                      label: 'Add Money',
+                      onPressed: () {
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                            content: Text('Money added!'), backgroundColor: AppColors.success));
+                        context.pop();
+                      },
+                    ),
+                  ],
+                ),
+              ),
             ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }

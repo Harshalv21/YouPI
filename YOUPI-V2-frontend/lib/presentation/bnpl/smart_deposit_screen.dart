@@ -12,48 +12,60 @@ class SmartDepositScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: AppColors.backgroundPrimary,
       appBar: AppBar(title: const Text('SmartDeposit'), backgroundColor: AppColors.backgroundPrimary),
-      body: Padding(
-        padding: const EdgeInsets.all(AppDimensions.paddingPage),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: AppColors.secondary.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(AppDimensions.radiusCard),
-                border: Border.all(color: AppColors.secondary.withOpacity(0.4)),
+      // BUG FIX: same Column+Spacer overflow issue as mpin_entry_screen.dart
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          return SingleChildScrollView(
+            padding: const EdgeInsets.all(AppDimensions.paddingPage),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight: constraints.maxHeight - (AppDimensions.paddingPage * 2),
               ),
-              child: Column(children: [
-                Text('SmartDeposit',
-                    style: AppTextStyles.headlineLarge.copyWith(color: AppColors.secondary)),
-                Text('Earn 6% interest on unused BNPL limit!', style: AppTextStyles.bodyMedium),
-              ]),
+              child: IntrinsicHeight(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: AppColors.secondary.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(AppDimensions.radiusCard),
+                        border: Border.all(color: AppColors.secondary.withOpacity(0.4)),
+                      ),
+                      child: Column(children: [
+                        Text('SmartDeposit',
+                            style: AppTextStyles.headlineLarge.copyWith(color: AppColors.secondary)),
+                        Text('Earn 6% interest on unused BNPL limit!', style: AppTextStyles.bodyMedium),
+                      ]),
+                    ),
+                    const SizedBox(height: 24),
+                    Slider(
+                      value: 1000,
+                      min: 100,
+                      max: 5000,
+                      activeColor: AppColors.primary,
+                      inactiveColor: AppColors.divider,
+                      onChanged: (_) {},
+                    ),
+                    Text('Deposit Amount: ₹1,000', style: AppTextStyles.labelLarge),
+                    const SizedBox(height: 8),
+                    Text('Expected Monthly Interest: ₹5.00',
+                        style: AppTextStyles.bodySmall.copyWith(color: AppColors.success)),
+                    const Spacer(),
+                    YoupiButton(
+                      label: 'Enable SmartDeposit',
+                      onPressed: () {
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                            content: Text('SmartDeposit enabled!'), backgroundColor: AppColors.success));
+                        context.pop();
+                      },
+                    ),
+                  ],
+                ),
+              ),
             ),
-            const SizedBox(height: 24),
-            Slider(
-              value: 1000,
-              min: 100,
-              max: 5000,
-              activeColor: AppColors.primary,
-              inactiveColor: AppColors.divider,
-              onChanged: (_) {},
-            ),
-            Text('Deposit Amount: ₹1,000', style: AppTextStyles.labelLarge),
-            const SizedBox(height: 8),
-            Text('Expected Monthly Interest: ₹5.00',
-                style: AppTextStyles.bodySmall.copyWith(color: AppColors.success)),
-            const Spacer(),
-            YoupiButton(
-              label: 'Enable SmartDeposit',
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                    content: Text('SmartDeposit enabled!'), backgroundColor: AppColors.success));
-                context.pop();
-              },
-            ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }

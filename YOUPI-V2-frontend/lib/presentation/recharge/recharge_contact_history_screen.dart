@@ -139,6 +139,35 @@ class _RechargeContactHistoryScreenState extends State<RechargeContactHistoryScr
   // of being stuck with whatever mPlan says.
   static const _operatorOptions = ['JIO', 'AIRTEL', 'VI', 'BSNL', 'MTNL'];
 
+  // Display name -> backend circleCodeMap key (RechargeService.kt). Must
+  // match that map's keys exactly (after normalizeKey() strips spaces/
+  // case) or getPlans() will reject it as "Unknown circle".
+  static const _circleOptions = <String, String>{
+    'Andhra Pradesh': 'ANDHRAPRADESH',
+    'Assam': 'ASSAM',
+    'Bihar & Jharkhand': 'BIHARJHARKHAND',
+    'Delhi NCR': 'DELHINCR',
+    'Gujarat': 'GUJARAT',
+    'Himachal Pradesh': 'HIMACHALPRADESH',
+    'Haryana': 'HARYANA',
+    'Jammu & Kashmir': 'JAMMUKASHMIR',
+    'Kerala': 'KERALA',
+    'Karnataka': 'KARNATAKA',
+    'Kolkata': 'KOLKATA',
+    'Maharashtra': 'MAHARASHTRA',
+    'Madhya Pradesh & Chhattisgarh': 'MADHYAPRADESHCHHATTISGARH',
+    'Mumbai': 'MUMBAI',
+    'North East': 'NORTHEAST',
+    'Orissa': 'ORISSA',
+    'Punjab': 'PUNJAB',
+    'Rajasthan': 'RAJASTHAN',
+    'Tamil Nadu': 'TAMILNADU',
+    'UP East': 'UPEAST',
+    'UP West': 'UPWEST',
+    'West Bengal': 'WESTBENGAL',
+    'Chennai': 'CHENNAI',
+  };
+
   void _showOperatorPicker() {
     showModalBottomSheet(
       context: context,
@@ -171,7 +200,20 @@ class _RechargeContactHistoryScreenState extends State<RechargeContactHistoryScr
                   : null,
               onTap: () {
                 Navigator.of(sheetContext).pop();
-                if (op != _operator.toUpperCase()) _changeOperator(op);
+                // BUG FIX: previously always called _changeOperator(op)
+                // directly, which reuses whatever _circle currently holds
+                // -- fine for the "wrong operator, right circle" case
+                // (MNP), but if detectOperator() failed ENTIRELY (e.g.
+                // mPlan returning garbage like "VISITWWW.CALLTRACER.IN"
+                // for the circle field), _circle is still '' and getPlans
+                // would just fail again with a confusing "Unknown circle"
+                // error. Chain into a circle picker whenever circle is
+                // unknown, instead of assuming it's already correct.
+                if (_circle.isEmpty) {
+                  _showCirclePicker(op);
+                } else if (op != _operator.toUpperCase()) {
+                  _changeOperatorAndCircle(op, _circle);
+                }
               },
             )),
             const SizedBox(height: 8),
@@ -181,22 +223,66 @@ class _RechargeContactHistoryScreenState extends State<RechargeContactHistoryScr
     );
   }
 
-  Future<void> _changeOperator(String newOperator) async {
+  void _showCirclePicker(String operator) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.backgroundCard,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+              child: Text('Select circle', style: AppTextStyles.headlineSmall),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+              child: Text(
+                'We couldn\'t auto-detect this number\'s circle. Pick the state/region this SIM is registered in.',
+                style: AppTextStyles.bodySmall.copyWith(color: AppColors.textSecondary),
+              ),
+            ),
+            SizedBox(
+              height: 360,
+              child: ListView(
+                shrinkWrap: true,
+                children: _circleOptions.entries.map((entry) => ListTile(
+                  title: Text(entry.key, style: AppTextStyles.bodyMedium),
+                  onTap: () {
+                    Navigator.of(sheetContext).pop();
+                    _changeOperatorAndCircle(operator, entry.value);
+                  },
+                )).toList(),
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _changeOperatorAndCircle(String newOperator, String newCircle) async {
     setState(() {
       _loadingPlans = true;
       _plansError = null;
     });
     try {
-      final plans = await _repo.getPlans(operator: newOperator, circle: _circle);
+      final plans = await _repo.getPlans(operator: newOperator, circle: newCircle);
       if (!mounted) return;
       setState(() {
         _operator = newOperator;
+        _circle = newCircle;
         _plans = plans;
         _loadingPlans = false;
       });
     } catch (e) {
       if (!mounted) return;
-      debugPrint('Manual operator change failed for $newOperator/$_circle: $e');
+      debugPrint('Manual operator/circle change failed for $newOperator/$newCircle: $e');
       setState(() {
         _loadingPlans = false;
         _plansError = 'Please check your connection and try again.';
