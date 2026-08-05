@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../core/services/razorpay_service.dart';
+import '../../core/services/cashfree_service.dart';
 import '../../core/services/storage_service.dart';
 import '../../data/models/recharge_plan_model.dart';
 import '../../data/repositories/recharge_repository.dart';
@@ -9,7 +9,7 @@ enum OperatorDetectionState { idle, detecting, success, failed }
 
 class RechargeViewModel extends ChangeNotifier {
   final RechargeRepository _repo = RechargeRepository();
-  final RazorpayService _razorpayService = RazorpayService();
+  final CashfreeService _cashfreeService = CashfreeService();
 
   bool _isLoading = false;
   bool _isPlansRefreshing = false;
@@ -431,22 +431,23 @@ class RechargeViewModel extends ChangeNotifier {
 
       final ownMobile = await StorageService.getLastMobile();
 
-      final result = await _razorpayService.open(
-        razorpayOrderId: order.razorpayOrderId,
-        amountRupees: order.amount,
-        name: 'YouPI Recharge',
-        description:
-        '${_selectedPlan!.operator.toUpperCase()} ₹${_selectedPlan!.price.toStringAsFixed(0)}',
-        contactPhone: ownMobile,
-      );
-
-      if (result.status == RazorpayResultStatus.cancelled) {
-        _error = 'Payment cancelled.';
+      // Gateway branch -- paymentSessionId is only populated when the
+      // backend created this order via Cashfree (youpi.payment.gateway).
+      // Presence of that field, not a separate flag, decides the path
+      // here -- stays in sync with the backend automatically.
+      if (order.paymentSessionId == null || order.paymentSessionId!.isEmpty) {
+        _error = 'Could not start payment. Please try again.';
         _rechargeSuccess = false;
         return false;
       }
-      if (result.status == RazorpayResultStatus.failure) {
-        _error = result.errorMessage ?? 'Payment failed. Please try again.';
+
+      final cfResult = await _cashfreeService.open(
+        orderId: order.razorpayOrderId,
+        paymentSessionId: order.paymentSessionId!,
+      );
+
+      if (cfResult.status == CashfreeResultStatus.failure) {
+        _error = cfResult.errorMessage ?? 'Payment failed. Please try again.';
         _rechargeSuccess = false;
         return false;
       }

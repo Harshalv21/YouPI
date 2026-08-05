@@ -116,7 +116,16 @@ class _InfoRow extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(label, style: AppTextStyles.bodyMedium),
-        Text(value, style: AppTextStyles.labelLarge.copyWith(color: valueColor)),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            value,
+            style: AppTextStyles.labelLarge.copyWith(color: valueColor),
+            textAlign: TextAlign.right,
+            overflow: TextOverflow.ellipsis,
+            maxLines: 1,
+          ),
+        ),
       ],
     );
   }

@@ -241,6 +241,7 @@ class RechargeRepository {
 class RechargeOrderResult {
   final String orderId;
   final String razorpayOrderId;
+  final String? paymentSessionId;   // NEW -- Cashfree only, null for Razorpay
   final double amount;
   final String status;
   final String paymentMode;
@@ -248,6 +249,7 @@ class RechargeOrderResult {
   RechargeOrderResult({
     required this.orderId,
     required this.razorpayOrderId,
+    this.paymentSessionId,
     required this.amount,
     required this.status,
     required this.paymentMode,
@@ -256,6 +258,7 @@ class RechargeOrderResult {
   factory RechargeOrderResult.fromJson(Map<String, dynamic> json) => RechargeOrderResult(
     orderId: json['orderId'] as String,
     razorpayOrderId: json['razorpayOrderId'] as String? ?? '',
+    paymentSessionId: json['paymentSessionId'] as String?,
     amount: (json['amount'] as num).toDouble(),
     status: json['status'] as String,
     paymentMode: json['paymentMode'] as String,
