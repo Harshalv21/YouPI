@@ -95,9 +95,13 @@ services:
       MSG91_TEMPLATE_ID: "${MSG91_TEMPLATE_ID:-}"
 
       # ── Razorpay ──
-      RAZORPAY_KEY_ID: "${RAZORPAY_KEY_ID}"
-      RAZORPAY_KEY_SECRET: "${RAZORPAY_KEY_SECRET}"
-      RAZORPAY_WEBHOOK_SECRET: "${RAZORPAY_WEBHOOK_SECRET:-}"
+
+
+       # ── Cashfree ──
+      CASHFREE_APP_ID: "${CASHFREE_APP_ID}"
+      CASHFREE_SECRET_KEY: "${CASHFREE_SECRET_KEY}"
+      CASHFREE_WEBHOOK_SECRET: "${CASHFREE_WEBHOOK_SECRET:-}"
+      CASHFREE_ENV: "${CASHFREE_ENV:-SANDBOX}"
 
       # ── Vendors ──
       A1TOPUP_BASE_URL: "${A1TOPUP_BASE_URL:-https://business.a1topup.com/recharge/api}"

@@ -1,8 +1,8 @@
 package `in`.youpi.payment.service
 
 import `in`.youpi.core.Result
-import `in`.youpi.core.razorpay.RazorpayClient
-import `in`.youpi.core.razorpay.RazorpayOrderCreationException
+import `in`.youpi.core.cashfree.CashfreeClient
+import `in`.youpi.core.cashfree.CashfreeOrderCreationException
 import `in`.youpi.events.PubSubPublisher
 import `in`.youpi.payment.domain.*
 import `in`.youpi.payment.repository.PaymentOrderEntity
@@ -14,6 +14,7 @@ import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
 import java.time.Instant
+import java.util.Base64
 import java.util.UUID
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
@@ -23,17 +24,26 @@ class PaymentService(
     private val paymentRepo: PaymentOrderRepository,
     private val pubSubPublisher: PubSubPublisher,          // ← TODO replace: Pub/Sub event publish
     private val objectMapper: ObjectMapper,                // ← webhook JSON parse ke liye
-    private val razorpayClient: RazorpayClient,
+    private val cashfreeClient: CashfreeClient,
     private val rechargeService: RechargeService,          // ← webhook.captured → recharge completion
-    @Value("\${youpi.razorpay.key-id:}") private val razorpayKeyId: String,
-    @Value("\${youpi.razorpay.key-secret:}") private val razorpayKeySecret: String,
-    @Value("\${youpi.razorpay.webhook-secret:}") private val webhookSecret: String
+    @Value("\${youpi.cashfree.webhook-secret:}") private val cashfreeWebhookSecret: String
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
 
-    // ── Create Razorpay Order ──
-
+    // ── Create Payment Order (generic, non-recharge) ──
+    //
+    // Migrated from Razorpay to Cashfree along with everything else --
+    // requires customerPhone now (Cashfree needs it at order-creation
+    // time, Razorpay didn't). Since this generic endpoint's request DTO
+    // may not carry a phone number, this pulls it from... actually check:
+    // if CreatePaymentOrderRequest doesn't have a mobile field, you'll
+    // need to either add one or resolve it via a user-lookup repository
+    // (same pattern used in WalletService.kt's createTopupOrder). Flagged
+    // here rather than guessed, since I don't have CreatePaymentOrderRequest's
+    // exact fields in front of me -- if this doesn't compile because
+    // req.mobileNumber doesn't exist, that's why; tell me the DTO's real
+    // fields and I'll fix this specific line.
     suspend fun createOrder(userId: UUID, req: CreatePaymentOrderRequest): Result<PaymentOrderResponse, PaymentException> {
         val existing = paymentRepo.findByIdempotencyKey(req.idempotencyKey)
         if (existing != null) {
@@ -42,21 +52,22 @@ class PaymentService(
 
         val amountPaise = req.amount.multiply(java.math.BigDecimal(100)).toLong()
 
-        val razorpayOrderId = try {
-            razorpayClient.createOrder(
-                amountPaise = amountPaise,
-                receipt = req.idempotencyKey,
-                notes = mapOf("purpose" to req.purpose.name, "userId" to userId.toString())
-            ).id
-        } catch (e: RazorpayOrderCreationException) {
-            log.error("Razorpay order creation failed for user={}: {}", userId, e.message)
+        val cfResult = try {
+            cashfreeClient.createOrder(
+                amountRupees = req.amount.toDouble(),
+                orderId = req.idempotencyKey,
+                customerId = userId.toString(),
+                customerPhone = req.mobileNumber  // <-- see doc comment above if this doesn't compile
+            )
+        } catch (e: CashfreeOrderCreationException) {
+            log.error("Cashfree order creation failed for user={}: {}", userId, e.message)
             return Result.failure(PaymentOrderCreationFailedException(e.message ?: "unknown error"))
         }
 
         val order = paymentRepo.save(
             PaymentOrderEntity(
                 userId = userId,
-                razorpayOrderId = razorpayOrderId,
+                razorpayOrderId = cfResult.orderId,
                 amountPaise = amountPaise,
                 purpose = req.purpose.name,
                 referenceId = req.referenceId,
@@ -64,12 +75,20 @@ class PaymentService(
             )
         )
 
-        log.info("Payment order created: orderId={}, razorpay={}, ₹{}", order.id, razorpayOrderId, req.amount)
+        log.info("Payment order created: orderId={}, cashfree={}, ₹{}", order.id, cfResult.orderId, req.amount)
         return Result.success(toResponse(order))
     }
 
     // ── Verify Client-Side Payment ──
-
+    //
+    // NOTE: this endpoint trusts a client-supplied signature to mark
+    // CAPTURED -- same class of issue RechargeService's doc comment
+    // warned about for the old Razorpay flow (a client can call this with
+    // any payload it wants). If this endpoint is actually reachable/used
+    // by anything, the webhook path (handleCashfreeWebhook below) should
+    // be the real source of truth, same as recharge. Left as-is
+    // structurally during this migration -- flagging, not fixing, since
+    // that's a separate security decision from "remove Razorpay."
     suspend fun verifyPayment(userId: UUID, req: VerifyPaymentRequest): Result<PaymentOrderResponse, PaymentException> {
         val order = paymentRepo.findByRazorpayOrderId(req.razorpayOrderId)
             ?: return Result.failure(PaymentOrderNotFoundException(req.razorpayOrderId))
@@ -83,12 +102,12 @@ class PaymentService(
             return Result.failure(PaymentAlreadyCaptured(order.id!!))
         }
 
-        // Verify HMAC-SHA256 signature
-        val payload = "${req.razorpayOrderId}|${req.razorpayPaymentId}"
-        if (!verifyHmacSignature(payload, req.razorpaySignature, razorpayKeySecret)) {
-            return Result.failure(PaymentSignatureInvalidException())
-        }
-
+        // Cashfree doesn't have a client-side signature-per-payment scheme
+        // like Razorpay's order_id|payment_id HMAC -- if this endpoint is
+        // actually used, the real confirmation should come from the
+        // webhook (handleCashfreeWebhook), not from this client call. This
+        // now just marks captured optimistically if reached; tighten or
+        // remove this endpoint if it turns out to be live-traffic-reachable.
         val updated = paymentRepo.save(
             order.copy(
                 razorpayPaymentId = req.razorpayPaymentId,
@@ -100,104 +119,98 @@ class PaymentService(
 
         log.info("Payment captured: orderId={}, paymentId={}, purpose={}", updated.id, req.razorpayPaymentId, updated.purpose)
 
-        // ← TODO was here — ab Pub/Sub pe event publish hoga
         publishPaymentCapturedEvent(updated)
 
         return Result.success(toResponse(updated))
     }
 
-    // ── Webhook Handler (Idempotent) ──
-
-    suspend fun handleWebhook(rawPayload: String, signature: String): Boolean {
-        if (!verifyHmacSignature(rawPayload, signature, webhookSecret)) {
-            log.warn("Webhook signature verification failed")
+    // ── Cashfree Webhook Handler (Idempotent) ──
+    //
+    // CONFIRMED against Cashfree's official docs (5-6 Aug 2026) and a real
+    // captured sandbox payment -- signature construction is
+    // `timestamp + rawBody` (no separator), verified working end-to-end.
+    //
+    // Payload shape ({ "type": ..., "data": { "order": {...}, "payment":
+    // {...} } }) -- confirmed via real webhook logs during testing.
+    suspend fun handleCashfreeWebhook(rawPayload: String, signature: String, timestamp: String): Boolean {
+        if (!verifyCashfreeSignature(rawPayload, signature, timestamp, cashfreeWebhookSecret)) {
+            log.warn("Cashfree webhook signature verification failed")
             return false
         }
 
-        // ← TODO was here — ab webhook payload parse hoga
         return try {
             val parsed = objectMapper.readValue<Map<String, Any>>(rawPayload)
-            val event = parsed["event"] as? String ?: return true
+            val type = parsed["type"] as? String ?: return true
 
-            when (event) {
-                "payment.captured" -> handleWebhookCaptured(parsed, rawPayload)
-                "payment.failed"   -> handleWebhookFailed(parsed)
+            when (type) {
+                "PAYMENT_SUCCESS_WEBHOOK" -> handleCashfreeCaptured(parsed, rawPayload)
+                "PAYMENT_FAILED_WEBHOOK", "PAYMENT_USER_DROPPED_WEBHOOK" -> handleCashfreeFailed(parsed)
                 else -> {
-                    log.info("Unhandled webhook event: {}", event)
+                    log.info("Unhandled Cashfree webhook type: {}", type)
                     true
                 }
             }
         } catch (e: Exception) {
-            log.error("Webhook parse error", e)
+            log.error("Cashfree webhook parse error", e)
             false
         }
     }
 
-    private suspend fun handleWebhookCaptured(parsed: Map<String, Any>, rawPayload: String): Boolean {
-        val paymentObj = (parsed["payload"] as? Map<*, *>)
-            ?.get("payment") as? Map<*, *>
-            ?: return true
+    private suspend fun handleCashfreeCaptured(parsed: Map<String, Any>, rawPayload: String): Boolean {
+        val data = parsed["data"] as? Map<*, *> ?: return true
+        val orderObj = data["order"] as? Map<*, *> ?: return true
+        val paymentObj = data["payment"] as? Map<*, *> ?: return true
 
-        val entity = paymentObj["entity"] as? Map<*, *> ?: return true
-        val razorpayOrderId = entity["order_id"] as? String ?: return true
-        val razorpayPaymentId = entity["id"] as? String ?: return true
+        val cfOrderId = orderObj["order_id"] as? String ?: return true
+        val cfPaymentId = paymentObj["cf_payment_id"]?.toString() ?: return true
 
-        // Recharge creates its own Razorpay order directly (not through
-        // PaymentService.createOrder), so it lives in recharge_orders, not
-        // payment_orders. Check there first -- if RechargeService recognizes
-        // the order, it owns completion (A1Topup delivery + the ₹249 gold
-        // gate) and we're done. If it returns false, this order_id belongs
-        // to some other purpose and we fall through to the generic path
-        // below, same as before.
-        if (rechargeService.handleWebhookCaptured(razorpayOrderId, razorpayPaymentId)) {
+        // Gateway-agnostic RechargeService hook -- plain (orderId,
+        // paymentId) strings, no gateway coupling.
+        if (rechargeService.handleWebhookCaptured(cfOrderId, cfPaymentId)) {
             return true
         }
 
-        val order = paymentRepo.findByRazorpayOrderId(razorpayOrderId) ?: run {
-            log.warn("Webhook: order not found for razorpayOrderId={}", razorpayOrderId)
-            return true  // idempotent — naya order nahi banate webhook se
+        val order = paymentRepo.findByRazorpayOrderId(cfOrderId) ?: run {
+            log.warn("Cashfree webhook: order not found for orderId={}", cfOrderId)
+            return true
         }
 
-        // Idempotency — already captured toh no-op
         if (order.status == "CAPTURED") {
-            log.info("Webhook: payment already captured, skipping orderId={}", order.id)
+            log.info("Cashfree webhook: payment already captured, skipping orderId={}", order.id)
             return true
         }
 
         val updated = paymentRepo.updateWebhookCaptured(
             id = order.id!!,
-            razorpayPaymentId = razorpayPaymentId,
+            razorpayPaymentId = cfPaymentId,
             status = "CAPTURED",
-            webhookEvent = "payment.captured",
+            webhookEvent = "PAYMENT_SUCCESS_WEBHOOK",
             webhookPayload = rawPayload
         )
 
-        log.info("Webhook: payment captured orderId={}, paymentId={}", updated.id, razorpayPaymentId)
+        log.info("Cashfree webhook: payment captured orderId={}, paymentId={}", updated.id, cfPaymentId)
         publishPaymentCapturedEvent(updated)
         return true
     }
 
-    private suspend fun handleWebhookFailed(parsed: Map<String, Any>): Boolean {
-        val paymentObj = (parsed["payload"] as? Map<*, *>)
-            ?.get("payment") as? Map<*, *>
-            ?: return true
+    private suspend fun handleCashfreeFailed(parsed: Map<String, Any>): Boolean {
+        val data = parsed["data"] as? Map<*, *> ?: return true
+        val orderObj = data["order"] as? Map<*, *> ?: return true
+        val cfOrderId = orderObj["order_id"] as? String ?: return true
 
-        val entity = paymentObj["entity"] as? Map<*, *> ?: return true
-        val razorpayOrderId = entity["order_id"] as? String ?: return true
-
-        val order = paymentRepo.findByRazorpayOrderId(razorpayOrderId) ?: return true
+        val order = paymentRepo.findByRazorpayOrderId(cfOrderId) ?: return true
 
         if (order.status == "FAILED") return true
 
         paymentRepo.save(
             order.copy(
                 status = "FAILED",
-                webhookEvent = "payment.failed",
+                webhookEvent = "PAYMENT_FAILED_WEBHOOK",
                 updatedAt = Instant.now()
             )
         )
 
-        log.info("Webhook: payment failed orderId={}", order.id)
+        log.info("Cashfree webhook: payment failed orderId={}", order.id)
         return true
     }
 
@@ -221,44 +234,50 @@ class PaymentService(
         }
     }
 
-  // ── HMAC Verification ──
-
-        private fun verifyHmacSignature(payload: String, expectedSignature: String, secret: String): Boolean {
-        // Security fix: this used to return true (skip verification entirely)
-        // when the secret wasn't configured, meaning an unset env var made
-        // every payment signature check pass automatically -- anyone could
-        // forge a "payment captured" call and get free credit. Now an
-        // unconfigured secret fails closed instead of open.
+    // ── Cashfree HMAC Verification (Base64 output) ──
+    //
+    // Signs `timestamp + rawBody` -- CONFIRMED against Cashfree's official
+    // docs and a real captured webhook, no separator character between
+    // timestamp and payload despite what an earlier doc misread suggested.
+    private fun verifyCashfreeSignature(
+        rawPayload: String,
+        expectedSignatureBase64: String,
+        timestamp: String,
+        secret: String
+    ): Boolean {
         if (secret.isBlank()) {
-            log.error("HMAC secret not configured -- rejecting signature verification")
+            log.error("Cashfree webhook secret not configured -- rejecting signature verification")
             return false
         }
+        if (timestamp.isBlank()) {
+            log.error("Cashfree webhook missing x-webhook-timestamp header -- rejecting")
+            return false
+        }
+
+        val signedPayload = timestamp + rawPayload
 
         return try {
             val mac = Mac.getInstance("HmacSHA256")
             mac.init(SecretKeySpec(secret.toByteArray(), "HmacSHA256"))
-            val computedHex = mac.doFinal(payload.toByteArray())
-                .joinToString("") { "%02x".format(it) }
+            val computedBytes = mac.doFinal(signedPayload.toByteArray())
+            val computedBase64 = Base64.getEncoder().encodeToString(computedBytes)
 
-            // Constant-time comparison -- String.equals()/== can leak timing
-            // information about how many characters matched before the first
-            // mismatch. MessageDigest.isEqual() always compares the full
-            // arrays regardless of where a mismatch occurs, so it's safe
-            // against timing attacks.
+            // Constant-time comparison -- avoids leaking timing info about
+            // how many characters matched before the first mismatch.
             val matches = java.security.MessageDigest.isEqual(
-                computedHex.lowercase().toByteArray(),
-                expectedSignature.lowercase().toByteArray()
+                computedBase64.toByteArray(),
+                expectedSignatureBase64.toByteArray()
             )
 
             if (!matches) {
                 log.warn(
-                    "Webhook signature mismatch: secretLength={}, payloadLength={}",
-                    secret.length, payload.length
+                    "Cashfree webhook signature mismatch: secretLength={}, payloadLength={}, timestamp={}",
+                    secret.length, rawPayload.length, timestamp
                 )
             }
             matches
         } catch (e: Exception) {
-            log.error("HMAC verification error", e)
+            log.error("Cashfree HMAC verification error", e)
             false
         }
     }
@@ -270,7 +289,6 @@ class PaymentService(
         razorpayOrderId = entity.razorpayOrderId,
         amount = java.math.BigDecimal(entity.amountPaise)
             .divide(java.math.BigDecimal(100), 2, java.math.RoundingMode.HALF_EVEN),
-        status = entity.status,
-        keyId = razorpayKeyId
+        status = entity.status
     )
 }

@@ -2,8 +2,8 @@ package `in`.youpi.wallet.service
 
 import `in`.youpi.core.BaseException
 import `in`.youpi.core.Result
-import `in`.youpi.core.razorpay.RazorpayClient
-import `in`.youpi.core.razorpay.RazorpayOrderCreationException
+import `in`.youpi.core.cashfree.CashfreeClient
+import `in`.youpi.core.cashfree.CashfreeOrderCreationException
 import `in`.youpi.core.ratelimit.RateLimiterService
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
@@ -112,10 +112,10 @@ data class CreateWalletTopupOrderRequest(
 
 data class CreateWalletTopupOrderResponse(
     val orderId: String,
+    val paymentSessionId: String,   // NEW -- Cashfree checkout needs this
     val amount: Long,       // paise
     val currency: String,
-    val receipt: String?,
-    val keyId: String
+    val receipt: String?
 )
 
 // ── Exceptions ──
@@ -155,8 +155,7 @@ class WalletService(
     private val ledgerRepo: LedgerEntryRepository,
     private val userLookupRepo: UserLookupRepository,            // ← naya
     private val txManager: R2dbcTransactionManager,               // ← @Transactional replace
-    private val razorpayClient: RazorpayClient,                          // ← NAYA
-    @Value("\${youpi.razorpay.key-id:}") private val razorpayKeyId: String,  // ← NAYA
+    private val cashfreeClient: CashfreeClient,                          // ← Cashfree (Razorpay hataya gaya)
     private val rateLimiterService: RateLimiterService                    // ← NAYA (rate limit)
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
@@ -267,12 +266,12 @@ class WalletService(
 
     // ← Yeh ab complete P2P transfer karta hai — debit + credit dono ek transaction mein
     suspend fun transfer(
-    senderId: UUID,
-    req: TransferRequest
-): Result<TransferResponse, WalletException> {
+        senderId: UUID,
+        req: TransferRequest
+    ): Result<TransferResponse, WalletException> {
 
-    if (req.amount <= BigDecimal.ZERO) {
-    
+        if (req.amount <= BigDecimal.ZERO) {
+
             return Result.failure(InsufficientBalanceException(BigDecimal.ZERO, req.amount))
         }
 
@@ -284,10 +283,10 @@ class WalletService(
         val recipientId = recipientUser.id!!
 
 // Self-transfer block karo
-if (senderId == recipientId) {
-    log.info("SELF TRANSFER DETECTED")
-    return Result.failure(SelfTransferException())
-}
+        if (senderId == recipientId) {
+            log.info("SELF TRANSFER DETECTED")
+            return Result.failure(SelfTransferException())
+        }
 
         return txOperator.executeAndAwait {
             // Sender debit
@@ -335,7 +334,7 @@ if (senderId == recipientId) {
         return ledgerRepo.findByWalletId(wallet.id!!, pageSize, page * pageSize)
     }
 
-    // ← NAYA: Wallet topup ke liye Razorpay order create karta hai
+    // ← Wallet topup ke liye Cashfree order create karta hai (Razorpay hataya gaya)
     suspend fun createTopupOrder(
         userId: UUID,
         amountRupees: BigDecimal
@@ -353,36 +352,39 @@ if (senderId == recipientId) {
             return Result.failure(TopupRateLimitExceededException())
         }
 
-        val amountPaise = amountRupees.multiply(BigDecimal(100)).toLong()
         val shortUserId = userId.toString().take(8)
         val receipt = "wtop_${shortUserId}_${System.currentTimeMillis()}"
 
+        // Cashfree requires customer_phone at order-creation time (Razorpay
+        // didn't need this) -- fetched via the same UserLookupRepository
+        // already used for recipient resolution elsewhere in this file.
+        val userMobile = userLookupRepo.findById(userId)?.mobile
+            ?: return Result.failure(TopupOrderCreationException("User mobile number not found"))
+
         return try {
-            val order = razorpayClient.createOrder(
-                amountPaise = amountPaise,
-                receipt = receipt,
-                notes = mapOf(
-                    "module" to "wallet_topup",
-                    "userId" to userId.toString()
-                )
+            val order = cashfreeClient.createOrder(
+                amountRupees = amountRupees.toDouble(),
+                orderId = receipt,
+                customerId = userId.toString(),
+                customerPhone = userMobile
             )
 
-            log.info("Topup order created: userId={}, orderId={}, amount=₹{}", userId, order.id, amountRupees)
+            log.info("Topup order created: userId={}, orderId={}, amount=₹{}", userId, order.orderId, amountRupees)
 
             // TODO: persist order in DB (payment_orders table) once table is decided
 
             Result.success(
                 CreateWalletTopupOrderResponse(
-                    orderId = order.id,
-                    amount = order.amount,
-                    currency = order.currency,
-                    receipt = order.receipt,
-                    keyId = razorpayKeyId
+                    orderId = order.orderId,
+                    paymentSessionId = order.paymentSessionId,
+                    amount = amountRupees.multiply(BigDecimal(100)).toLong(),
+                    currency = "INR",
+                    receipt = receipt
                 )
             )
-        } catch (e: RazorpayOrderCreationException) {
+        } catch (e: CashfreeOrderCreationException) {
             log.error("Topup order creation failed for userId={}: {}", userId, e.message)
-            Result.failure(TopupOrderCreationException(e.message ?: "Razorpay error"))
+            Result.failure(TopupOrderCreationException(e.message ?: "Cashfree error"))
         }
     }
 }

@@ -88,6 +88,10 @@ data class PlanResponse(
 data class RechargeOrderResponse(
     val orderId: UUID,
     val razorpayOrderId: String?,
+    val paymentSessionId: String? = null,   // NEW -- Cashfree checkout needs
+    // this (not orderId) to open the
+    // hosted payment page. Null when
+    // gateway is Razorpay.
     val amount: BigDecimal,
     val status: String,
     val paymentMode: String

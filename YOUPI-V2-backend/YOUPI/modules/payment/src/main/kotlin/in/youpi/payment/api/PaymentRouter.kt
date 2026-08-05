@@ -25,20 +25,20 @@ class PaymentRouter(private val paymentService: PaymentService) {
     @Bean
     @RouterOperations(
         RouterOperation(path = "/v1/payment/order", method = [RequestMethod.POST],
-            operation = Operation(operationId = "createPaymentOrder", summary = "Create Razorpay order",
-                description = "Creates a Razorpay payment order for the given purpose and amount.",
+            operation = Operation(operationId = "createPaymentOrder", summary = "Create payment order",
+                description = "Creates a payment order for the given purpose and amount via Cashfree.",
                 tags = ["Payment"],
                 requestBody = SwaggerRequestBody(content = [Content(schema = Schema(implementation = CreatePaymentOrderRequest::class))]),
-                responses = [SwaggerApiResponse(responseCode = "201", description = "Razorpay order created")])),
+                responses = [SwaggerApiResponse(responseCode = "201", description = "Order created")])),
         RouterOperation(path = "/v1/payment/verify", method = [RequestMethod.POST],
-            operation = Operation(operationId = "verifyPayment", summary = "Verify Razorpay payment",
-                description = "Verifies the Razorpay payment signature (HMAC-SHA256) and marks as captured.",
+            operation = Operation(operationId = "verifyPayment", summary = "Verify payment",
+                description = "Marks a payment order as captured.",
                 tags = ["Payment"],
                 requestBody = SwaggerRequestBody(content = [Content(schema = Schema(implementation = VerifyPaymentRequest::class))]),
                 responses = [SwaggerApiResponse(responseCode = "200", description = "Payment verified")])),
-        RouterOperation(path = "/webhooks/razorpay", method = [RequestMethod.POST],
-            operation = Operation(operationId = "razorpayWebhook", summary = "Razorpay webhook handler",
-                description = "Receives Razorpay webhook events. No authentication required. Uses HMAC signature verification.",
+        RouterOperation(path = "/webhooks/cashfree", method = [RequestMethod.POST],
+            operation = Operation(operationId = "cashfreeWebhook", summary = "Cashfree webhook handler",
+                description = "Receives Cashfree webhook events. No authentication required. Uses Base64 HMAC signature verification (timestamp + raw body, no separator).",
                 tags = ["Payment"],
                 responses = [SwaggerApiResponse(responseCode = "200", description = "Webhook processed")]))
     )
@@ -47,7 +47,7 @@ class PaymentRouter(private val paymentService: PaymentService) {
             POST("/order") { handleCreateOrder(it) }
             POST("/verify") { handleVerifyPayment(it) }
         }
-        POST("/webhooks/razorpay") { handleWebhook(it) }
+        POST("/webhooks/cashfree") { handleCashfreeWebhook(it) }
     }
 
     private suspend fun handleCreateOrder(request: ServerRequest): ServerResponse {
@@ -70,10 +70,14 @@ class PaymentRouter(private val paymentService: PaymentService) {
         }
     }
 
-    private suspend fun handleWebhook(request: ServerRequest): ServerResponse {
+    // Cashfree sends the signature and timestamp as SEPARATE headers
+    // (unlike Razorpay's single X-Razorpay-Signature header, now removed).
+    // Both are required to reconstruct the signed string: timestamp + rawBody.
+    private suspend fun handleCashfreeWebhook(request: ServerRequest): ServerResponse {
         val rawBody = request.awaitBody<String>()
-        val signature = request.headers().firstHeader("X-Razorpay-Signature") ?: ""
-        val success = paymentService.handleWebhook(rawBody, signature)
+        val signature = request.headers().firstHeader("x-webhook-signature") ?: ""
+        val timestamp = request.headers().firstHeader("x-webhook-timestamp") ?: ""
+        val success = paymentService.handleCashfreeWebhook(rawBody, signature, timestamp)
         return if (success) {
             ServerResponse.ok().bodyValueAndAwait(mapOf("status" to "ok"))
         } else {

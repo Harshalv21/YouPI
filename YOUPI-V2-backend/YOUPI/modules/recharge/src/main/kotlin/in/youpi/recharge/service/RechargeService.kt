@@ -1,8 +1,10 @@
 package `in`.youpi.recharge.service
 
 import `in`.youpi.core.Result
-import `in`.youpi.core.razorpay.RazorpayClient
-import `in`.youpi.core.razorpay.RazorpayOrderCreationException
+
+import `in`.youpi.core.cashfree.CashfreeClient
+import `in`.youpi.core.cashfree.CashfreeOrderCreationException
+import `in`.youpi.core.cashfree.CashfreeRefundException
 import `in`.youpi.events.PushNotificationService
 import `in`.youpi.auth.repository.UserRepository
 import `in`.youpi.gold.GoldRewardService
@@ -45,7 +47,8 @@ class RechargeService(
     @Qualifier("proxiedWebClient") private val webClient: WebClient,
     private val investService: InvestService,                   // ← recharge → auto gold-invest ke liye (LEGACY, disabled this version -- see handleWebhookCaptured)
     private val goldRewardService: GoldRewardService,            // ← recharge → coin-count reward (THIS VERSION's real gold-crediting path)
-    private val razorpayClient: RazorpayClient,
+
+    private val cashfreeClient: CashfreeClient,
     private val a1topupClient: A1TopupClient,
     // Push notification for the "app was fully closed by the time
     // fulfillment confirmed" case -- see PushNotificationService.kt's doc
@@ -411,19 +414,25 @@ class RechargeService(
         // a fake razorpayOrderId -- meaning a real API failure here would
         // leave an orphaned "INITIATED" order with no way to actually pay it.
         val amountPaise = req.planAmount.multiply(BigDecimal(100)).toLong()
+        // gatewayOrderId is stored in the same razorpayOrderId DB column /
+        // response field regardless of which gateway created it -- that
+        // column is already used generically (see PaymentService.kt's
+        // findByRazorpayOrderId being called for Cashfree orders too).
+        // Renaming it is a separate, lower-priority cleanup -- not done here
+        // to keep this migration's blast radius small.
+        var cashfreePaymentSessionId: String? = null
         val razorpayOrderId = try {
-            razorpayClient.createOrder(
-                amountPaise = amountPaise,
-                receipt = req.idempotencyKey,
-                notes = mapOf(
-                    "userId" to userId.toString(),
-                    "mobileNumber" to req.mobileNumber,
-                    "operator" to req.operator
-                )
-            ).id
-        } catch (e: RazorpayOrderCreationException) {
-            log.error("Razorpay order creation failed for user={}: {}", userId, e.message)
-            return Result.failure(RechargeApiException(e.message ?: "Razorpay order creation failed"))
+            val cfResult = cashfreeClient.createOrder(
+                amountRupees = req.planAmount.toDouble(),
+                orderId = req.idempotencyKey,
+                customerId = userId.toString(),
+                customerPhone = req.mobileNumber
+            )
+            cashfreePaymentSessionId = cfResult.paymentSessionId
+            cfResult.orderId
+        } catch (e: CashfreeOrderCreationException) {
+            log.error("Cashfree order creation failed for user={}: {}", userId, e.message)
+            return Result.failure(RechargeApiException(e.message ?: "Cashfree order creation failed"))
         }
 
         val order = rechargeRepo.insertOrder(
@@ -465,6 +474,7 @@ class RechargeService(
             RechargeOrderResponse(
                 orderId = order.id!!,
                 razorpayOrderId = razorpayOrderId,
+                paymentSessionId = cashfreePaymentSessionId,   // NEW -- null for Razorpay, populated for Cashfree
                 amount = req.planAmount,
                 status = "INITIATED",
                 paymentMode = req.paymentMode.name
@@ -568,17 +578,16 @@ class RechargeService(
         var refundFailureNote: String? = null
         if (status == "RECHARGE_FAILED") {
             try {
-                val refund = razorpayClient.refund(
-                    paymentId = razorpayPaymentId,
-                    notes = mapOf(
-                        "reason" to "recharge_delivery_failed",
-                        "rechargeOrderId" to order.id.toString()
-                    )
+                val refund = cashfreeClient.refund(
+                    orderId = order.razorpayOrderId ?: "",
+                    refundId = "refund-${order.id}",
+                    amountRupees = order.planAmount.toDouble(),
+                    refundNote = "recharge_delivery_failed"
                 )
                 status = "REFUNDED"
                 log.info(
-                    "Refund issued for orderId={} after A1Topup failure: refundId={}, status={}",
-                    order.id, refund.id, refund.status
+                    "Cashfree refund issued for orderId={} after A1Topup failure: refundId={}, status={}",
+                    order.id, refund.refundId, refund.refundStatus
                 )
             } catch (e: Exception) {
                 // Refund itself failed -- this is now a double failure that
@@ -978,16 +987,14 @@ class RechargeService(
             var finalStatus = "RECHARGE_FAILED"
             var refundFailureNote: String? = null
             try {
-                val refund = razorpayClient.refund(
-                    paymentId = order.razorpayPaymentId!!,
-                    notes = mapOf(
-                        "reason" to "recharge_delivery_failed",
-                        "rechargeOrderId" to order.id.toString(),
-                        "resolvedVia" to "reconciliation"
-                    )
+                val refund = cashfreeClient.refund(
+                    orderId = order.razorpayOrderId ?: "",
+                    refundId = "refund-${order.id}-recon",
+                    amountRupees = order.planAmount.toDouble(),
+                    refundNote = "recharge_delivery_failed_reconciliation"
                 )
                 finalStatus = "REFUNDED"
-                log.info("Reconciliation: orderId={} auto-refunded: refundId={}", orderId, refund.id)
+                log.info("Reconciliation: orderId={} Cashfree auto-refunded: refundId={}", orderId, refund.refundId)
             } catch (e: Exception) {
                 log.error(
                     "Reconciliation: REFUND FAILED for orderId={} -- customer still owed money, needs manual refund. Error: {}",

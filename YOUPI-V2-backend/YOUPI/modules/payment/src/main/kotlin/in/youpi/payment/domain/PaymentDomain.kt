@@ -9,6 +9,7 @@ import java.util.UUID
 data class CreatePaymentOrderRequest(
     val amount: BigDecimal,
     val purpose: PaymentPurpose,
+    val mobileNumber: String,   // NEW -- Cashfree requires customer_phone at order-creation, Razorpay didn't
     val referenceId: UUID? = null,
     val idempotencyKey: String
 )
@@ -22,8 +23,7 @@ data class PaymentOrderResponse(
     val razorpayOrderId: String,
     val amount: BigDecimal,
     val currency: String = "INR",
-    val status: String,
-    val keyId: String
+    val status: String
 )
 
 data class RazorpayWebhookPayload(

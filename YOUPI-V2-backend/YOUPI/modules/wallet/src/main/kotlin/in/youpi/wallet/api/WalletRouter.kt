@@ -45,8 +45,7 @@ class WalletRouter(private val walletService: WalletService) {
                 responses = [SwaggerApiResponse(responseCode = "200", description = "Transfer successful")])),
         RouterOperation(path = "/v1/wallet/topup/order", method = [RequestMethod.POST],
             operation = Operation(operationId = "createWalletTopupOrder", summary = "Create wallet topup order",
-                description = "Creates a real Razorpay order for adding money to the NBFC wallet.",
-                tags = ["Wallet"],
+                description = "Creates a real Cashfree order for adding money to the NBFC wallet.",                tags = ["Wallet"],
                 requestBody = SwaggerRequestBody(content = [Content(schema = Schema(implementation = CreateWalletTopupOrderRequest::class))]),
                 responses = [SwaggerApiResponse(responseCode = "200", description = "Order created")]))
     )
