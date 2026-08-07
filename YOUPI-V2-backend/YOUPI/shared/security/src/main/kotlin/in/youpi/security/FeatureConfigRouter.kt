@@ -1,4 +1,4 @@
-package `in`.youpi.config
+﻿package `in`.youpi.security
 
 import `in`.youpi.core.ApiResponse
 import org.springframework.beans.factory.annotation.Value

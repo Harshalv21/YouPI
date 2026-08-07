@@ -1,7 +1,9 @@
 package `in`.youpi.recharge.service
 
 import `in`.youpi.core.Result
-
+import `in`.youpi.core.WalletCreditPort
+import `in`.youpi.core.WalletDebitOutcome
+import `in`.youpi.core.WalletDebitPort
 import `in`.youpi.core.cashfree.CashfreeClient
 import `in`.youpi.core.cashfree.CashfreeOrderCreationException
 import `in`.youpi.core.cashfree.CashfreeRefundException
@@ -50,6 +52,12 @@ class RechargeService(
 
     private val cashfreeClient: CashfreeClient,
     private val a1topupClient: A1TopupClient,
+    // ← NAYA: WALLET payment mode ke liye. Interfaces (shared/core) hain,
+    // concrete WalletService nahi -- isse modules:recharge ko modules:wallet
+    // pe compile-time depend nahi karna padta (recharge -> gold -> wallet
+    // already exists, ek aur cycle risk avoid kiya).
+    private val walletCreditPort: WalletCreditPort,   // ← refund/reversal jab wallet-paid recharge fail ho
+    private val walletDebitPort: WalletDebitPort,      // ← debit jab user WALLET se pay kare
     // Push notification for the "app was fully closed by the time
     // fulfillment confirmed" case -- see PushNotificationService.kt's doc
     // comment for the full picture of why this exists alongside the
@@ -385,6 +393,13 @@ class RechargeService(
     // ── Order Creation ──
 
     suspend fun createOrder(userId: UUID, req: CreateRechargeRequest): Result<RechargeOrderResponse, RechargeException> {
+        // ← NAYA: WALLET payment mode -- Cashfree/gateway skip, seedha
+        // wallet se debit + synchronous delivery. Alag function mein taaki
+        // gateway wala flow (neeche) bilkul untouched rahe.
+        if (req.paymentMode == PaymentMode.WALLET) {
+            return createWalletPaidOrder(userId, req)
+        }
+
         // ← fix: duplicate pe exception nahi, existing order return karo
         val existing = rechargeRepo.findByIdempotencyKey(req.idempotencyKey)
         if (existing != null) {
@@ -482,6 +497,86 @@ class RechargeService(
         )
     }
 
+    // ── WALLET-Paid Recharge (synchronous, no gateway/webhook) ──
+    //
+    // Debits the wallet FIRST (must succeed before an order row even
+    // exists), then delivers immediately via the shared deliverAndResolve()
+    // -- no webhook wait, since the wallet debit itself is the payment
+    // confirmation. service_code allowlist enforcement happens inside
+    // walletDebitPort.debitForService() (currently only "RECHARGE" is
+    // allowlisted -- see WalletService.kt).
+    private suspend fun createWalletPaidOrder(userId: UUID, req: CreateRechargeRequest): Result<RechargeOrderResponse, RechargeException> {
+        val existing = rechargeRepo.findByIdempotencyKey(req.idempotencyKey)
+        if (existing != null) {
+            return Result.success(
+                RechargeOrderResponse(
+                    orderId = existing.id!!,
+                    razorpayOrderId = existing.razorpayOrderId,
+                    paymentSessionId = null,
+                    amount = existing.planAmount,
+                    status = existing.status,
+                    paymentMode = existing.paymentMode
+                )
+            )
+        }
+
+        val debitOutcome = walletDebitPort.debitForService(
+            userId = userId,
+            walletType = "NBFC",
+            amount = req.planAmount,
+            serviceCode = "RECHARGE",
+            referenceId = null,   // order doesn't exist yet -- chicken/egg, order.id gets tied in via idempotencyKey below instead
+            description = "Recharge ${req.mobileNumber} (₹${req.planAmount})",
+            idempotencyKey = "recharge_debit_${req.idempotencyKey}"
+        )
+
+        when (debitOutcome) {
+            is WalletDebitOutcome.Rejected -> {
+                log.warn("WALLET-paid recharge rejected at debit: userId={}, reason={}, message={}",
+                    userId, debitOutcome.reason, debitOutcome.message)
+                return Result.failure(WalletPaymentRejectedException(debitOutcome.message))
+            }
+            is WalletDebitOutcome.Success -> { /* proceed */ }
+        }
+
+        val order = rechargeRepo.insertOrder(
+            userId = userId,
+            mobileNumber = req.mobileNumber,
+            operator = req.operator,
+            circle = req.circle,
+            planId = req.planId,
+            planAmount = req.planAmount,
+            planDetails = "{}",
+            paymentMode = req.paymentMode.name,   // "WALLET"
+            emiMonths = null,                     // WALLET doesn't support EMI
+            emiAmount = null,
+            status = "INITIATED",
+            razorpayOrderId = null,               // no gateway order for a wallet-paid recharge
+            goldAutoInvest = false,
+            idempotencyKey = req.idempotencyKey,
+            planValidityDays = req.planValidityDays
+        )
+
+        log.info("Recharge order created (WALLET paid): orderId={}, amount=₹{}, userId={}", order.id, req.planAmount, userId)
+
+        // Synchronous delivery -- wallet debit already confirmed, no
+        // webhook to wait for. deliverAndResolve() handles A1Topup
+        // delivery, wallet-reversal-on-failure, gold reward, and push.
+        deliverAndResolve(order, paymentIdentifier = "WALLET-${order.id}")
+
+        val finalOrder = rechargeRepo.findById(order.id!!) ?: order
+        return Result.success(
+            RechargeOrderResponse(
+                orderId = finalOrder.id!!,
+                razorpayOrderId = null,
+                paymentSessionId = null,
+                amount = finalOrder.planAmount,
+                status = finalOrder.status,
+                paymentMode = finalOrder.paymentMode
+            )
+        )
+    }
+
     // ── Webhook-Driven Completion (the ONLY path that grants SUCCESS + gold) ──
     //
     // Previously `confirmRecharge` trusted a client-supplied razorpaySignature
@@ -511,6 +606,28 @@ class RechargeService(
             return true
         }
 
+        return deliverAndResolve(order, razorpayPaymentId)
+    }
+
+    // ── Shared delivery + outcome + refund + reward + push logic ──
+    //
+    // EXTRACTED from what used to be the body of handleWebhookCaptured() --
+    // now called from TWO places:
+    //   1. handleWebhookCaptured() -- gateway (Cashfree) payment confirmed
+    //      via webhook, async.
+    //   2. createOrder()'s WALLET branch -- wallet debit already confirmed
+    //      synchronously, no webhook to wait for.
+    //
+    // paymentIdentifier is stored as the order's razorpay_payment_id column
+    // regardless of which path called this -- for WALLET orders it's a
+    // synthetic "WALLET-{orderId}" marker (no real gateway payment id
+    // exists), same pattern already used for razorpay_order_id being
+    // reused generically across gateways elsewhere in this codebase.
+    //
+    // Refund branches on order.paymentMode: WALLET-paid orders reverse via
+    // walletCreditPort (credit back to the wallet); everything else keeps
+    // the original cashfreeClient.refund() behaviour, UNCHANGED.
+    private suspend fun deliverAndResolve(order: RechargeOrderEntity, paymentIdentifier: String): Boolean {
         // ── Deliver the actual recharge via A1Topup ──
         var status = "PAYMENT_DONE"
         var a1topupStatus: String
@@ -546,8 +663,8 @@ class RechargeService(
                 }
             }
         } catch (e: Exception) {
-            // Payment is already captured at this point. Previously this
-            // left the order at PAYMENT_DONE forever with no automated
+            // Payment is already captured/debited at this point. Previously
+            // this left the order at PAYMENT_DONE forever with no automated
             // resolution -- no Status API integration exists yet to
             // actually confirm what happened on A1Topup's side. Given that,
             // treating this the same as a confirmed failure (attempt
@@ -568,48 +685,80 @@ class RechargeService(
             a1topupRawResponse = "error: ${e.message}"
         }
 
-        // ── Auto-refund on confirmed A1Topup failure ──
-        // Payment was captured but the recharge itself definitively failed
-        // (not "ambiguous, needs status check" -- that case is left alone
-        // above since the recharge may still have gone through). The
+        // ── Auto-refund/reversal on confirmed A1Topup failure ──
+        // Payment was captured/debited but the recharge itself definitively
+        // failed (not "ambiguous, needs status check" -- that case is left
+        // alone above since the recharge may still have gone through). The
         // customer paid for something they didn't receive; money must go
         // back automatically, not sit as a silent RECHARGE_FAILED row that
         // nobody notices until a support ticket shows up.
         var refundFailureNote: String? = null
         if (status == "RECHARGE_FAILED") {
-            try {
-                val refund = cashfreeClient.refund(
-                    orderId = order.razorpayOrderId ?: "",
-                    refundId = "refund-${order.id}",
-                    amountRupees = order.planAmount.toDouble(),
-                    refundNote = "recharge_delivery_failed"
-                )
-                status = "REFUNDED"
-                log.info(
-                    "Cashfree refund issued for orderId={} after A1Topup failure: refundId={}, status={}",
-                    order.id, refund.refundId, refund.refundStatus
-                )
-            } catch (e: Exception) {
-                // Refund itself failed -- this is now a double failure that
-                // NEEDS a human: customer paid, recharge failed, AND the
-                // automatic refund didn't go through either. Do not let this
-                // disappear into a debug log next to routine warnings --
-                // keep status as RECHARGE_FAILED (not REFUNDED, that would
-                // be a lie) and record the refund attempt's own failure so
-                // it's visible on the order itself, not just in logs.
-                log.error(
-                    "REFUND FAILED for orderId={} after A1Topup failure -- customer still owed money, " +
-                            "needs manual refund via Razorpay dashboard. Error: {}",
-                    order.id, e.message, e
-                )
-                refundFailureNote = "Auto-refund failed: ${e.message}. Needs manual refund."
+            if (order.paymentMode == "WALLET") {
+                // ── Wallet reversal (NOT Cashfree -- this order was never
+                //    paid through the gateway) ──
+                try {
+                    val reversed = walletCreditPort.reverseDebit(
+                        userId = order.userId,
+                        walletType = "NBFC",
+                        amountPaise = order.planAmount.multiply(BigDecimal(100)).toLong(),
+                        referenceType = "RECHARGE_REFUND",
+                        referenceId = order.id,
+                        description = "Refund: recharge delivery failed (orderId=${order.id})",
+                        idempotencyKey = "recharge_refund_${order.id}"
+                    )
+                    if (reversed) {
+                        status = "REFUNDED"
+                        log.info("Wallet reversal credited for orderId={} after A1Topup failure", order.id)
+                    } else {
+                        log.error(
+                            "WALLET REVERSAL FAILED for orderId={} -- customer still owed money, " +
+                                    "needs manual wallet credit.", order.id
+                        )
+                        refundFailureNote = "Auto wallet-reversal failed. Needs manual credit."
+                    }
+                } catch (e: Exception) {
+                    log.error(
+                        "WALLET REVERSAL FAILED for orderId={} -- customer still owed money, " +
+                                "needs manual wallet credit. Error: {}", order.id, e.message, e
+                    )
+                    refundFailureNote = "Auto wallet-reversal failed: ${e.message}. Needs manual credit."
+                }
+            } else {
+                try {
+                    val refund = cashfreeClient.refund(
+                        orderId = order.razorpayOrderId ?: "",
+                        refundId = "refund-${order.id}",
+                        amountRupees = order.planAmount.toDouble(),
+                        refundNote = "recharge_delivery_failed"
+                    )
+                    status = "REFUNDED"
+                    log.info(
+                        "Cashfree refund issued for orderId={} after A1Topup failure: refundId={}, status={}",
+                        order.id, refund.refundId, refund.refundStatus
+                    )
+                } catch (e: Exception) {
+                    // Refund itself failed -- this is now a double failure that
+                    // NEEDS a human: customer paid, recharge failed, AND the
+                    // automatic refund didn't go through either. Do not let this
+                    // disappear into a debug log next to routine warnings --
+                    // keep status as RECHARGE_FAILED (not REFUNDED, that would
+                    // be a lie) and record the refund attempt's own failure so
+                    // it's visible on the order itself, not just in logs.
+                    log.error(
+                        "REFUND FAILED for orderId={} after A1Topup failure -- customer still owed money, " +
+                                "needs manual refund via Cashfree dashboard. Error: {}",
+                        order.id, e.message, e
+                    )
+                    refundFailureNote = "Auto-refund failed: ${e.message}. Needs manual refund."
+                }
             }
         }
 
         var updatedOrder = rechargeRepo.updateAfterConfirm(
             id = order.id!!,
             status = status,
-            razorpayPaymentId = razorpayPaymentId,
+            razorpayPaymentId = paymentIdentifier,
             a1topupStatus = a1topupStatus,
             a1topupRawResponse = toSafeJson(a1topupRawResponse),
             goldAutoInvest = order.goldAutoInvest,
@@ -617,7 +766,7 @@ class RechargeService(
             failureReason = refundFailureNote
         )
 
-        log.info("Recharge confirmed via webhook: orderId={}, amount={}", updatedOrder.id, updatedOrder.planAmount)
+        log.info("Recharge confirmed: orderId={}, amount={}, paymentMode={}", updatedOrder.id, updatedOrder.planAmount, order.paymentMode)
 
         // ── Set expiry on confirmed success ──
         // Only meaningful for a genuinely completed recharge -- REFUNDED,

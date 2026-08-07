@@ -28,7 +28,7 @@ data class CreateRechargeRequest(
 )
 
 enum class PaymentMode {
-    FULL, EMI_3, EMI_6, EMI_12, SMART_SAVER_WALLET
+    FULL, EMI_3, EMI_6, EMI_12, SMART_SAVER_WALLET, WALLET
 }
 
 /**
@@ -150,4 +150,9 @@ class RechargeApiException(detail: String) : RechargeException(
 )
 class RechargeAlreadyConfirmedException(val orderId: UUID) : RechargeException(
     "RECHARGE_ALREADY_CONFIRMED", "Recharge order $orderId is already confirmed.", 409
+)
+
+// ← NAYA: wallet-as-payment-method ke liye
+class WalletPaymentRejectedException(reason: String) : RechargeException(
+    "WALLET_PAYMENT_REJECTED", reason, 402
 )

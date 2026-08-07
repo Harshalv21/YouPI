@@ -41,8 +41,6 @@ import '../presentation/loan/loan_approved_screen.dart';
 import '../presentation/loan/my_loans_screen.dart';
 import '../presentation/wallet/wallet_screen.dart';
 import '../presentation/wallet/add_money_screen.dart';
-import '../presentation/wallet/withdraw_screen.dart';
-import '../presentation/wallet/send_money_screen.dart';
 import '../presentation/wallet/transaction_history_screen.dart';
 import '../presentation/settings/settings_screen.dart';
 import '../presentation/settings/privacy_policy_screen.dart';
@@ -159,8 +157,6 @@ class AppRouter {
       GoRoute(path: '/loan/approved', builder: (c, s) => const LoanApprovedScreen()),
       GoRoute(path: '/loan/my-loans', builder: (c, s) => const MyLoansScreen()),
       GoRoute(path: '/wallet/add', builder: (c, s) => const AddMoneyScreen()),
-      GoRoute(path: '/wallet/withdraw', builder: (c, s) => const WithdrawScreen()),
-      GoRoute(path: '/wallet/send', builder: (c, s) => const SendMoneyScreen()),
       GoRoute(path: '/wallet/history', builder: (c, s) => const TransactionHistoryScreen()),
       GoRoute(path: '/settings/edit-profile', builder: (c, s) => const EditProfileScreen()),
       GoRoute(path: '/settings/notifications', builder: (c, s) => const NotificationsSettingsScreen()),
@@ -212,14 +208,14 @@ class _MainShellState extends State<MainShell> {
     '/dashboard/settings',
   ];
 
-  // Invest and Wallet aren't part of this release -- backend already
-  // blocks their API routes (403 FEATURE_DISABLED via FeatureGateFilter),
-  // this stops the bottom nav from routing into a screen that'll just hit
-  // raw API errors, showing a clean "Coming Soon" popup instead. Home,
-  // Plans, Settings tabs are untouched. Route definitions themselves are
-  // NOT removed (still there for future re-enabling), only this tap
-  // interception changed.
-  static const _lockedTabs = {2: 'Invest', 3: 'Wallet'};
+  // Invest isn't part of this release -- backend already blocks its API
+  // routes (403 FEATURE_DISABLED via FeatureGateFilter), this stops the
+  // bottom nav from routing into a screen that'll just hit raw API errors,
+  // showing a clean "Coming Soon" popup instead. Wallet MVP shipped --
+  // unlocked. Home, Plans, Settings tabs are untouched. Route definitions
+  // themselves are NOT removed (still there for future re-enabling), only
+  // this tap interception changed.
+  static const _lockedTabs = {2: 'Invest'};
 
   void _handleTabTap(int index) {
     if (_lockedTabs.containsKey(index)) {

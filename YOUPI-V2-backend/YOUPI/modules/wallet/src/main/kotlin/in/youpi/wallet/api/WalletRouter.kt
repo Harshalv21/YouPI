@@ -37,24 +37,24 @@ class WalletRouter(private val walletService: WalletService) {
                     Parameter(name = "page", description = "Page number (0-based)", required = false)
                 ],
                 responses = [SwaggerApiResponse(responseCode = "200", description = "Ledger entries")])),
-        RouterOperation(path = "/v1/wallet/transfer", method = [RequestMethod.POST],
-            operation = Operation(operationId = "p2pTransfer", summary = "P2P wallet transfer",
-                description = "Transfers funds from your NBFC wallet to another user by mobile number. Idempotent.",
-                tags = ["Wallet"],
-                requestBody = SwaggerRequestBody(content = [Content(schema = Schema(implementation = TransferRequest::class))]),
-                responses = [SwaggerApiResponse(responseCode = "200", description = "Transfer successful")])),
         RouterOperation(path = "/v1/wallet/topup/order", method = [RequestMethod.POST],
             operation = Operation(operationId = "createWalletTopupOrder", summary = "Create wallet topup order",
                 description = "Creates a real Cashfree order for adding money to the NBFC wallet.",                tags = ["Wallet"],
                 requestBody = SwaggerRequestBody(content = [Content(schema = Schema(implementation = CreateWalletTopupOrderRequest::class))]),
-                responses = [SwaggerApiResponse(responseCode = "200", description = "Order created")]))
+                responses = [SwaggerApiResponse(responseCode = "200", description = "Order created")])),
+        RouterOperation(path = "/v1/wallet/topup/order/{orderId}/status", method = [RequestMethod.GET],
+            operation = Operation(operationId = "getWalletTopupOrderStatus", summary = "Get wallet topup order status",
+                description = "Polled by the client after Cashfree checkout closes, to confirm the wallet was actually credited.",
+                tags = ["Wallet"],
+                parameters = [Parameter(name = "orderId", description = "Cashfree order id returned from order creation", required = true)],
+                responses = [SwaggerApiResponse(responseCode = "200", description = "Order status")]))
     )
     fun walletRoutes() = coRouter {
         "/v1/wallet".nest {
             GET("/balance") { handleBalance(it) }
             GET("/ledger") { handleLedger(it) }
-            POST("/transfer") { handleTransfer(it) }
             POST("/topup/order") { handleCreateTopupOrder(it) }
+            GET("/topup/order/{orderId}/status") { handleGetTopupOrderStatus(it) }
         }
     }
 
@@ -74,22 +74,22 @@ class WalletRouter(private val walletService: WalletService) {
             .bodyValueAndAwait(ApiResponse.ok(entries))
     }
 
-    private suspend fun handleTransfer(request: ServerRequest): ServerResponse {
+    // ← NAYA: wallet topup order creation
+    private suspend fun handleCreateTopupOrder(request: ServerRequest): ServerResponse {
         val userId = request.currentUserId()
-        val body = request.awaitBody<TransferRequest>()
-        // ← ab walletService.transfer() call hoga — debit + credit dono ek saath
-        return when (val result = walletService.transfer(userId, body)) {
+        val body = request.awaitBody<CreateWalletTopupOrderRequest>()
+        return when (val result = walletService.createTopupOrder(userId, body.amountRupees)) {
             is Result.Success -> ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
                 .bodyValueAndAwait(ApiResponse.ok(result.value))
             is Result.Failure -> throw result.error
         }
     }
 
-    // ← NAYA: wallet topup order creation
-    private suspend fun handleCreateTopupOrder(request: ServerRequest): ServerResponse {
+    // ← NAYA: Add Money screen post-checkout polling ke liye
+    private suspend fun handleGetTopupOrderStatus(request: ServerRequest): ServerResponse {
         val userId = request.currentUserId()
-        val body = request.awaitBody<CreateWalletTopupOrderRequest>()
-        return when (val result = walletService.createTopupOrder(userId, body.amountRupees)) {
+        val orderId = request.pathVariable("orderId")
+        return when (val result = walletService.getTopupOrderStatus(userId, orderId)) {
             is Result.Success -> ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
                 .bodyValueAndAwait(ApiResponse.ok(result.value))
             is Result.Failure -> throw result.error

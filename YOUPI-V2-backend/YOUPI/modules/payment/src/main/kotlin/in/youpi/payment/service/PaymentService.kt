@@ -1,6 +1,7 @@
 package `in`.youpi.payment.service
 
 import `in`.youpi.core.Result
+import `in`.youpi.core.WalletCreditPort
 import `in`.youpi.core.cashfree.CashfreeClient
 import `in`.youpi.core.cashfree.CashfreeOrderCreationException
 import `in`.youpi.events.PubSubPublisher
@@ -26,6 +27,7 @@ class PaymentService(
     private val objectMapper: ObjectMapper,                // ← webhook JSON parse ke liye
     private val cashfreeClient: CashfreeClient,
     private val rechargeService: RechargeService,          // ← webhook.captured → recharge completion
+    private val walletCreditPort: WalletCreditPort,        // ← NAYA: webhook.captured → wallet top-up credit (purpose='WALLET_TOPUP')
     @Value("\${youpi.cashfree.webhook-secret:}") private val cashfreeWebhookSecret: String
 ) {
 
@@ -189,6 +191,23 @@ class PaymentService(
         )
 
         log.info("Cashfree webhook: payment captured orderId={}, paymentId={}", updated.id, cfPaymentId)
+
+        // Wallet top-up -- credit the wallet directly (Wallet MVP scope:
+        // NBFC wallet only, no REWARD bucket yet). Idempotent -- credit()
+        // dedupes on idempotencyKey, so a webhook retry is a safe no-op.
+        if (updated.purpose == "WALLET_TOPUP") {
+            val credited = walletCreditPort.creditWalletTopup(
+                userId = updated.userId,
+                walletType = "NBFC",
+                amountPaise = updated.amountPaise,
+                idempotencyKey = updated.idempotencyKey,
+                cashfreeOrderId = cfOrderId
+            )
+            if (!credited) {
+                log.error("WALLET_TOPUP webhook: credit failed for orderId={}, userId={}", updated.id, updated.userId)
+            }
+        }
+
         publishPaymentCapturedEvent(updated)
         return true
     }

@@ -71,16 +71,6 @@ class _WalletScreenState extends State<WalletScreen> {
                 if (!await GuestGuard.requireAuth(context, actionLabel: 'add money')) return;
                 if (context.mounted) context.push('/wallet/add');
               }),
-              const SizedBox(width: 10),
-              _WalletAction('Send Money', Icons.send_rounded, () async {
-                if (!await GuestGuard.requireAuth(context, actionLabel: 'send money')) return;
-                if (context.mounted) context.push('/wallet/send');
-              }),
-              const SizedBox(width: 10),
-              _WalletAction('Withdraw', Icons.download_rounded, () async {
-                if (!await GuestGuard.requireAuth(context, actionLabel: 'withdraw money')) return;
-                if (context.mounted) context.push('/wallet/withdraw');
-              }),
             ]),
             const SizedBox(height: 24),
             Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [

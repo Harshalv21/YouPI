@@ -205,4 +205,33 @@ class CashfreeClient(
             throw CashfreeRefundException("Cashfree refund failed: ${e.message}")
         }
     }
+
+    /**
+     * Fetches current order status directly from Cashfree -- used by the
+     * wallet top-up sweeper (WalletService.sweepPendingTopups()) as a
+     * missed-webhook safety net. Returns order_status only (Cashfree's
+     * order-status API doesn't include a payment id in this response --
+     * that lives in the separate /orders/{id}/payments endpoint, not
+     * needed here since the sweeper only needs to know PAID vs not).
+     */
+    suspend fun getOrderStatus(orderId: String): CashfreeOrderResult {
+        if (appId.isBlank() || secretKey.isBlank()) {
+            throw CashfreeOrderCreationException(
+                "Cashfree API keys not configured (youpi.cashfree.app-id / secret-key)"
+            )
+        }
+
+        return try {
+            webClient.get()
+                .uri("$baseUrl/orders/$orderId")
+                .header("x-client-id", appId)
+                .header("x-client-secret", secretKey)
+                .header("x-api-version", apiVersion)
+                .retrieve()
+                .awaitBody<CashfreeOrderResult>()
+        } catch (e: Exception) {
+            log.error("Cashfree order status fetch failed for orderId={}: {}", orderId, e.message)
+            throw CashfreeOrderCreationException("Cashfree order status fetch failed: ${e.message}")
+        }
+    }
 }

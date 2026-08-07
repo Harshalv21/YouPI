@@ -39,18 +39,38 @@ android {
         versionName = flutter.versionName
     }
 
+    // ← FIX: only register the "release" signing config when key.properties
+    // actually exists. Previously this unconditionally did `as String` on
+    // keystoreProperties["storePassword"] etc. -- if key.properties is
+    // missing (common on a fresh dev machine; it holds the keystore
+    // password and typically isn't committed to git), those lookups return
+    // null, and `null as String` throws "null cannot be cast to non-null
+    // type kotlin.String". This block is evaluated eagerly by Gradle even
+    // for a plain debug `flutter run`, so it crashed every local build, not
+    // just release builds.
     signingConfigs {
-        create("release") {
-            storeFile = keystoreProperties["storeFile"]?.let { file(it) }
-            storePassword = keystoreProperties["storePassword"] as String
-            keyAlias = keystoreProperties["keyAlias"] as String
-            keyPassword = keystoreProperties["keyPassword"] as String
+        if (keystorePropertiesFile.exists()) {
+            create("release") {
+                storeFile = keystoreProperties["storeFile"]?.let { file(it) }
+                storePassword = keystoreProperties["storePassword"] as String
+                keyAlias = keystoreProperties["keyAlias"] as String
+                keyPassword = keystoreProperties["keyPassword"] as String
+            }
         }
     }
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("release")
+            // Fall back to the debug signing config when no keystore is
+            // configured locally -- lets `flutter run --release` and plain
+            // debug builds work on a dev machine without key.properties.
+            // A real release/production build (CI, or your machine when you
+            // actually have key.properties) still signs with the real key.
+            signingConfig = if (keystorePropertiesFile.exists()) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 }

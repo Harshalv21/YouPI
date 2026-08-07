@@ -119,13 +119,13 @@ youpi:
       mock-enabled: false
       gold-invest-percentage: 1.0
 
-    features:
-      wallet-enabled: false
-      invest-enabled: false
-      loan-enabled: false
-      bnpl-enabled: false
-      smart-saver-enabled: false
-      kyc-enabled: false
+  features:             
+    wallet-enabled: true
+    invest-enabled: false
+    loan-enabled: false
+    bnpl-enabled: false
+    smart-saver-enabled: false
+    kyc-enabled: false
 
 
 

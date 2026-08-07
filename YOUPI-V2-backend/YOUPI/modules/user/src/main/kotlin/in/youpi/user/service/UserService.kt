@@ -4,6 +4,7 @@ import `in`.youpi.auth.repository.UserEntity
 import `in`.youpi.auth.repository.UserRepository
 import `in`.youpi.core.NotFoundException
 import `in`.youpi.core.Result
+import `in`.youpi.core.ValidationException
 import `in`.youpi.security.EncryptionService
 import `in`.youpi.user.domain.*
 import `in`.youpi.user.repository.KycRecordEntity
@@ -25,6 +26,10 @@ class UserService(
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
+
+    companion object {
+        private val EMAIL_REGEX = Regex("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$")
+    }
 
     // ── Profile ──
 
@@ -59,6 +64,16 @@ class UserService(
     suspend fun updateProfile(userId: UUID, req: UpdateProfileRequest): UserProfileResponse {
         val user = userRepo.findById(userId)
             ?: throw NotFoundException("User", userId.toString())
+
+        // Email mandatory only at first-time onboarding (user.email abhi tak null hai).
+        // Baad ke profile edits (jaise sirf DOB/name update) mein email dobara bhejna zaroori nahi,
+        // kyunki wo already set hai aur req.email ?: user.email fallback use hoga.
+        if (user.email == null && req.email.isNullOrBlank()) {
+            throw ValidationException("email", "Email is required to complete your profile")
+        }
+        if (req.email != null && !req.email.matches(EMAIL_REGEX)) {
+            throw ValidationException("email", "Invalid email format")
+        }
 
         val updated = userRepo.save(
             user.copy(

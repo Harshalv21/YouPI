@@ -255,52 +255,47 @@ class _HomeScreenState extends State<HomeScreen> {
                         ],
                       ),
                       const SizedBox(height: 20),
-                      ComingSoonOverlay(
-                        iconSize: 26,
-                        labelFontSize: 13,
-                        labelAlignment: const Alignment(0.55, -0.75),
-                        child: YoupiGlassCard(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text('Total Balance', style: AppTextStyles.labelMedium),
-                                  GestureDetector(
-                                    onTap: () => setState(() => _balanceHidden = !_balanceHidden),
-                                    child: Icon(
-                                      _balanceHidden ? Icons.visibility_off_rounded : Icons.visibility_rounded,
-                                      color: AppColors.textSecondary,
-                                      size: 20,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                _balanceHidden ? '₹ • • • • • •' : CurrencyFormatter.format(vm.walletBalance),
-                                style: AppTextStyles.amountLarge,
-                              ),
-                              const SizedBox(height: 12),
-                              Align(
-                                alignment: Alignment.centerRight,
-                                child: GestureDetector(
-                                  onTap: () => context.go('/dashboard/wallet'),
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                                    decoration: BoxDecoration(
-                                      color: AppColors.primary.withOpacity(0.1),
-                                      borderRadius: BorderRadius.circular(20),
-                                      border: Border.all(color: AppColors.primary),
-                                    ),
-                                    child: Text('View Wallet',
-                                        style: AppTextStyles.chipText.copyWith(color: AppColors.primary)),
+                      YoupiGlassCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text('Total Balance', style: AppTextStyles.labelMedium),
+                                GestureDetector(
+                                  onTap: () => setState(() => _balanceHidden = !_balanceHidden),
+                                  child: Icon(
+                                    _balanceHidden ? Icons.visibility_off_rounded : Icons.visibility_rounded,
+                                    color: AppColors.textSecondary,
+                                    size: 20,
                                   ),
                                 ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _balanceHidden ? '₹ • • • • • •' : CurrencyFormatter.format(vm.walletBalance),
+                              style: AppTextStyles.amountLarge,
+                            ),
+                            const SizedBox(height: 12),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: GestureDetector(
+                                onTap: () => context.go('/dashboard/wallet'),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.primary.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(color: AppColors.primary),
+                                  ),
+                                  child: Text('View Wallet',
+                                      style: AppTextStyles.chipText.copyWith(color: AppColors.primary)),
+                                ),
                               ),
-                            ],
-                          ),
+                            ),
+                          ],
                         ),
                       ),
                       const SizedBox(height: 24),
@@ -314,7 +309,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           children: [
                             _QuickAction('Recharge', Icons.wifi_rounded, () => ctx.go('/dashboard/plans')),
                             _QuickAction('Smart Saver', Icons.savings_rounded, () => ctx.push('/plans/smartsave'), locked: true),
-                            _QuickAction('Wallet', Icons.account_balance_wallet_rounded, () => ctx.go('/dashboard/wallet'), locked: true),
+                            _QuickAction('Wallet', Icons.account_balance_wallet_rounded, () => ctx.go('/dashboard/wallet')),
                             _QuickAction('Gold', Icons.monetization_on_rounded, () => ctx.push('/invest/gold'), locked: true),
                             _QuickAction('FD Invest', Icons.trending_up_rounded, () => ctx.push('/invest/fd'), locked: true),
                             _QuickAction('BNPL Shop', Icons.credit_card_rounded, () => ctx.go('/dashboard/bnpl'), locked: true),
