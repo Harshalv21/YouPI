@@ -30,6 +30,14 @@ class FirebaseAuthFilter(
         "/v1/config/features",
         "/webhooks/",
         "/api/webhooks/",
+        // Admin panel (youpi_admin_panel.html) uses its own separate auth
+        // scheme (AdminJwtService-issued tokens, verified inline by
+        // AdminPanelRouter's requireAdmin()) -- NOT the Firebase/MPIN
+        // tokens this filter checks. Every /admin-panel/ route (including
+        // login, which by definition has no token yet) must skip this
+        // filter entirely, same reasoning as /webhooks/ above.
+        "/api/v1/admin-panel/",
+        "/v1/admin-panel/",
         "/actuator/health",
         "/api/actuator/health",
         "/swagger-ui",

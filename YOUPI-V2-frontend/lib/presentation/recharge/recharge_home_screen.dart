@@ -175,7 +175,9 @@ class _RechargeHomeScreenState extends State<RechargeHomeScreen> {
                             borderRadius: BorderRadius.circular(14),
                             border: Border.all(color: AppColors.textSecondary.withOpacity(0.1)),
                           ),
-                          child: Row(
+                          child: Stack(
+                            children: [
+                            Row(
                             crossAxisAlignment: CrossAxisAlignment.center,
                             children: [
                               ContactAvatar(mobileNumber: r.mobileNumber, radius: 18),
@@ -211,6 +213,27 @@ class _RechargeHomeScreenState extends State<RechargeHomeScreen> {
                                       ],
                                     );
                                   },
+                                ),
+                              ),
+                            ],
+                            ),
+                              Positioned(
+                                top: 2,
+                                right: 2,
+                                child: GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onTap: () => vm.hideRecentRecharge(r.id),
+                                  child: Container(
+                                    width: 24,
+                                    height: 24,
+                                    alignment: Alignment.center,
+                                    decoration: BoxDecoration(
+                                      color: AppColors.backgroundPrimary,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(color: AppColors.textSecondary.withOpacity(0.2)),
+                                    ),
+                                    child: Icon(Icons.close, size: 12, color: AppColors.textSecondary),
+                                  ),
                                 ),
                               ),
                             ],

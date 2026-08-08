@@ -11,7 +11,7 @@ import java.time.Instant
 import java.util.UUID
 
 /**
- * Admin service ??? KYC review, Smart Saver activation, BNPL/Loan decisions, user management.
+ * Admin service — KYC review, Smart Saver activation, BNPL/Loan decisions, user management.
  * All endpoints require ADMIN user type.
  */
 @Service
@@ -21,7 +21,7 @@ class AdminService(
 
     private val log = LoggerFactory.getLogger(javaClass)
 
-    // ?????? User Management ??????
+    // ── User Management ──
 
     suspend fun listUsers(page: Int = 0, pageSize: Int = 20): List<UserSummary> {
         // TODO: Implement with proper pagination
@@ -56,34 +56,34 @@ class AdminService(
     }
 
     companion object {
-    private val VALID_USER_TYPES = setOf("NORMAL", "SMART_SAVER", "ADMIN")
-}
-
-    suspend fun updateUserType(userId: UUID, userType: String): UserSummary {
-    val normalized = userType.trim().uppercase()
-    if (normalized !in VALID_USER_TYPES) {
-        throw ValidationException(
-            field = "userType",
-            message = "Invalid userType '$userType'. Must be one of: ${VALID_USER_TYPES.joinToString()}"
-        )
+        private val VALID_USER_TYPES = setOf("NORMAL", "SMART_SAVER", "ADMIN")
     }
 
-    val user = userRepo.findById(userId)
-        ?: throw NotFoundException("User", userId.toString())
+    suspend fun updateUserType(userId: UUID, userType: String): UserSummary {
+        val normalized = userType.trim().uppercase()
+        if (normalized !in VALID_USER_TYPES) {
+            throw ValidationException(
+                field = "userType",
+                message = "Invalid userType '$userType'. Must be one of: ${VALID_USER_TYPES.joinToString()}"
+            )
+        }
 
-    val updated = userRepo.save(user.copy(userType = normalized, updatedAt = Instant.now()))
-    log.info("User {} type changed to {}", userId, normalized)
+        val user = userRepo.findById(userId)
+            ?: throw NotFoundException("User", userId.toString())
 
-    return UserSummary(
-        userId = updated.id!!,
-        mobile = updated.mobile,
-        fullName = updated.fullName,
-        userType = updated.userType,
-        isKycVerified = updated.isKycVerified,
-        isActive = updated.isActive,
-        createdAt = updated.createdAt
-    )
-}
+        val updated = userRepo.save(user.copy(userType = normalized, updatedAt = Instant.now()))
+        log.info("User {} type changed to {}", userId, normalized)
+
+        return UserSummary(
+            userId = updated.id!!,
+            mobile = updated.mobile,
+            fullName = updated.fullName,
+            userType = updated.userType,
+            isKycVerified = updated.isKycVerified,
+            isActive = updated.isActive,
+            createdAt = updated.createdAt
+        )
+    }
 
     suspend fun toggleUserActive(userId: UUID, isActive: Boolean): UserSummary {
         val user = userRepo.findById(userId)
@@ -103,7 +103,7 @@ class AdminService(
         )
     }
 
-    // ?????? Dashboard ??????
+    // ── Dashboard ──
 
     suspend fun getDashboard(): AdminDashboard {
         // TODO: Replace with proper aggregate queries

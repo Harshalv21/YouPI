@@ -110,6 +110,8 @@ youpi:
   encryption:
     aes-key: ${AES_KEY}
 
+  admin:
+    jwt-secret: ${ADMIN_JWT_SECRET:}
   sms:
     msg91-auth-key: ${MSG91_AUTH_KEY:}
     otp-template-id: ${MSG91_TEMPLATE_ID:}
@@ -209,6 +211,7 @@ spring:
   config:
     activate:
       on-profile: dev
+
 
 # ── Profile: Prod ──
 ---

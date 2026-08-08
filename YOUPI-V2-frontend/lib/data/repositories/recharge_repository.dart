@@ -222,7 +222,7 @@ class RechargeRepository {
       amount: r.planAmount ?? 0,
       planDescription: r.operator ?? '', // TODO: backend to add plan name/desc
       validity: '', // TODO: backend to add validityDays/label
-      paymentMethod: 'Razorpay',
+      paymentMethod: 'Cashfree',
       paymentTxnId: r.orderId, // TODO: swap for actual Razorpay payment id once backend exposes it
       status: _mapStatus(r),
       failureReason: r.isFailed ? 'Recharge failed. Contact support if amount was deducted.' : null,

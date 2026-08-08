@@ -250,6 +250,11 @@ class RechargeViewModel extends ChangeNotifier {
     }
   }
 
+  Future<void> hideRecentRecharge(String orderId) async {
+    await _repo.hideFromHistory([orderId]);
+    await loadRecentRecharges(); // refresh list after hiding
+  }
+
   Future<void> loadAllRechargeHistory() async {
     try {
       if (_useMockHistory) {
@@ -260,8 +265,7 @@ class RechargeViewModel extends ChangeNotifier {
       }
       notifyListeners();
     } catch (e) {
-      // leave whatever was previously loaded; RechargeHistoryScreen shows
-      // its own empty state if the list stays empty.
+      debugPrint('loadAllRechargeHistory failed: $e'); // TEMP -- remove once diagnosed
     }
   }
 
