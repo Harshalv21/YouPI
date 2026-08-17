@@ -241,7 +241,8 @@ class RechargeRepository {
 class RechargeOrderResult {
   final String orderId;
   final String razorpayOrderId;
-  final String? paymentSessionId;   // NEW -- Cashfree only, null for Razorpay
+  final String? paymentSessionId;   // legacy Cashfree field, always null now
+  final String? razorpayKeyId;      // NEW -- Razorpay Checkout SDK needs this to open
   final double amount;
   final String status;
   final String paymentMode;
@@ -250,6 +251,7 @@ class RechargeOrderResult {
     required this.orderId,
     required this.razorpayOrderId,
     this.paymentSessionId,
+    this.razorpayKeyId,
     required this.amount,
     required this.status,
     required this.paymentMode,
@@ -259,6 +261,7 @@ class RechargeOrderResult {
     orderId: json['orderId'] as String,
     razorpayOrderId: json['razorpayOrderId'] as String? ?? '',
     paymentSessionId: json['paymentSessionId'] as String?,
+    razorpayKeyId: json['razorpayKeyId'] as String?,
     amount: (json['amount'] as num).toDouble(),
     status: json['status'] as String,
     paymentMode: json['paymentMode'] as String,

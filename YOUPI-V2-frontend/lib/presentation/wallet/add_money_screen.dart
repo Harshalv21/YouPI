@@ -4,7 +4,7 @@ import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_dimensions.dart';
 import '../../core/constants/app_text_styles.dart';
-import '../../core/services/cashfree_service.dart';
+import '../../core/services/razorpay_service.dart';
 import '../../core/widgets/youpi_button.dart';
 import '../../data/repositories/wallet_repository.dart';
 import '../invest/invest_viewmodel.dart' show WalletViewModel;
@@ -17,7 +17,7 @@ class AddMoneyScreen extends StatefulWidget {
 
 class _AddMoneyScreenState extends State<AddMoneyScreen> {
   final _walletRepo = WalletRepository();
-  final _cashfreeService = CashfreeService();
+  final _razorpayService = RazorpayService();
   final _amountController = TextEditingController();
 
   bool _isLoading = false;
@@ -57,31 +57,34 @@ class _AddMoneyScreenState extends State<AddMoneyScreen> {
       // ── Step 1: create the order on the backend ──
       final order = await _walletRepo.createTopupOrder(amount);
 
-      if (order.paymentSessionId.isEmpty || order.orderId.isEmpty) {
+      if (order.razorpayKeyId == null || order.razorpayKeyId!.isEmpty || order.orderId.isEmpty) {
         setState(() => _error = 'Could not start payment. Please try again.');
         return;
       }
 
       setState(() => _isLoading = false);
 
-      // ── Step 2: open Cashfree checkout ──
-      final cfResult = await _cashfreeService.open(
+      // ── Step 2: open Razorpay checkout ──
+      final rzResult = await _razorpayService.open(
         orderId: order.orderId,
-        paymentSessionId: order.paymentSessionId,
+        keyId: order.razorpayKeyId!,
+        amountPaise: order.amountPaise,
+        description: 'Wallet top-up',
       );
 
-      if (cfResult.status == CashfreeResultStatus.failure) {
-        setState(() => _error = cfResult.errorMessage ?? 'Payment failed. Please try again.');
+      if (rzResult.status == RazorpayResultStatus.failure) {
+        setState(() => _error = rzResult.errorMessage ?? 'Payment failed. Please try again.');
         return;
       }
-      if (cfResult.status == CashfreeResultStatus.cancelled) {
+      if (rzResult.status == RazorpayResultStatus.cancelled) {
         // user backed out -- not an error, just stop quietly
         return;
       }
 
       // ── Step 3: poll backend to confirm the wallet was actually credited ──
-      // "Verify" from Cashfree's SDK is not confirmation -- same contract as
-      // the recharge flow. Must wait for the webhook to land server-side.
+      // Razorpay's checkout success callback is not confirmation -- same
+      // contract as the recharge flow. Must wait for the webhook to land
+      // server-side.
       setState(() => _isPolling = true);
       final confirmed = await _pollTopupStatus(order.orderId);
 

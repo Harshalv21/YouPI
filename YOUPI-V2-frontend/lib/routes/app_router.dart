@@ -215,7 +215,7 @@ class _MainShellState extends State<MainShell> {
   // unlocked. Home, Plans, Settings tabs are untouched. Route definitions
   // themselves are NOT removed (still there for future re-enabling), only
   // this tap interception changed.
-  static const _lockedTabs = {2: 'Invest'};
+  static const _lockedTabs = <int, String>{};
 
   void _handleTabTap(int index) {
     if (_lockedTabs.containsKey(index)) {

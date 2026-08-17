@@ -18,15 +18,17 @@ import '../models/wallet_model.dart';
 import '../models/transaction_model.dart';
 
 class WalletTopupOrder {
-  final String orderId;          // Cashfree order id
-  final String paymentSessionId; // needed by CashfreeService.open()
+  final String orderId;           // Razorpay order id
+  final String? paymentSessionId; // legacy Cashfree field, always null now
+  final String? razorpayKeyId;    // NEW -- needed by RazorpayService.open()
   final int amountPaise;
   final String currency;
   final String? receipt;
 
   const WalletTopupOrder({
     required this.orderId,
-    required this.paymentSessionId,
+    this.paymentSessionId,
+    this.razorpayKeyId,
     required this.amountPaise,
     required this.currency,
     this.receipt,
@@ -35,7 +37,8 @@ class WalletTopupOrder {
   factory WalletTopupOrder.fromJson(Map<String, dynamic> json) {
     return WalletTopupOrder(
       orderId: json['orderId']?.toString() ?? '',
-      paymentSessionId: json['paymentSessionId']?.toString() ?? '',
+      paymentSessionId: json['paymentSessionId']?.toString(),
+      razorpayKeyId: json['razorpayKeyId']?.toString(),
       amountPaise: (json['amount'] as num?)?.toInt() ?? 0,
       currency: json['currency']?.toString() ?? 'INR',
       receipt: json['receipt']?.toString(),
@@ -106,8 +109,8 @@ class WalletRepository {
     }
   }
 
-  /// Creates a real Cashfree order to add money to the NBFC wallet.
-  /// Returns orderId + paymentSessionId for CashfreeService.open().
+  /// Creates a real Razorpay order to add money to the NBFC wallet.
+  /// Returns orderId + razorpayKeyId for RazorpayService.open().
   Future<WalletTopupOrder> createTopupOrder(double amountRupees) async {
     try {
       final res = await _dio.post('/v1/wallet/topup/order', data: {
@@ -120,7 +123,7 @@ class WalletRepository {
     }
   }
 
-  /// Polled after Cashfree checkout closes, to confirm the wallet was
+  /// Polled after Razorpay checkout closes, to confirm the wallet was
   /// actually credited (same pattern as RechargeRepository.getOrderStatus()).
   Future<WalletTopupStatus> getTopupOrderStatus(String orderId) async {
     try {
