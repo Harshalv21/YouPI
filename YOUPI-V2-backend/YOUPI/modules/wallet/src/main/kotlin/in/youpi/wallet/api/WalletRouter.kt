@@ -1,4 +1,4 @@
-package `in`.youpi.wallet.api
+﻿package `in`.youpi.wallet.api
 
 import `in`.youpi.core.ApiResponse
 import `in`.youpi.core.Result
@@ -75,7 +75,7 @@ class WalletRouter(private val walletService: WalletService) {
             .bodyValueAndAwait(ApiResponse.ok(entries))
     }
 
-    // ← NAYA: wallet topup order creation
+    // NAYA: wallet topup order creation
     private suspend fun handleCreateTopupOrder(request: ServerRequest): ServerResponse {
         val userId = request.currentUserId()
         val body = request.awaitBody<CreateWalletTopupOrderRequest>()
@@ -86,7 +86,7 @@ class WalletRouter(private val walletService: WalletService) {
         }
     }
 
-    // ← NAYA: Add Money screen post-checkout polling ke liye
+    // NAYA: Add Money screen post-checkout polling ke liye
     private suspend fun handleGetTopupOrderStatus(request: ServerRequest): ServerResponse {
         val userId = request.currentUserId()
         val orderId = request.pathVariable("orderId")
