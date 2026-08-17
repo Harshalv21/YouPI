@@ -128,6 +128,16 @@ class GlobalExceptionHandler(
             builder.header("Access-Control-Allow-Credentials", "true")
         }
 
+        // Security headers safety net -- same reasoning as the CORS one right
+        // above: SecurityHeadersFilter covers the normal-response path, but
+        // headers set by an earlier WebFilter aren't guaranteed to survive
+        // onto error responses that go through AbstractErrorWebExceptionHandler's
+        // own routing function on some Spring Boot/WebFlux versions. Error
+        // responses (401/403 especially) are exactly the ones worth protecting
+        // from framing/sniffing, so re-stamp here rather than assume the filter
+        // already covered it.
+        builder.headers { headers -> applySecurityHeaders(headers) }
+
         return builder.body(BodyInserters.fromValue(body))
     }
 }

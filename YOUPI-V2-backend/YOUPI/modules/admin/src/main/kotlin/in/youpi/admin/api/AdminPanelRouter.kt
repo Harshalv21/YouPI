@@ -47,18 +47,39 @@ class AdminPanelRouter(
         }
     }
 
-    private suspend fun requireAdmin(request: ServerRequest): UUID? {
+    // Returns the admin's (id, role) if the token is valid, null otherwise.
+    // Any handler that only calls requireAdmin() accepts either ADMIN or
+    // SUPER_ADMIN, by design, for read-only screens. Mutating actions must
+    // additionally check principal.role (see handleUpdateUserStatus below).
+    private data class AdminPrincipal(val id: UUID, val role: String)
+
+    private suspend fun requireAdmin(request: ServerRequest): AdminPrincipal? {
         val header = request.headers().firstHeader("Authorization") ?: return null
         if (!header.startsWith("Bearer ")) return null
         val token = header.removePrefix("Bearer ").trim()
         val claims = adminJwtService.verify(token) ?: return null
-        return try { UUID.fromString(claims.subject) } catch (e: Exception) { null }
+        val id = try { UUID.fromString(claims.subject) } catch (e: Exception) { return null }
+        val role = claims["role"] as? String ?: return null
+        return AdminPrincipal(id, role)
     }
+
+    // Currently the only SUPER_ADMIN-gated action is user block/unblock
+    // (see handleUpdateUserStatus below) -- everything else on this panel
+    // is read-only and open to any valid admin. Checked inline via
+    // principal.role rather than a separate helper since there's only one
+    // call site so far; promote to a shared requireSuperAdmin() helper if
+    // more mutating actions get added later.
 
     private suspend fun unauthorized(): ServerResponse =
         ServerResponse.status(HttpStatus.UNAUTHORIZED).contentType(MediaType.APPLICATION_JSON)
             .bodyValueAndAwait(mapOf("success" to false, "error" to mapOf(
                 "code" to "ADMIN_UNAUTHORIZED", "message" to "Admin authentication required."
+            )))
+
+    private suspend fun forbidden(): ServerResponse =
+        ServerResponse.status(HttpStatus.FORBIDDEN).contentType(MediaType.APPLICATION_JSON)
+            .bodyValueAndAwait(mapOf("success" to false, "error" to mapOf(
+                "code" to "ADMIN_FORBIDDEN", "message" to "This action requires a super-admin account."
             )))
 
     private suspend fun handleLogin(request: ServerRequest): ServerResponse {
@@ -89,7 +110,8 @@ class AdminPanelRouter(
     }
 
     private suspend fun handleUpdateUserStatus(request: ServerRequest): ServerResponse {
-        requireAdmin(request) ?: return unauthorized()
+        val principal = requireAdmin(request) ?: return unauthorized()
+        if (principal.role != "SUPER_ADMIN") return forbidden()
         val userId = UUID.fromString(request.pathVariable("id"))
         val body = request.awaitBody<UpdateUserActiveRequest>()
         return try {
