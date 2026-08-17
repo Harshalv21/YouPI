@@ -39,14 +39,15 @@ class WalletRouter(private val walletService: WalletService) {
                 responses = [SwaggerApiResponse(responseCode = "200", description = "Ledger entries")])),
         RouterOperation(path = "/v1/wallet/topup/order", method = [RequestMethod.POST],
             operation = Operation(operationId = "createWalletTopupOrder", summary = "Create wallet topup order",
-                description = "Creates a real Cashfree order for adding money to the NBFC wallet.",                tags = ["Wallet"],
+                description = "Creates a real Razorpay order for adding money to the NBFC wallet.",
+                tags = ["Wallet"],
                 requestBody = SwaggerRequestBody(content = [Content(schema = Schema(implementation = CreateWalletTopupOrderRequest::class))]),
                 responses = [SwaggerApiResponse(responseCode = "200", description = "Order created")])),
         RouterOperation(path = "/v1/wallet/topup/order/{orderId}/status", method = [RequestMethod.GET],
             operation = Operation(operationId = "getWalletTopupOrderStatus", summary = "Get wallet topup order status",
-                description = "Polled by the client after Cashfree checkout closes, to confirm the wallet was actually credited.",
+                description = "Polled by the client after Razorpay Checkout closes, to confirm the wallet was actually credited.",
                 tags = ["Wallet"],
-                parameters = [Parameter(name = "orderId", description = "Cashfree order id returned from order creation", required = true)],
+                parameters = [Parameter(name = "orderId", description = "Razorpay order id returned from order creation", required = true)],
                 responses = [SwaggerApiResponse(responseCode = "200", description = "Order status")]))
     )
     fun walletRoutes() = coRouter {

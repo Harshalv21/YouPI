@@ -88,7 +88,8 @@ data class PlanResponse(
 data class RechargeOrderResponse(
     val orderId: UUID,
     val razorpayOrderId: String?,
-    val paymentSessionId: String? = null,   // NEW -- Cashfree checkout needs
+    val paymentSessionId: String? = null,   // legacy Cashfree field, ab hamesha null
+    val razorpayKeyId: String? = null,    // Razorpay checkout SDK ke liye chahiye
     // this (not orderId) to open the
     // hosted payment page. Null when
     // gateway is Razorpay.

@@ -6,8 +6,8 @@ import `in`.youpi.core.WalletCreditPort
 import `in`.youpi.core.WalletDebitOutcome
 import `in`.youpi.core.WalletDebitPort
 import `in`.youpi.core.WalletDebitRejectionReason
-import `in`.youpi.core.cashfree.CashfreeClient
-import `in`.youpi.core.cashfree.CashfreeOrderCreationException
+import `in`.youpi.core.razorpay.RazorpayClient
+import `in`.youpi.core.razorpay.RazorpayOrderCreationException
 import `in`.youpi.core.ratelimit.RateLimiterService
 import `in`.youpi.payment.repository.PaymentOrderEntity
 import `in`.youpi.payment.repository.PaymentOrderRepository
@@ -28,7 +28,7 @@ import java.time.Duration
 import java.time.Instant
 import java.util.UUID
 
-// ── Entities ──
+// ── Entities ── -- UNCHANGED, no gateway involvement
 
 @Table("wallets")
 data class WalletEntity(
@@ -45,10 +45,9 @@ data class WalletEntity(
 interface WalletRepository : CoroutineCrudRepository<WalletEntity, UUID> {
     suspend fun findByUserIdAndWalletType(userId: UUID, walletType: String): WalletEntity?
     suspend fun findAllByUserId(userId: UUID): List<WalletEntity>
-    // suspend fun findByMobile(mobile: String): WalletEntity?   // ← recipient lookup ke liye
 
     @Query("UPDATE wallets SET balance = balance + :amount, updated_at = NOW() WHERE id = :id AND balance + :amount >= 0 RETURNING id")
-    suspend fun atomicBalanceUpdate(id: UUID, amount: BigDecimal): Int
+    suspend fun atomicBalanceUpdate(id: UUID, amount: BigDecimal): UUID?
 }
 
 interface UserLookupRepository : CoroutineCrudRepository<UserLookupEntity, UUID>
@@ -96,20 +95,23 @@ data class WalletInfo(
     val isActive: Boolean
 )
 
-// ← NAYA: wallet topup order DTOs
 data class CreateWalletTopupOrderRequest(
     val amountRupees: BigDecimal
 )
 
+// REVERTED: paymentSessionId is now always null (Cashfree-only concept).
+// razorpayKeyId added -- Flutter's Razorpay checkout SDK needs this to
+// open the checkout sheet, same pattern as PaymentOrderResponse/
+// RechargeOrderResponse elsewhere in this migration.
 data class CreateWalletTopupOrderResponse(
     val orderId: String,
-    val paymentSessionId: String,   // NEW -- Cashfree checkout needs this
+    val paymentSessionId: String? = null,
+    val razorpayKeyId: String? = null,
     val amount: Long,       // paise
     val currency: String,
     val receipt: String?
 )
 
-// ← NAYA: Add Money screen ka post-checkout polling response
 data class WalletTopupStatusResponse(
     val orderId: String,
     val status: String,   // CREATED, PENDING, CAPTURED, FAILED, REFUNDED, DISPUTED
@@ -129,7 +131,6 @@ class WalletNotFoundException(userId: UUID, walletType: String) : WalletExceptio
     "WALLET_NOT_FOUND", "Wallet $walletType not found for user $userId", 404
 )
 
-// ← NAYA: topup order creation exception
 class TopupOrderCreationException(reason: String) : WalletException(
     "TOPUP_ORDER_FAILED", "Unable to create topup order: $reason", 502
 )
@@ -146,21 +147,22 @@ class TopupOrderNotFoundException(orderId: String) : WalletException(
 class WalletService(
     private val walletRepo: WalletRepository,
     private val ledgerRepo: LedgerEntryRepository,
-    private val userLookupRepo: UserLookupRepository,            // ← naya
-    private val txManager: R2dbcTransactionManager,               // ← @Transactional replace
-    private val cashfreeClient: CashfreeClient,                          // ← Cashfree (Razorpay hataya gaya)
-    private val rateLimiterService: RateLimiterService,                    // ← NAYA (rate limit)
-    private val paymentRepo: PaymentOrderRepository                        // ← NAYA: wallet topup orders persist karne ke liye (payment_orders, purpose='WALLET_TOPUP')
+    private val userLookupRepo: UserLookupRepository,
+    private val txManager: R2dbcTransactionManager,
+    // REVERTED from CashfreeClient back to RazorpayClient. See
+    // createTopupOrder() and sweepPendingTopups() below for the concrete
+    // API differences this swap requires.
+    private val razorpayClient: RazorpayClient,
+    private val rateLimiterService: RateLimiterService,
+    private val paymentRepo: PaymentOrderRepository,
+    // NEW: Razorpay checkout SDK needs key_id client-side to open the
+    // checkout sheet -- Cashfree's flow didn't expose a key like this.
+    @Value("\${youpi.razorpay.key-id:}") private val razorpayKeyId: String
 ) : WalletCreditPort, WalletDebitPort {
 
-    // ← NAYA: service_code allowlist. Wallet MVP scope decision -- sirf
-    // RECHARGE allowed abhi (Gold Purchase baad mein add hoga). Hardcoded
-    // hai kyunki ek hi entry hai -- DB table ka overhead nahi chahiye.
-    // Extend karna easy hai jab Gold Purchase ready ho: bas is set mein
-    // "GOLD_PURCHASE" add karo.
     private val serviceCodeAllowlist = setOf("RECHARGE")
     private val log = LoggerFactory.getLogger(javaClass)
-    private val txOperator = TransactionalOperator.create(txManager)  // ← reactive tx
+    private val txOperator = TransactionalOperator.create(txManager)
 
     suspend fun getBalance(userId: UUID): WalletBalanceResponse {
         var wallets = walletRepo.findAllByUserId(userId)
@@ -197,10 +199,10 @@ class WalletService(
         val wallet = walletRepo.findByUserIdAndWalletType(userId, walletType)
             ?: return Result.failure(WalletNotFoundException(userId, walletType))
 
-        return txOperator.executeAndAwait {                      // ← reactive transaction
+        return txOperator.executeAndAwait {
             val balanceBefore = wallet.balance
-            val rowsAffected = walletRepo.atomicBalanceUpdate(wallet.id!!, amount)
-            if (rowsAffected == 0) return@executeAndAwait Result.failure(WalletNotFoundException(userId, walletType))
+            val updatedId = walletRepo.atomicBalanceUpdate(wallet.id!!, amount)
+            if (updatedId == null) return@executeAndAwait Result.failure(WalletNotFoundException(userId, walletType))
             val updated = walletRepo.findById(wallet.id)!!
 
             ledgerRepo.save(LedgerEntryEntity(
@@ -242,10 +244,10 @@ class WalletService(
             return Result.failure(InsufficientBalanceException(wallet.balance, amount))
         }
 
-        return txOperator.executeAndAwait {                      // ← reactive transaction
+        return txOperator.executeAndAwait {
             val balanceBefore = wallet.balance
-            val rowsAffected = walletRepo.atomicBalanceUpdate(wallet.id!!, amount.negate())
-            if (rowsAffected == 0) return@executeAndAwait Result.failure(InsufficientBalanceException(wallet.balance, amount))
+            val updatedId = walletRepo.atomicBalanceUpdate(wallet.id!!, amount.negate())
+            if (updatedId == null) return@executeAndAwait Result.failure(InsufficientBalanceException(wallet.balance, amount))
             val updated = walletRepo.findById(wallet.id)!!
 
             ledgerRepo.save(LedgerEntryEntity(
@@ -265,20 +267,20 @@ class WalletService(
         }!!
     }
 
-    // ← NAYA: Add Money screen ke payment-confirmation polling ke liye
-    // (recharge ke getOrderStatus() jaisa hi pattern). Ownership check --
-    // sirf apna hi order dekh sakta hai.
-    suspend fun getTopupOrderStatus(userId: UUID, cashfreeOrderId: String): Result<WalletTopupStatusResponse, WalletException> {
-        val order = paymentRepo.findByRazorpayOrderId(cashfreeOrderId)
-            ?: return Result.failure(TopupOrderNotFoundException(cashfreeOrderId))
+    // ← razorpayOrderId param name kept as cashfreeOrderId's DB column
+    // equivalent -- getTopupOrderStatus() reads via findByRazorpayOrderId,
+    // which is unaffected by this revert (column was always razorpay-named).
+    suspend fun getTopupOrderStatus(userId: UUID, razorpayOrderId: String): Result<WalletTopupStatusResponse, WalletException> {
+        val order = paymentRepo.findByRazorpayOrderId(razorpayOrderId)
+            ?: return Result.failure(TopupOrderNotFoundException(razorpayOrderId))
 
         if (order.userId != userId || order.purpose != "WALLET_TOPUP") {
-            return Result.failure(TopupOrderNotFoundException(cashfreeOrderId))
+            return Result.failure(TopupOrderNotFoundException(razorpayOrderId))
         }
 
         return Result.success(
             WalletTopupStatusResponse(
-                orderId = cashfreeOrderId,
+                orderId = razorpayOrderId,
                 status = order.status,
                 amount = order.amountPaise
             )
@@ -296,7 +298,12 @@ class WalletService(
         return ledgerRepo.findByWalletId(wallet.id!!, pageSize, page * pageSize)
     }
 
-    // ← Wallet topup ke liye Cashfree order create karta hai (Razorpay hataya gaya)
+    // ← REVERTED to RazorpayClient. Two concrete differences from the
+    // Cashfree version this replaces:
+    //   1. Amount unit: paise (Long), not rupees (Double).
+    //   2. No customerPhone needed -- Razorpay's create-order call doesn't
+    //      require it, so the userMobile lookup (and its failure path) is
+    //      removed entirely.
     suspend fun createTopupOrder(
         userId: UUID,
         amountRupees: BigDecimal
@@ -306,7 +313,6 @@ class WalletService(
             return Result.failure(TopupOrderCreationException("Amount must be greater than zero"))
         }
 
-        // ← NAYA: distributed rate limit — 5 order attempts per user per 60s
         val rateLimitKey = "rl:wallet:topup:$userId"
         val allowed = rateLimiterService.isAllowed(rateLimitKey, limit = 5, windowSeconds = 60)
         if (!allowed) {
@@ -316,39 +322,25 @@ class WalletService(
 
         val shortUserId = userId.toString().take(8)
         val receipt = "wtop_${shortUserId}_${System.currentTimeMillis()}"
-
-        // Cashfree requires customer_phone at order-creation time (Razorpay
-        // didn't need this) -- fetched via the same UserLookupRepository
-        // already used for recipient resolution elsewhere in this file.
-        val userMobile = userLookupRepo.findById(userId)?.mobile
-            ?: return Result.failure(TopupOrderCreationException("User mobile number not found"))
+        val amountPaise = amountRupees.multiply(BigDecimal(100)).toLong()
 
         return try {
-            val order = cashfreeClient.createOrder(
-                amountRupees = amountRupees.toDouble(),
-                orderId = receipt,
-                customerId = userId.toString(),
-                customerPhone = userMobile
+            val order = razorpayClient.createOrder(
+                amountPaise = amountPaise,
+                receipt = receipt,
+                notes = mapOf("purpose" to "WALLET_TOPUP", "userId" to userId.toString())
             )
 
-            log.info("Topup order created: userId={}, orderId={}, amount=₹{}", userId, order.orderId, amountRupees)
+            log.info("Topup order created: userId={}, orderId={}, amount=₹{}", userId, order.id, amountRupees)
 
-            // Ensure a NBFC wallet exists for this user (getBalance() already
-            // does this lazily elsewhere, but createTopupOrder can be the
-            // very first wallet interaction for a brand-new user).
             val wallet = walletRepo.findByUserIdAndWalletType(userId, "NBFC")
                 ?: walletRepo.save(WalletEntity(userId = userId, walletType = "NBFC"))
 
-            // Persist into the EXISTING payment_orders table (V5) --
-            // purpose='WALLET_TOPUP' is an allowed value already. referenceId
-            // = wallet.id so the webhook handler / sweeper job know which
-            // wallet to credit. `receipt` doubles as idempotencyKey here --
-            // it's already unique per call (millis-suffixed).
             paymentRepo.save(
                 PaymentOrderEntity(
                     userId = userId,
-                    razorpayOrderId = order.orderId,     // Cashfree order id (column name is legacy Razorpay-era, see V17 migration note)
-                    amountPaise = amountRupees.multiply(BigDecimal(100)).toLong(),
+                    razorpayOrderId = order.id,
+                    amountPaise = amountPaise,
                     purpose = "WALLET_TOPUP",
                     referenceId = wallet.id,
                     idempotencyKey = receipt
@@ -357,26 +349,27 @@ class WalletService(
 
             Result.success(
                 CreateWalletTopupOrderResponse(
-                    orderId = order.orderId,
-                    paymentSessionId = order.paymentSessionId,
-                    amount = amountRupees.multiply(BigDecimal(100)).toLong(),
+                    orderId = order.id,
+                    paymentSessionId = null,
+                    razorpayKeyId = razorpayKeyId,
+                    amount = amountPaise,
                     currency = "INR",
                     receipt = receipt
                 )
             )
-        } catch (e: CashfreeOrderCreationException) {
+        } catch (e: RazorpayOrderCreationException) {
             log.error("Topup order creation failed for userId={}: {}", userId, e.message)
-            Result.failure(TopupOrderCreationException(e.message ?: "Cashfree error"))
+            Result.failure(TopupOrderCreationException(e.message ?: "Razorpay error"))
         }
     }
 
     // ── WalletCreditPort implementation ──
     //
-    // Called by PaymentService.handleCashfreeCaptured() (modules/payment)
-    // when a payment_orders row with purpose='WALLET_TOPUP' is confirmed
-    // CAPTURED via Cashfree webhook. See WalletCreditPort.kt (shared/core)
-    // for why this is an interface rather than a direct method call --
-    // avoids a circular module dependency between wallet and payment.
+    // Called by PaymentService's Razorpay webhook handler when a
+    // payment_orders row with purpose='WALLET_TOPUP' is confirmed CAPTURED.
+    // Parameter is still named cashfreeOrderId (interface contract,
+    // shared/core/WalletCreditPort.kt) -- it's just a gateway order-id
+    // reference field, works the same with a Razorpay order_id value.
     override suspend fun creditWalletTopup(
         userId: UUID,
         walletType: String,
@@ -387,14 +380,12 @@ class WalletService(
         val wallet = walletRepo.findByUserIdAndWalletType(userId, walletType)
         if (wallet == null) {
             log.error(
-                "WALLET_TOPUP webhook: no {} wallet for userId={}, cashfreeOrderId={} -- cannot credit",
+                "WALLET_TOPUP webhook: no {} wallet for userId={}, orderId={} -- cannot credit",
                 walletType, userId, cashfreeOrderId
             )
             return false
         }
 
-        // credit() itself dedupes on idempotencyKey via ledger lookup, so a
-        // webhook retry for the same order is a safe no-op here.
         val amountRupees = BigDecimal(amountPaise).divide(BigDecimal(100))
         val result = credit(
             userId = userId,
@@ -402,24 +393,22 @@ class WalletService(
             amount = amountRupees,
             referenceType = "WALLET_TOPUP",
             referenceId = wallet.id,
-            description = "Wallet top-up via Cashfree ($cashfreeOrderId)",
+            description = "Wallet top-up via Razorpay ($cashfreeOrderId)",
             idempotencyKey = idempotencyKey
         )
 
         return when (result) {
             is Result.Success -> {
-                log.info("WALLET_TOPUP credited: userId={}, amount=₹{}, cashfreeOrderId={}", userId, amountRupees, cashfreeOrderId)
+                log.info("WALLET_TOPUP credited: userId={}, amount=₹{}, orderId={}", userId, amountRupees, cashfreeOrderId)
                 true
             }
             is Result.Failure -> {
-                log.error("WALLET_TOPUP credit failed: userId={}, cashfreeOrderId={}, error={}", userId, cashfreeOrderId, result.error.message)
+                log.error("WALLET_TOPUP credit failed: userId={}, orderId={}, error={}", userId, cashfreeOrderId, result.error.message)
                 false
             }
         }
     }
 
-    // ← NAYA: reverseDebit() -- generic refund/reversal, RechargeService use
-    // karta hai jab WALLET-paid recharge A1Topup delivery pe fail ho jaye.
     override suspend fun reverseDebit(
         userId: UUID,
         walletType: String,
@@ -452,12 +441,6 @@ class WalletService(
         }
     }
 
-    // ── WalletDebitPort implementation ──
-    //
-    // NOT YET CALLED from anywhere -- RechargeService's "pay recharge from
-    // wallet" branch is a deferred follow-up (see WalletDebitPort.kt doc
-    // comment). This just makes the allowlist+debit logic ready to wire in
-    // later without touching the live Cashfree recharge flow now.
     override suspend fun debitForService(
         userId: UUID,
         walletType: String,
@@ -503,12 +486,15 @@ class WalletService(
 
     // ── Wallet Top-up Sweeper (missed-webhook safety net) ──
     //
-    // Same convention as RechargeService.reconcilePendingRecharges():
-    // scheduled directly on the owning service, filters in-memory by age,
-    // per-order try/catch so one bad status check doesn't block the rest
-    // of the batch. Give the webhook >= 2 minutes to arrive naturally
-    // before polling, give up after ~60 minutes (needs a human by then,
-    // not more polling).
+    // REVERTED to RazorpayClient.fetchOrder(). Key difference from the
+    // Cashfree version: Razorpay's order.status vocabulary is "created" /
+    // "attempted" / "paid" -- there's no "EXPIRED"/"TERMINATED" terminal
+    // state to branch on, so that failure-marking branch is dropped; a
+    // Razorpay order that never gets paid just ages out via the existing
+    // 60-minute eligibility cutoff below (unchanged) rather than being
+    // explicitly marked FAILED by this sweeper. Also: fetchOrder() alone
+    // doesn't return a payment id, so fetchFirstPaymentId() is called
+    // separately once status="paid" is confirmed.
     @Scheduled(fixedDelay = 300_000) // every 5 minutes
     suspend fun sweepPendingTopups() {
         val allPending = try {
@@ -533,14 +519,16 @@ class WalletService(
 
         for (order in eligible) {
             try {
-                val cfStatus = cashfreeClient.getOrderStatus(order.razorpayOrderId)
-                when (cfStatus.orderStatus) {
-                    "PAID" -> {
+                val rzOrder = razorpayClient.fetchOrder(order.razorpayOrderId)
+                when (rzOrder.status) {
+                    "paid" -> {
                         if (order.status == "CAPTURED") continue // race with webhook, already handled
+
+                        val paymentId = razorpayClient.fetchFirstPaymentId(order.razorpayOrderId)
 
                         val updated = paymentRepo.updateWebhookCaptured(
                             id = order.id!!,
-                            razorpayPaymentId = null,   // sweeper's order-status poll doesn't return a payment id -- see getOrderStatus() doc comment
+                            razorpayPaymentId = paymentId,
                             status = "CAPTURED",
                             webhookEvent = "SWEEPER_RECONCILED",
                             webhookPayload = "{}"
@@ -560,12 +548,8 @@ class WalletService(
                             log.error("Wallet topup sweeper: orderId={} marked CAPTURED but credit FAILED -- needs manual review", order.id)
                         }
                     }
-                    "EXPIRED", "TERMINATED" -> {
-                        paymentRepo.save(order.copy(status = "FAILED", updatedAt = Instant.now()))
-                        log.info("Wallet topup sweeper: orderId={} marked FAILED (Cashfree status={})", order.id, cfStatus.orderStatus)
-                    }
                     else -> {
-                        log.debug("Wallet topup sweeper: orderId={} still {} on Cashfree", order.id, cfStatus.orderStatus)
+                        log.debug("Wallet topup sweeper: orderId={} still {} on Razorpay", order.id, rzOrder.status)
                     }
                 }
             } catch (e: Exception) {

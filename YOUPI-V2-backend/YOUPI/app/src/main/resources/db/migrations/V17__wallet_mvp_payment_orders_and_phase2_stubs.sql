@@ -39,6 +39,7 @@ ALTER TABLE payment_orders
 -- Note: no new index on idempotency_key -- uq_payment_idempotency
 -- (V5) is a UNIQUE constraint and already provides one.
 
+
 -- ── Phase 2 stubs (created now, UNUSED until Phase 2) ──
 
 -- REWARD bucket cashback grants (Phase 2: REWARD wallet type)

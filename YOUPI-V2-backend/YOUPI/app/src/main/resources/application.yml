@@ -123,21 +123,24 @@ youpi:
 
   features:             
     wallet-enabled: true
-    invest-enabled: false
+    invest-enabled: true
     loan-enabled: false
     bnpl-enabled: false
     smart-saver-enabled: false
     kyc-enabled: false
 
+  razorpay:
+    key-id: ${RAZORPAY_KEY_ID:}
+    key-secret: ${RAZORPAY_KEY_SECRET:}
+    webhook-secret: ${RAZORPAY_WEBHOOK_SECRET:}
 
-
-  cashfree:
-    app-id: ${CASHFREE_APP_ID:}
-    secret-key: ${CASHFREE_SECRET_KEY:}
-    webhook-secret: ${CASHFREE_WEBHOOK_SECRET:}
-    environment: ${CASHFREE_ENV:SANDBOX}
-    api-version: "2023-08-01"
-    notify-url: ${CASHFREE_NOTIFY_URL:}
+#  cashfree:
+#    app-id: ${CASHFREE_APP_ID:}
+#    secret-key: ${CASHFREE_SECRET_KEY:}
+#    webhook-secret: ${CASHFREE_WEBHOOK_SECRET:}
+#    environment: ${CASHFREE_ENV:SANDBOX}
+#    api-version: "2023-08-01"
+#    notify-url: ${CASHFREE_NOTIFY_URL:}
 
   a1topup:
     base-url: ${A1TOPUP_BASE_URL:https://business.a1topup.com/recharge/api}
@@ -147,7 +150,7 @@ youpi:
     callback-token: ${A1TOPUP_CALLBACK_TOKEN:}
 
   augmont:
-    base-url: ${AUGMONT_BASE_URL:https://uat-api.augmont.com}
+    base-url: ${AUGMONT_BASE_URL:https://uat-api.augmontgold.com/api}
     email: ${AUGMONT_EMAIL:}
     password: ${AUGMONT_PASSWORD:}
 
