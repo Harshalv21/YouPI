@@ -82,7 +82,7 @@ class EmiSelectionScreen extends StatelessWidget {
               ),
               const SizedBox(height: 24),
               Text(
-                'Full amount charged immediately via Cashfree Checkout',
+                'Full amount charged immediately via Razorpay Checkout',
                 style: AppTextStyles.captionText,
                 textAlign: TextAlign.center,
               ),
