@@ -39,6 +39,7 @@ import '../presentation/loan/loan_apply_step2_screen.dart';
 import '../presentation/loan/loan_apply_step3_screen.dart';
 import '../presentation/loan/loan_approved_screen.dart';
 import '../presentation/loan/my_loans_screen.dart';
+import '../presentation/loan/nbfc_credit_screen.dart';
 import '../presentation/wallet/wallet_screen.dart';
 import '../presentation/wallet/add_money_screen.dart';
 import '../presentation/wallet/transaction_history_screen.dart';
@@ -156,6 +157,10 @@ class AppRouter {
       GoRoute(path: '/loan/apply/step3', builder: (c, s) => const LoanApplyStep3Screen()),
       GoRoute(path: '/loan/approved', builder: (c, s) => const LoanApprovedScreen()),
       GoRoute(path: '/loan/my-loans', builder: (c, s) => const MyLoansScreen()),
+      // NBFC Credit dashboard -- reached from Home (credit-limit card + the
+      // "Credit" quick action). Separate from the /loan/apply/* Personal
+      // Loan flow above.
+      GoRoute(path: '/loan/nbfc-credit', builder: (c, s) => const NbfcCreditScreen()),
       GoRoute(path: '/wallet/add', builder: (c, s) => const AddMoneyScreen()),
       GoRoute(path: '/wallet/history', builder: (c, s) => const TransactionHistoryScreen()),
       GoRoute(path: '/settings/edit-profile', builder: (c, s) => const EditProfileScreen()),

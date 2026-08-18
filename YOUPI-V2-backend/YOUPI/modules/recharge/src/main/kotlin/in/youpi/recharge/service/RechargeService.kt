@@ -4,6 +4,7 @@ import `in`.youpi.core.Result
 import `in`.youpi.core.WalletCreditPort
 import `in`.youpi.core.WalletDebitOutcome
 import `in`.youpi.core.WalletDebitPort
+import `in`.youpi.core.maskMobile
 import `in`.youpi.core.razorpay.RazorpayClient
 import `in`.youpi.core.razorpay.RazorpayOrderCreationException
 import `in`.youpi.core.razorpay.RazorpayRefundException
@@ -262,6 +263,68 @@ class RechargeService(
         }
     }
 
+    // ── Server-side plan/price resolution (SECURITY FIX) ──
+    //
+    // req.planAmount and req.planValidityDays are client-supplied and MUST
+    // NEVER be trusted directly for anything that moves money or triggers
+    // A1Topup delivery -- a tampered planAmount would previously flow
+    // straight into both the Razorpay charge amount and the A1Topup
+    // delivery amount unchanged. This re-resolves the authoritative plan
+    // (amount + validity) from the same cached/mPlan catalog the user
+    // browsed, keyed by planId, and that catalog value is what's actually
+    // used everywhere downstream. If the client-sent planAmount disagrees
+    // with the catalog (tampering, or a genuine price change mid-session),
+    // the order is rejected rather than silently charged at the
+    // authoritative amount -- the user should see and confirm the real
+    // price, not be charged something other than what was on screen.
+    //
+    // planId is ephemeral (regenerated on every cache refill, see
+    // fetchPlansFromApi above) so this naturally also rejects stale
+    // planIds from an expired 30-min plan cache -- caller should refresh
+    // /v1/recharge/plans and retry, which is the correct UX anyway since
+    // the price may genuinely have changed.
+    private suspend fun resolveAuthoritativePlan(
+        userId: UUID,
+        req: CreateRechargeRequest
+    ): Result<PlanResponse, RechargeException> {
+        val circle = req.circle
+            ?: return Result.failure(RechargeApiException("Circle is required to resolve plan pricing."))
+
+        val plansResult = fetchPlans(req.operator, circle)
+        val plans = when (plansResult) {
+            is Result.Success -> plansResult.value
+            is Result.Failure -> return Result.failure(plansResult.error)
+        }
+
+        val verifiedPlan = plans.find { it.planId == req.planId }
+            ?: run {
+                log.warn(
+                    "Recharge order rejected: planId={} not found in current catalog for operator={}, circle={}, userId={} " +
+                            "(client-supplied amount={}) -- stale/expired plan cache or tampered planId",
+                    req.planId, req.operator, req.circle, userId, req.planAmount
+                )
+                return Result.failure(PlanNotFoundException())
+            }
+
+        if (verifiedPlan.amount.compareTo(req.planAmount) != 0) {
+            // Reject rather than silently charge the authoritative amount --
+            // either the client sent a tampered value, or the plan cache
+            // refreshed with a genuinely changed price between the user
+            // viewing plans and confirming. Either way, silently charging
+            // something other than what the user saw on screen is bad
+            // practice even though the server-resolved amount itself is
+            // safe. Cleaner to force a refresh + retry.
+            log.warn(
+                "SECURITY: recharge planAmount mismatch -- userId={}, planId={}, clientSentAmount={}, " +
+                        "authoritativeAmount={}. Rejecting order.",
+                userId, req.planId, req.planAmount, verifiedPlan.amount
+            )
+            return Result.failure(RechargePlanPriceMismatchException())
+        }
+
+        return Result.success(verifiedPlan)
+    }
+
     suspend fun detectOperator(mobileNumber: String): Result<OperatorDetectionResponse, RechargeException> {
         return try {
             val uri = org.springframework.web.util.UriComponentsBuilder
@@ -284,7 +347,7 @@ class RechargeService(
             if (root.path("status").asInt(0) != 1 || records.path("status").asInt(0) != 1) {
                 val errorMsg = records.path("msg").asText("Unknown mPlan operator-check error")
                 log.error("mPlan operator-check failed for mobile={}: msg={}, fullResponse={}",
-                    mobileNumber, errorMsg, response)
+                    maskMobile(mobileNumber), errorMsg, response)
                 return Result.failure(OperatorDetectionException(errorMsg))
             }
 
@@ -294,17 +357,17 @@ class RechargeService(
             if (operator !in operatorCodeMap || circle !in circleCodeMap) {
                 log.error(
                     "mPlan operator-check returned unmapped operator/circle: operator={}, circle={}, mobile={}",
-                    operator, circle, mobileNumber
+                    operator, circle, maskMobile(mobileNumber)
                 )
                 return Result.failure(OperatorDetectionException(
                     "Detected operator/circle not recognized: $operator / $circle"
                 ))
             }
 
-            log.info("Operator detected: mobile={}, operator={}, circle={}", mobileNumber, operator, circle)
+            log.info("Operator detected: mobile={}, operator={}, circle={}", maskMobile(mobileNumber), operator, circle)
             Result.success(OperatorDetectionResponse(operator = operator, circle = circle))
         } catch (e: Exception) {
-            log.error("mPlan operator-check call failed for mobile={}", mobileNumber, e)
+            log.error("mPlan operator-check call failed for mobile={}", maskMobile(mobileNumber), e)
             Result.failure(OperatorDetectionException("Failed to detect operator: ${e.message}"))
         }
     }
@@ -341,6 +404,20 @@ class RechargeService(
             )
         }
 
+        // SECURITY: never trust req.planAmount / req.planValidityDays directly --
+        // resolve the authoritative plan server-side from the same catalog the
+        // user browsed, keyed by planId. See resolveAuthoritativePlan() above.
+        val verifiedPlan = when (val planResult = resolveAuthoritativePlan(userId, req)) {
+            is Result.Success -> planResult.value
+            is Result.Failure -> return Result.failure(planResult.error)
+        }
+        val planAmount = verifiedPlan.amount
+        // No client fallback here either -- a malformed/empty validity in
+        // the catalog is a data problem to surface and fix, not something
+        // to silently paper over with a client-supplied number.
+        val planValidityDays = verifiedPlan.validity.toIntOrNull()
+            ?: return Result.failure(RechargeApiException("Invalid plan validity in catalog"))
+
         val emiMonths: Short? = when (req.paymentMode) {
             PaymentMode.EMI_3  -> 3
             PaymentMode.EMI_6  -> 6
@@ -348,13 +425,13 @@ class RechargeService(
             else -> null
         }
         val emiAmount = emiMonths?.let {
-            req.planAmount.divide(BigDecimal(it.toInt()), 2, java.math.RoundingMode.CEILING)
+            planAmount.divide(BigDecimal(it.toInt()), 2, java.math.RoundingMode.CEILING)
         }
 
         // Call Razorpay BEFORE writing anything to the DB -- same reasoning
         // as before: a real API failure here must not leave an orphaned
         // "INITIATED" order with no way to actually pay it.
-        val amountPaise = req.planAmount.multiply(BigDecimal(100)).toLong()
+        val amountPaise = planAmount.multiply(BigDecimal(100)).toLong()
         val razorpayOrderId = try {
             razorpayClient.createOrder(
                 amountPaise = amountPaise,
@@ -376,7 +453,7 @@ class RechargeService(
             operator = req.operator,
             circle = req.circle,
             planId = req.planId,
-            planAmount = req.planAmount,
+            planAmount = planAmount,
             planDetails = "{}",
             paymentMode = req.paymentMode.name,
             emiMonths = emiMonths,
@@ -385,7 +462,7 @@ class RechargeService(
             razorpayOrderId = razorpayOrderId,
             goldAutoInvest = false,
             idempotencyKey = req.idempotencyKey,
-            planValidityDays = req.planValidityDays
+            planValidityDays = planValidityDays
         )
 
         if (emiMonths != null && emiAmount != null) {
@@ -403,7 +480,7 @@ class RechargeService(
         }
 
         log.info("Recharge order created: orderId={}, amount={}, mode={}, razorpayOrderId={}",
-            order.id, req.planAmount, req.paymentMode, razorpayOrderId)
+            order.id, planAmount, req.paymentMode, razorpayOrderId)
 
         return Result.success(
             RechargeOrderResponse(
@@ -411,7 +488,7 @@ class RechargeService(
                 razorpayOrderId = razorpayOrderId,
                 paymentSessionId = null,        // no longer applicable -- Cashfree-only concept
                 razorpayKeyId = razorpayKeyId,  // NEW -- Flutter checkout SDK needs this to open Razorpay checkout
-                amount = req.planAmount,
+                amount = planAmount,
                 status = "INITIATED",
                 paymentMode = req.paymentMode.name
             )
@@ -434,13 +511,24 @@ class RechargeService(
             )
         }
 
+        // SECURITY: same authoritative-price resolution as the gateway-paid
+        // path above -- a tampered planAmount here would otherwise debit
+        // the wallet for less than the real plan cost.
+        val verifiedPlan = when (val planResult = resolveAuthoritativePlan(userId, req)) {
+            is Result.Success -> planResult.value
+            is Result.Failure -> return Result.failure(planResult.error)
+        }
+        val planAmount = verifiedPlan.amount
+        val planValidityDays = verifiedPlan.validity.toIntOrNull()
+            ?: return Result.failure(RechargeApiException("Invalid plan validity in catalog"))
+
         val debitOutcome = walletDebitPort.debitForService(
             userId = userId,
             walletType = "NBFC",
-            amount = req.planAmount,
+            amount = planAmount,
             serviceCode = "RECHARGE",
             referenceId = null,
-            description = "Recharge ${req.mobileNumber} (₹${req.planAmount})",
+            description = "Recharge ${req.mobileNumber} (₹${planAmount})",
             idempotencyKey = "recharge_debit_${req.idempotencyKey}"
         )
 
@@ -459,7 +547,7 @@ class RechargeService(
             operator = req.operator,
             circle = req.circle,
             planId = req.planId,
-            planAmount = req.planAmount,
+            planAmount = planAmount,
             planDetails = "{}",
             paymentMode = req.paymentMode.name,
             emiMonths = null,
@@ -468,10 +556,10 @@ class RechargeService(
             razorpayOrderId = null,
             goldAutoInvest = false,
             idempotencyKey = req.idempotencyKey,
-            planValidityDays = req.planValidityDays
+            planValidityDays = planValidityDays
         )
 
-        log.info("Recharge order created (WALLET paid): orderId={}, amount=₹{}, userId={}", order.id, req.planAmount, userId)
+        log.info("Recharge order created (WALLET paid): orderId={}, amount=₹{}, userId={}", order.id, planAmount, userId)
 
         deliverAndResolve(order, paymentIdentifier = "WALLET-${order.id}")
 

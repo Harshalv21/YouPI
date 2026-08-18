@@ -2,6 +2,7 @@ package `in`.youpi.recharge.a1topup
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import `in`.youpi.core.ExternalServiceException
+import `in`.youpi.core.maskMobile
 import io.netty.channel.ChannelOption
 import io.netty.handler.timeout.ReadTimeoutHandler
 import io.netty.handler.timeout.WriteTimeoutHandler
@@ -196,7 +197,7 @@ class A1TopupClient(
                 .retrieve()
                 .awaitBody<String>()
         } catch (e: Exception) {
-            log.error("A1Topup: recharge call failed for orderId={}, mobile={}", orderId, mobileNumber, e)
+            log.error("A1Topup: recharge call failed for orderId={}, mobile={}", orderId, maskMobile(mobileNumber), e)
             throw ExternalServiceException("A1Topup", "Recharge request failed: ${e.message}", e)
         }
 

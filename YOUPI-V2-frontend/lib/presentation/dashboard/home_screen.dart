@@ -16,25 +16,11 @@ import '../../core/services/storage_service.dart';
 import '../../core/services/coin_animation_signal.dart';
 import 'home_viewmodel.dart';
 import '../recharge/gold_coin_reward_screen.dart';
+import '../loan/nbfc_credit_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  // Set true only when navigated here right after a qualifying recharge
-  // (see emi_selection_screen.dart) -- lets this screen play the
-  // coin-collect sound exactly once, on that specific arrival. Does NOT
-  // control what number is shown -- that always comes from the real
-  // backend-connected HomeViewModel.goldCoinCount/goldBalanceRupees.
   final bool justEarnedCoin;
-  // DEBUG-ONLY -- set true only from the PREVIEW-mode branch in
-  // emi_selection_screen.dart. Triggers a fake, in-memory-only badge
-  // increment (see HomeViewModel.debugBumpGoldCoinForPreview) so the pop
-  // animation can be tested while the real gold_wallet table is empty.
-  // Never set this from the real payment path.
   final bool debugBumpCoin;
-  // Real coin count / rupee value earned on THIS specific recharge -- passed
-  // from emi_selection_screen.dart so the auto-toast below can show the
-  // correct numbers for what was just credited, instead of the running
-  // total shown in the header coin badge/popup. Null when justEarnedCoin is
-  // false (nothing to show).
   final int? earnedCoins;
   final double? earnedValue;
   const HomeScreen({
@@ -50,19 +36,10 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  bool _balanceHidden = true;
   final _audioPlayer = AudioPlayer();
 
-  // Auto-toast ("You earned N YouPi Coins! Worth ₹X") shown for a few
-  // seconds right when Home is first reached after a successful recharge --
-  // separate from the header badge pop-in, which stays permanently updated.
   bool _showEarnedToast = false;
   Timer? _toastTimer;
-  // Mutable so the async follow-up check (_checkPendingCoinAnimation) can
-  // populate these too -- widget.earnedCoins/earnedValue only exist when
-  // Home was reached via a fresh navigation right after a recharge; the
-  // async path resolves later, with Home already sitting there, so it has
-  // no route params to read from and needs its own place to put the numbers.
   int? _toastCoins;
   double? _toastValue;
 
@@ -74,26 +51,14 @@ class _HomeScreenState extends State<HomeScreen> {
       if (widget.debugBumpCoin) {
         context.read<HomeViewModel>().debugBumpGoldCoinForPreview();
       } else {
-        // Guards against a stale preview-test number masking a real
-        // credit later in the same app session (see clearDebugCoinBump
-        // doc comment in home_viewmodel.dart).
         context.read<HomeViewModel>().clearDebugCoinBump();
       }
       if (widget.justEarnedCoin) {
-        // Fire-and-forget -- never let a sound failure affect the actual
-        // screen/data loading above.
         _audioPlayer.play(AssetSource('sounds/coin_increment.mp3')).catchError((_) {});
       }
-      // Only show the toast when we actually have real numbers to show --
-      // (earnedCoins/earnedValue are null if, e.g., a route was reached
-      // with justEarnedCoin=true but no numbers were passed).
       if (widget.justEarnedCoin && widget.earnedCoins != null && widget.earnedValue != null) {
         _toastCoins = widget.earnedCoins;
         _toastValue = widget.earnedValue;
-        // Small delay so the toast slides in just after the coin-fly
-        // overlay (gold_coin_reward_screen.dart) finishes landing on the
-        // header badge -- feels like a continuation, not two things
-        // fighting for attention at once.
         Future.delayed(const Duration(milliseconds: 250), () {
           if (!mounted) return;
           setState(() => _showEarnedToast = true);
@@ -105,28 +70,10 @@ class _HomeScreenState extends State<HomeScreen> {
         });
       }
       _checkPendingCoinAnimation();
-      // Push notification arriving while Home is already open/foregrounded
-      // (see push_notification_service.dart) fires this signal instead of
-      // relying on initState, since navigating to an already-mounted route
-      // doesn't re-run it.
       CoinAnimationSignal.tick.addListener(_checkPendingCoinAnimation);
     });
   }
 
-  // Async follow-up for a recharge whose PAYMENT succeeded but fulfillment
-  // hadn't confirmed by the time emi_selection_screen.dart's synchronous
-  // polling window ran out (see recharge_viewmodel.dart's _stillProcessing
-  // and _pollOrderStatus). Rather than the animation being lost entirely,
-  // Home rechecks the order here -- however long after the original
-  // recharge attempt this turns out to be -- and plays the SAME reward
-  // animation + toast the moment it actually resolves to success.
-  //
-  // Bounded to 5 checks, 15s apart (75s of additional runway on top of the
-  // 50s already spent synchronously) WHILE this Home screen instance stays
-  // mounted. If it's still unresolved after that, the pending record is
-  // left in storage (not cleared) so the NEXT time Home loads -- even a
-  // fresh app open -- it tries again from scratch. Only a confirmed
-  // success or failure clears it for good.
   Future<void> _checkPendingCoinAnimation() async {
     final pending = await StorageService.getPendingCoinAnimation();
     if (pending == null || !mounted) return;
@@ -145,8 +92,6 @@ class _HomeScreenState extends State<HomeScreen> {
           await showGoldCoinReward(
             context,
             pending.amount,
-            // Already on Home -- no route change needed, just show the
-            // same toast the normal (synchronous) path shows.
             onNavigateHome: () {
               if (!mounted) return;
               context.read<HomeViewModel>().loadHome();
@@ -163,17 +108,12 @@ class _HomeScreenState extends State<HomeScreen> {
           return;
         }
         if (status.isFailed) {
-          // Genuinely failed -- nothing to animate, stop checking this one.
           await StorageService.clearPendingCoinAnimation();
           return;
         }
-      } catch (_) {
-        // Transient network hiccup -- just try again next tick.
-      }
+      } catch (_) {}
       await Future.delayed(interval);
     }
-    // Still unresolved after 75s -- leave the pending record in place for
-    // the next Home load to pick up again.
   }
 
   @override
@@ -244,10 +184,6 @@ class _HomeScreenState extends State<HomeScreen> {
                               ],
                             ),
                           ),
-                          // YouPi Gold Coin -- replaces the old notification bell.
-                          // Now wired to the REAL backend (GoldRepository via
-                          // HomeViewModel.goldCoinCount/goldBalanceRupees) --
-                          // no longer a local stand-in.
                           _GoldRewardCoin(
                             amount: _goldRewardBalance(vm),
                             coinCount: _goldCoinCount(vm),
@@ -255,48 +191,20 @@ class _HomeScreenState extends State<HomeScreen> {
                         ],
                       ),
                       const SizedBox(height: 20),
-                      YoupiGlassCard(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text('Total Balance', style: AppTextStyles.labelMedium),
-                                GestureDetector(
-                                  onTap: () => setState(() => _balanceHidden = !_balanceHidden),
-                                  child: Icon(
-                                    _balanceHidden ? Icons.visibility_off_rounded : Icons.visibility_rounded,
-                                    color: AppColors.textSecondary,
-                                    size: 20,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              _balanceHidden ? '₹ • • • • • •' : CurrencyFormatter.format(vm.walletBalance),
-                              style: AppTextStyles.amountLarge,
-                            ),
-                            const SizedBox(height: 12),
-                            Align(
-                              alignment: Alignment.centerRight,
-                              child: GestureDetector(
-                                onTap: () => context.go('/dashboard/wallet'),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.primary.withOpacity(0.1),
-                                    borderRadius: BorderRadius.circular(20),
-                                    border: Border.all(color: AppColors.primary),
-                                  ),
-                                  child: Text('View Wallet',
-                                      style: AppTextStyles.chipText.copyWith(color: AppColors.primary)),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
+                      // ── CREDIT LIMIT CARD ──────────────────────────
+                      // Replaces the old Wallet/Total Balance card on Home.
+                      // TODO: wire creditLimit / freeAmount / paidAmount /
+                      // nbfcName / isActive to real fields on HomeViewModel
+                      // once the Dikshi Finlease sanction API response is
+                      // exposed here (see YouPi Credit / SmartSave NBFC
+                      // architecture docs) -- values below are placeholders
+                      // matching the design mock until that's wired.
+                      const _CreditLimitCard(
+                        creditLimit: 10000,
+                        freeAmount: 2000,
+                        paidAmount: 8000,
+                        nbfcName: 'DreamFin NBFC',
+                        isActive: true,
                       ),
                       const SizedBox(height: 24),
                       // Quick actions
@@ -313,7 +221,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             _QuickAction('Gold', Icons.monetization_on_rounded, () => ctx.push('/invest/gold'), ),
                             _QuickAction('FD Invest', Icons.trending_up_rounded, () => ctx.push('/invest/fd'), ),
                             _QuickAction('BNPL Shop', Icons.credit_card_rounded, () => ctx.go('/dashboard/bnpl'), locked: true),
-                            _QuickAction('Loan', Icons.account_balance_rounded, () => ctx.push('/loan/apply/step1'), locked: true),
+                            _QuickAction('Credit', Icons.account_balance_rounded, () => ctx.push('/loan/nbfc-credit')),
                           ],
                         ),
                       ),
@@ -323,10 +231,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text('My Portfolio', style: AppTextStyles.headlineSmall),
-                          // Disabled: Portfolio view isn't ready yet (teammate's
-                          // change). onPressed: null makes it visually dull and
-                          // non-interactive automatically -- no separate locked/
-                          // onTap check needed like the ComingSoonOverlay pattern.
                           TextButton(
                             onPressed: null,
                             child: Text('View all',
@@ -401,16 +305,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       )
                           : vm.activeRecharges.length == 1
-                      // Single active recharge -- keep the full-width
-                      // card, no need to make it feel scrollable when
-                      // there's nothing else to scroll to.
                           ? _ActiveRechargeCard(vm.activeRecharges.first)
-                      // 2+ active recharges -- horizontally scrollable
-                      // strip, soonest-expiring first (backend already
-                      // sorts this way). Once one expires it simply
-                      // drops out of vm.activeRecharges on the next
-                      // load and the rest shift forward -- FIFO, no
-                      // client-side expiry bookkeeping needed.
                           : SizedBox(
                         height: 132,
                         child: ListView.separated(
@@ -448,19 +343,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ),
-            // Auto-toast: "You earned N YouPi Coins! Worth ₹X" -- slides
-            // in near the top for a few seconds right after a successful
-            // recharge, then slides back out on its own. Sits in a
-            // SafeArea of its own (not the one above) so it floats over
-            // the header row instead of pushing it down.
-            //
-            // Reads _toastCoins/_toastValue (mutable state), not
-            // widget.earnedCoins/earnedValue directly -- this same toast
-            // needs to render for TWO different triggers: the normal
-            // sync path (fresh navigation right after a recharge, numbers
-            // come from route params) AND the async follow-up path
-            // (_checkPendingCoinAnimation, numbers computed later while
-            // this same Home instance is already sitting there).
             if (_toastCoins != null && _toastValue != null)
               Positioned(
                 top: 0,
@@ -480,18 +362,161 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  // Real backend data now (via GoldRepository -> HomeViewModel), not the
-  // earlier local StorageService stand-in.
   double _goldRewardBalance(HomeViewModel vm) => vm.goldBalanceRupees;
 
   int _goldCoinCount(HomeViewModel vm) => vm.goldCoinCount;
 }
 
+/// ── Credit Limit card ──────────────────────────────────────────────
+/// Shown at the top of Home in place of the old wallet balance card.
+/// Displays the NBFC-sanctioned credit limit with the Free/Paid (20/80)
+/// split as a progress bar, matching the SmartSave/YouPi Credit design.
+class _CreditLimitCard extends StatelessWidget {
+  final double creditLimit;
+  final double freeAmount;
+  final double paidAmount;
+  final String nbfcName;
+  final bool isActive;
+
+  const _CreditLimitCard({
+    required this.creditLimit,
+    required this.freeAmount,
+    required this.paidAmount,
+    required this.nbfcName,
+    required this.isActive,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final freeRatio = creditLimit > 0 ? (freeAmount / creditLimit).clamp(0.0, 1.0) : 0.0;
+    final freePct = (freeRatio * 100).round();
+    final paidPct = 100 - freePct;
+
+    return GestureDetector(
+      onTap: () => context.push('/loan/nbfc-credit'),
+      child: YoupiGlassCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Your credit limit', style: AppTextStyles.labelMedium),
+              const Icon(
+                Icons.chevron_right_rounded,
+                color: AppColors.textSecondary,
+                size: 20,
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Text(
+                CurrencyFormatter.formatNoDecimal(creditLimit),
+                style: AppTextStyles.amountLarge,
+              ),
+              const SizedBox(width: 10),
+              if (isActive)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    'Active',
+                    style: AppTextStyles.labelSmall.copyWith(color: AppColors.primary),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text('Sanctioned by $nbfcName',
+              style: AppTextStyles.bodySmall.copyWith(color: AppColors.textSecondary)),
+          const SizedBox(height: 14),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: Row(
+              children: [
+                Expanded(
+                  flex: freePct,
+                  child: Container(height: 8, color: AppColors.primary),
+                ),
+                Expanded(
+                  flex: paidPct,
+                  child: Container(height: 8, color: AppColors.secondary),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _CreditLimitLegend(
+                  color: AppColors.primary,
+                  label: 'Free ($freePct%)',
+                  amount: CurrencyFormatter.formatNoDecimal(freeAmount),
+                  sublabel: 'Interest free',
+                ),
+              ),
+              Expanded(
+                child: _CreditLimitLegend(
+                  color: AppColors.secondary,
+                  label: 'Paid ($paidPct%)',
+                  amount: CurrencyFormatter.formatNoDecimal(paidAmount),
+                  sublabel: 'Interest applicable',
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+      ),
+    );
+  }
+}
+
+class _CreditLimitLegend extends StatelessWidget {
+  final Color color;
+  final String label;
+  final String amount;
+  final String sublabel;
+  const _CreditLimitLegend({
+    required this.color,
+    required this.label,
+    required this.amount,
+    required this.sublabel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+            ),
+            const SizedBox(width: 6),
+            Text(label, style: AppTextStyles.bodySmall.copyWith(color: AppColors.textSecondary)),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text(amount, style: AppTextStyles.labelLarge),
+        Text(sublabel, style: AppTextStyles.captionText.copyWith(color: AppColors.textSecondary)),
+      ],
+    );
+  }
+}
+
 /// Small auto-dismissing banner shown near the top of Home right after a
 /// successful recharge -- "You earned N YouPi Coins!" / "Worth ₹X".
-/// Purely a transient confirmation; the header coin badge (_GoldRewardCoin
-/// below) remains the permanent, always-accurate running total. This shows
-/// ONLY the amount from the recharge that was just completed.
 class _GoldCoinEarnedToast extends StatelessWidget {
   final bool visible;
   final int coins;
@@ -505,8 +530,6 @@ class _GoldCoinEarnedToast extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return IgnorePointer(
-      // Purely informational -- never blocks taps on the real header/coin
-      // badge underneath, even while visible.
       child: AnimatedSlide(
         duration: const Duration(milliseconds: 380),
         curve: visible ? Curves.easeOutBack : Curves.easeInCubic,
@@ -562,8 +585,6 @@ class _GoldCoinEarnedToast extends StatelessWidget {
   }
 }
 
-/// YouPi Coin button shown in the home header (replaces the notification bell).
-/// Tapping it opens the Gold Reward popup.
 class _GoldRewardCoin extends StatelessWidget {
   final double amount;
   final int coinCount;
@@ -626,9 +647,6 @@ class _GoldRewardCoin extends StatelessWidget {
   }
 }
 
-/// Gold Reward popup -- shows accumulated YouPi Coins with a Withdraw
-/// button. Minimum withdrawal is ₹50. Now calls the REAL /v1/gold/withdraw
-/// API via GoldRepository (teammate's work) -- was a 400ms mock before.
 class _GoldRewardPopup extends StatefulWidget {
   final double amount;
   final int coinCount;
@@ -639,42 +657,7 @@ class _GoldRewardPopup extends StatefulWidget {
 }
 
 class _GoldRewardPopupState extends State<_GoldRewardPopup> {
-  String? _error; // unused this version (withdraw disabled) -- kept for the re-enable below
-
-  // ── WITHDRAW -- DISABLED THIS VERSION, deferred to next version ──
-  // Real _withdraw() logic (with the requestId-based idempotency fix) is
-  // ready and tested server-side (GoldWithdrawService.kt + V16 migration),
-  // just not wired to a live button here. To re-enable next version:
-  //   1. Confirm backend V16 migration + GoldWithdrawService.kt (requestId
-  //      idempotency fix) are deployed FIRST.
-  //   2. Restore this state:
-  //        static const double _minWithdraw = 50.0;
-  //        bool _busy = false;
-  //        late final String _requestId =
-  //            'gold_withdraw_${widget.amount}_${DateTime.now().millisecondsSinceEpoch}';
-  //        Future<void> _withdraw() async {
-  //          if (widget.amount < _minWithdraw) {
-  //            setState(() => _error = 'Minimum withdrawal amount is ₹50');
-  //            return;
-  //          }
-  //          setState(() { _error = null; _busy = true; });
-  //          try {
-  //            final result = await GoldRepository().withdraw(widget.amount, requestId: _requestId);
-  //            if (!mounted) return;
-  //            context.read<HomeViewModel>().updateGoldWalletAfterWithdraw(result);
-  //            setState(() => _busy = false);
-  //            Navigator.of(context).pop();
-  //            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-  //              content: Text('${CurrencyFormatter.format(result.amountRupees)} credited to wallet'),
-  //            ));
-  //          } catch (e) {
-  //            if (!mounted) return;
-  //            setState(() { _busy = false; _error = e.toString().replaceFirst('Exception: ', ''); });
-  //          }
-  //        }
-  //   3. Swap the disabled ElevatedButton below back to:
-  //        onPressed: _busy ? null : _withdraw,
-  //      and restore its busy-spinner child (see git history / earlier version of this file).
+  String? _error;
 
   @override
   Widget build(BuildContext context) {
@@ -725,15 +708,6 @@ class _GoldRewardPopupState extends State<_GoldRewardPopup> {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                // Withdraw is deferred to the NEXT version (needs bank
-                // payout API, not ready yet) -- button stays fully live/
-                // tappable-looking, but tapping shows the same shared
-                // "Coming Soon" snack used elsewhere in the app (BNPL,
-                // Loan, etc. -- see ComingSoonOverlay.showComingSoonSnack)
-                // instead of calling the real /v1/gold/withdraw API.
-                // Real _withdraw() logic (with the requestId idempotency
-                // fix) is ready server-side whenever bank API lands --
-                // see the commented reference block above.
                 onPressed: () => ComingSoonOverlay.showComingSoonTopBanner(context),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.secondary,

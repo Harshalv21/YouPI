@@ -149,6 +149,9 @@ class RechargeDuplicateException(val idempotencyKey: String) : RechargeException
 class RechargeApiException(detail: String) : RechargeException(
     "RECHARGE_API_ERROR", detail, 502
 )
+class RechargePlanPriceMismatchException : RechargeException(
+    "PLAN_PRICE_MISMATCH", "Plan price changed. Please refresh plans and retry.", 409
+)
 class RechargeAlreadyConfirmedException(val orderId: UUID) : RechargeException(
     "RECHARGE_ALREADY_CONFIRMED", "Recharge order $orderId is already confirmed.", 409
 )

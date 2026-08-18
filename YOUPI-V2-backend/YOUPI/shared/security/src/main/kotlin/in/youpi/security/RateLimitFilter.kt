@@ -73,6 +73,25 @@ class RateLimitFilter(
             val ip = exchange.request.remoteAddress?.address?.hostAddress ?: "unknown"
             "rl:fbverify:$ip"
         },
+        // Admin panel login -- highest-privilege surface in the app (user
+        // data, transactions, gold ledger), previously had NO rate limit at
+        // all (this filter's rules only ever covered /api/v1/... paths,
+        // admin-panel wasn't in the list). Keyed by email (falls back to IP
+        // if the body doesn't parse) so a botnet spreading across many IPs
+        // still can't brute-force one admin account faster than 5 tries per
+        // 15 min. Both path forms included defensively, same reasoning as
+        // FirebaseAuthFilter's skipPaths -- not confirmed at this layer
+        // whether the LB/ingress strips "/api" in every environment.
+        RateLimitRule("/api/v1/admin-panel/auth/login", 5, 900) { exchange ->
+            val email = exchange.attributes["cachedAdminEmail"]?.toString()
+            val ip = exchange.request.remoteAddress?.address?.hostAddress ?: "unknown"
+            "rl:admin-login:${email ?: ip}"
+        },
+        RateLimitRule("/v1/admin-panel/auth/login", 5, 900) { exchange ->
+            val email = exchange.attributes["cachedAdminEmail"]?.toString()
+            val ip = exchange.request.remoteAddress?.address?.hostAddress ?: "unknown"
+            "rl:admin-login:${email ?: ip}"
+        },
     )
 
    override fun filter(exchange: ServerWebExchange, chain: WebFilterChain): Mono<Void> {
@@ -81,7 +100,9 @@ class RateLimitFilter(
         ?: return chain.filter(exchange)
 
     val needsBodyCaching = rule.pathPrefix == "/api/v1/auth/mpin/verify" ||
-                           rule.pathPrefix == "/api/v1/auth/otp/send"
+                           rule.pathPrefix == "/api/v1/auth/otp/send" ||
+                           rule.pathPrefix == "/api/v1/admin-panel/auth/login" ||
+                           rule.pathPrefix == "/v1/admin-panel/auth/login"
 
     if (needsBodyCaching) {
         return DataBufferUtils.join(exchange.request.body)
@@ -98,6 +119,15 @@ class RateLimitFilter(
                 }
                 if (mobile != null) {
                     exchange.attributes["cachedMobile"] = "+91${mobile.takeLast(10)}"
+                }
+
+                val adminEmail = try {
+                    objectMapper.readTree(bytes).get("email")?.asText()
+                } catch (e: Exception) {
+                    null
+                }
+                if (adminEmail != null) {
+                    exchange.attributes["cachedAdminEmail"] = adminEmail.trim().lowercase()
                 }
 
                 val cachedFlux = Flux.defer { Flux.just(exchange.response.bufferFactory().wrap(bytes)) }
