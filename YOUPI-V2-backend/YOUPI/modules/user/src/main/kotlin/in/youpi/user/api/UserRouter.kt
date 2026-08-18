@@ -1,6 +1,7 @@
 package `in`.youpi.user.api
 
 import `in`.youpi.core.ApiResponse
+import `in`.youpi.core.awaitValidatedBody
 import `in`.youpi.core.Result
 import `in`.youpi.security.currentUserId
 import `in`.youpi.user.domain.*
@@ -101,7 +102,7 @@ class UserRouter(private val userService: UserService) {
         log.info("🟢 handleUpdateProfile CALLED")
         val userId = request.currentUserId()
         log.info("🟢 userId = $userId")
-        val body = request.awaitBody<UpdateProfileRequest>()
+        val body = request.awaitValidatedBody<UpdateProfileRequest>()
         log.info("🟢 body received = $body")
         val profile = userService.updateProfile(userId, body)
         log.info("🟢 profile computed = $profile")
@@ -111,7 +112,7 @@ class UserRouter(private val userService: UserService) {
 
     private suspend fun handleUpdateFcmToken(request: ServerRequest): ServerResponse {
         val userId = request.currentUserId()
-        val body = request.awaitBody<UpdateFcmTokenRequest>()
+        val body = request.awaitValidatedBody<UpdateFcmTokenRequest>()
         userService.updateFcmToken(userId, body.token)
         return ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
             .bodyValueAndAwait(ApiResponse.ok(mapOf("updated" to true)))
@@ -126,7 +127,7 @@ class UserRouter(private val userService: UserService) {
 
     private suspend fun handleAadhaarOtp(request: ServerRequest): ServerResponse {
         val userId = request.currentUserId()
-        val body = request.awaitBody<AadhaarOtpRequest>()
+        val body = request.awaitValidatedBody<AadhaarOtpRequest>()
         return when (val result = userService.initiateAadhaarOtp(userId, body.aadhaarNumber)) {
             is Result.Success -> ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
                 .bodyValueAndAwait(ApiResponse.ok(result.value))
@@ -136,7 +137,7 @@ class UserRouter(private val userService: UserService) {
 
     private suspend fun handleAadhaarVerify(request: ServerRequest): ServerResponse {
         val userId = request.currentUserId()
-        val body = request.awaitBody<AadhaarVerifyRequest>()
+        val body = request.awaitValidatedBody<AadhaarVerifyRequest>()
         return when (val result = userService.verifyAadhaarOtp(userId, body)) {
             is Result.Success -> ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
                 .bodyValueAndAwait(ApiResponse.ok(result.value))
@@ -146,7 +147,7 @@ class UserRouter(private val userService: UserService) {
 
     private suspend fun handlePanVerify(request: ServerRequest): ServerResponse {
         val userId = request.currentUserId()
-        val body = request.awaitBody<PanVerifyRequest>()
+        val body = request.awaitValidatedBody<PanVerifyRequest>()
         return when (val result = userService.verifyPan(userId, body.panNumber)) {
             is Result.Success -> ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
                 .bodyValueAndAwait(ApiResponse.ok(result.value))
@@ -156,7 +157,7 @@ class UserRouter(private val userService: UserService) {
 
     private suspend fun handleSelfieUpload(request: ServerRequest): ServerResponse {
         val userId = request.currentUserId()
-        val body = request.awaitBody<SelfieUploadRequest>()
+        val body = request.awaitValidatedBody<SelfieUploadRequest>()
         return when (val result = userService.uploadSelfie(userId, body.selfieBase64)) {
             is Result.Success -> ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
                 .bodyValueAndAwait(ApiResponse.ok(result.value))

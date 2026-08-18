@@ -62,7 +62,12 @@ interface BnplAccountRepository : CoroutineCrudRepository<BnplAccountEntity, UUI
 
 // ── DTOs ──
 
-data class BnplStep1Request(val employmentType: String, val monthlyIncome: BigDecimal)
+data class BnplStep1Request(
+    @field:jakarta.validation.constraints.NotBlank(message = "employmentType is required")
+    val employmentType: String,
+    @field:jakarta.validation.constraints.PositiveOrZero(message = "monthlyIncome must not be negative")
+    val monthlyIncome: BigDecimal
+)
 data class BnplStep2Request(val cibilConsent: Boolean)
 data class BnplStep3Request(val tcConsent: Boolean)
 

@@ -4,6 +4,7 @@ import `in`.youpi.auth.domain.*
 import `in`.youpi.auth.service.AuthService
 import org.slf4j.LoggerFactory
 import `in`.youpi.core.ApiResponse
+import `in`.youpi.core.awaitValidatedBody
 import `in`.youpi.security.currentUserId
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.Parameter
@@ -92,7 +93,7 @@ class AuthRouter(private val authService: AuthService) {
     }
 
     private suspend fun handleSendOtp(request: ServerRequest): ServerResponse {
-        val body = request.awaitBody<SendOtpRequest>()
+        val body = request.awaitValidatedBody<SendOtpRequest>()
         return when (val result = authService.sendOtp(body.mobile)) {
             is `in`.youpi.core.Result.Success ->
                 ok().contentType(MediaType.APPLICATION_JSON)
@@ -102,7 +103,7 @@ class AuthRouter(private val authService: AuthService) {
         }
     }
     private suspend fun handleVerifyOtp(request: ServerRequest): ServerResponse {
-        val body = request.awaitBody<VerifyOtpRequest>()
+        val body = request.awaitValidatedBody<VerifyOtpRequest>()
         return when (val result = authService.verifyOtp(body)) {
             is `in`.youpi.core.Result.Success ->
                 ok().contentType(MediaType.APPLICATION_JSON)
@@ -113,7 +114,7 @@ class AuthRouter(private val authService: AuthService) {
     }
 
     private suspend fun handleFirebaseVerify(request: ServerRequest): ServerResponse {
-        val body = request.awaitBody<FirebaseVerifyRequest>()
+        val body = request.awaitValidatedBody<FirebaseVerifyRequest>()
         return when (val result = authService.verifyFirebaseToken(body.idToken, body.deviceId)) {
             is `in`.youpi.core.Result.Success ->
                 ok().contentType(MediaType.APPLICATION_JSON)
@@ -125,14 +126,14 @@ class AuthRouter(private val authService: AuthService) {
 
     private suspend fun handleMpinSetup(request: ServerRequest): ServerResponse {
         val userId = request.currentUserId()
-        val body = request.awaitBody<MpinSetupRequest>()
+        val body = request.awaitValidatedBody<MpinSetupRequest>()
         authService.setupMpin(userId, body.mpin)
         return ok().contentType(MediaType.APPLICATION_JSON)
             .bodyValueAndAwait(ApiResponse.ok(mapOf("message" to "MPIN set successfully")))
     }
 
     private suspend fun handleMpinVerify(request: ServerRequest): ServerResponse {
-        val body = request.awaitBody<MpinVerifyRequest>()
+        val body = request.awaitValidatedBody<MpinVerifyRequest>()
         return when (val result = authService.verifyMpin(body)) {
             is `in`.youpi.core.Result.Success ->
                 ok().contentType(MediaType.APPLICATION_JSON)
@@ -143,7 +144,7 @@ class AuthRouter(private val authService: AuthService) {
     }
 
     private suspend fun handleRefreshToken(request: ServerRequest): ServerResponse {
-        val body = request.awaitBody<RefreshTokenRequest>()
+        val body = request.awaitValidatedBody<RefreshTokenRequest>()
         return when (val result = authService.refreshAccessToken(body.refreshToken)) {
             is `in`.youpi.core.Result.Success ->
                 ok().contentType(MediaType.APPLICATION_JSON)
@@ -155,7 +156,7 @@ class AuthRouter(private val authService: AuthService) {
 
     private suspend fun handleLogout(request: ServerRequest): ServerResponse {
         val userId = request.currentUserId()
-        val body = request.awaitBody<RefreshTokenRequest>()
+        val body = request.awaitValidatedBody<RefreshTokenRequest>()
         authService.logout(userId, body.refreshToken)
         return ok().contentType(MediaType.APPLICATION_JSON)
             .bodyValueAndAwait(ApiResponse.ok(mapOf("message" to "Logged out successfully")))

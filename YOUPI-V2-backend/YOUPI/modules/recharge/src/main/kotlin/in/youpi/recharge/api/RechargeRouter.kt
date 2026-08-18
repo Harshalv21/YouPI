@@ -1,6 +1,7 @@
 package `in`.youpi.recharge.api
 
 import `in`.youpi.core.ApiResponse
+import `in`.youpi.core.awaitValidatedBody
 import `in`.youpi.core.Result
 import `in`.youpi.recharge.domain.*
 import `in`.youpi.recharge.service.RechargeService
@@ -190,7 +191,7 @@ class RechargeRouter(
 
     private suspend fun handleCreateOrder(request: ServerRequest): ServerResponse {
         val userId = request.currentUserId()
-        val body = request.awaitBody<CreateRechargeRequest>()
+        val body = request.awaitValidatedBody<CreateRechargeRequest>()
         return when (val result = rechargeService.createOrder(userId, body)) {
             is Result.Success -> ServerResponse.status(201).contentType(MediaType.APPLICATION_JSON)
                 .bodyValueAndAwait(ApiResponse.created(result.value))
@@ -200,7 +201,7 @@ class RechargeRouter(
 
     private suspend fun handleConfirmOrder(request: ServerRequest): ServerResponse {
         val userId = request.currentUserId()
-        val body = request.awaitBody<ConfirmRechargeRequest>()
+        val body = request.awaitValidatedBody<ConfirmRechargeRequest>()
         // This no longer mutates order state (see RechargeService docs) --
         // the Razorpay webhook is the only writer now. This just reports
         // whatever the webhook has already recorded, so the app can show

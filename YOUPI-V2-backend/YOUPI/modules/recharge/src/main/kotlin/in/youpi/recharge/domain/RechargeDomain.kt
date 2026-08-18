@@ -1,10 +1,19 @@
 package `in`.youpi.recharge.domain
 
 import `in`.youpi.core.BaseException
+import jakarta.validation.constraints.NotBlank
+import jakarta.validation.constraints.Pattern
+import jakarta.validation.constraints.Positive
 import java.math.BigDecimal
 import java.util.UUID
 
 // ── Request DTOs ──
+// NOTE: enforced via awaitValidatedBody<T>() in the router, not automatically
+// (functional coRouter handlers -- see shared/core RequestValidation.kt).
+// planAmount/planValidityDays below are still re-resolved server-side from
+// the plan catalog regardless of what passes validation here (see
+// RechargeService.resolveAuthoritativePlan()) -- these annotations reject
+// obviously-malformed junk early, they are not the source of trust for price.
 
 data class FetchPlansRequest(
     val operator: String,
@@ -12,18 +21,24 @@ data class FetchPlansRequest(
 )
 
 data class CreateRechargeRequest(
+    @field:Pattern(regexp = "^[6-9]\\d{9}$", message = "Invalid mobile number")
     val mobileNumber: String,
+    @field:NotBlank(message = "operator is required")
     val operator: String,
     val circle: String? = null,
+    @field:NotBlank(message = "planId is required")
     val planId: String,
+    @field:Positive(message = "planAmount must be positive")
     val planAmount: BigDecimal,
     // Needed to compute expiry_date once the recharge succeeds -- without
     // this the backend has no idea how long the plan the user picked is
     // valid for. Comes from PlanResponse.validity (already fetched and
     // shown to the user before they confirm), just wasn't threaded through
     // to order creation until now.
+    @field:Positive(message = "planValidityDays must be positive")
     val planValidityDays: Int,
     val paymentMode: PaymentMode,
+    @field:NotBlank(message = "idempotencyKey is required")
     val idempotencyKey: String
 )
 
@@ -65,8 +80,11 @@ data class ActiveRechargeResponse(
 
 data class ConfirmRechargeRequest(
     val rechargeOrderId: UUID,
+    @field:NotBlank(message = "razorpayPaymentId is required")
     val razorpayPaymentId: String,
+    @field:NotBlank(message = "razorpayOrderId is required")
     val razorpayOrderId: String,
+    @field:NotBlank(message = "razorpaySignature is required")
     val razorpaySignature: String
 )
 

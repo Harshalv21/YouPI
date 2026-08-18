@@ -2,6 +2,7 @@ package `in`.youpi.bnpl.api
 
 import `in`.youpi.bnpl.service.*
 import `in`.youpi.core.ApiResponse
+import `in`.youpi.core.awaitValidatedBody
 import `in`.youpi.core.Result
 import `in`.youpi.security.currentUserId
 import io.swagger.v3.oas.annotations.Operation
@@ -64,7 +65,7 @@ class BnplRouter(private val bnplService: BnplService) {
 
     private suspend fun handleStep1(request: ServerRequest): ServerResponse {
         val userId = request.currentUserId()
-        val body = request.awaitBody<BnplStep1Request>()
+        val body = request.awaitValidatedBody<BnplStep1Request>()
         return when (val result = bnplService.submitStep1(userId, body)) {
             is Result.Success -> ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
                 .bodyValueAndAwait(ApiResponse.ok(mapOf("message" to result.value)))
@@ -74,7 +75,7 @@ class BnplRouter(private val bnplService: BnplService) {
 
     private suspend fun handleStep2(request: ServerRequest): ServerResponse {
         val userId = request.currentUserId()
-        val body = request.awaitBody<BnplStep2Request>()
+        val body = request.awaitValidatedBody<BnplStep2Request>()
         return when (val result = bnplService.submitStep2(userId, body)) {
             is Result.Success -> ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
                 .bodyValueAndAwait(ApiResponse.ok(mapOf("message" to result.value)))
@@ -84,7 +85,7 @@ class BnplRouter(private val bnplService: BnplService) {
 
     private suspend fun handleStep3(request: ServerRequest): ServerResponse {
         val userId = request.currentUserId()
-        val body = request.awaitBody<BnplStep3Request>()
+        val body = request.awaitValidatedBody<BnplStep3Request>()
         return when (val result = bnplService.submitStep3(userId, body)) {
             is Result.Success -> ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
                 .bodyValueAndAwait(ApiResponse.ok(result.value))

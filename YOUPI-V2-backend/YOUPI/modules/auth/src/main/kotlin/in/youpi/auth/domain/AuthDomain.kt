@@ -1,12 +1,25 @@
 package `in`.youpi.auth.domain
 
 import `in`.youpi.core.BaseException
+import jakarta.validation.constraints.NotBlank
+import jakarta.validation.constraints.Pattern
+import jakarta.validation.constraints.Size
 import java.time.Instant
 import java.util.UUID
 
 // ── Request DTOs ──
+// NOTE: @field:... annotations here are enforced via awaitValidatedBody<T>()
+// in the router (see shared/core RequestValidation.kt) -- NOT automatically,
+// since this app uses functional coRouter handlers, not @RestController.
+// The existing `init { require(...) }` blocks are kept as a defense-in-depth
+// second layer (they also fire on any direct construction outside HTTP,
+// e.g. in tests/services), but the annotations are now the single
+// documented source of truth for what's a valid request.
 
-data class SendOtpRequest(val mobile: String) {
+data class SendOtpRequest(
+    @field:Pattern(regexp = "^[6-9]\\d{9}$", message = "Invalid mobile number")
+    val mobile: String
+) {
     init {
         require(mobile.matches(Regex("^[6-9]\\d{9}$"))) { "Invalid mobile number" }
     }
@@ -14,24 +27,37 @@ data class SendOtpRequest(val mobile: String) {
 }
 
 data class VerifyOtpRequest(
+    @field:Pattern(regexp = "^[6-9]\\d{9}$", message = "Invalid mobile number")
     val mobile: String,
+    @field:Pattern(regexp = "^\\d{4,6}$", message = "OTP must be 4-6 digits")
     val otp: String,
+    @field:Size(max = 200, message = "deviceId too long")
     val deviceId: String? = null
 )
 
-data class MpinSetupRequest(val mpin: String) {
+data class MpinSetupRequest(
+    @field:Pattern(regexp = "^\\d{4}$", message = "MPIN must be exactly 4 digits")
+    val mpin: String
+) {
     init {
         require(mpin.matches(Regex("^\\d{4}$"))) { "MPIN must be exactly 4 digits" }
     }
 }
 
 data class MpinVerifyRequest(
+    @field:Pattern(regexp = "^[6-9]\\d{9}$", message = "Invalid mobile number")
     val mobile: String,
+    @field:Pattern(regexp = "^\\d{4}$", message = "MPIN must be exactly 4 digits")
     val mpin: String,
+    @field:NotBlank(message = "deviceId is required")
+    @field:Size(max = 200, message = "deviceId too long")
     val deviceId: String
 )
 
-data class RefreshTokenRequest(val refreshToken: String)
+data class RefreshTokenRequest(
+    @field:NotBlank(message = "refreshToken is required")
+    val refreshToken: String
+)
 
 // ── Response DTOs ──
 
@@ -61,7 +87,9 @@ sealed class AuthException(
 }
 
 data class FirebaseVerifyRequest(
+    @field:NotBlank(message = "idToken is required")
     val idToken: String,
+    @field:Size(max = 200, message = "deviceId too long")
     val deviceId: String? = null
 )
 class FirebaseTokenInvalidException :

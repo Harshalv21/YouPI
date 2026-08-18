@@ -202,25 +202,33 @@ interface LoanEmiRepository :
 // =======================================================
 
 data class LoanStep1Request(
+    @field:jakarta.validation.constraints.NotBlank(message = "fullName is required")
+    @field:jakarta.validation.constraints.Size(max = 100, message = "fullName too long")
     val fullName: String,
     val dateOfBirth: LocalDate,
+    @field:jakarta.validation.constraints.Pattern(regexp = "^[A-Z]{5}\\d{4}[A-Z]$", message = "Invalid PAN format")
     val panNumber: String,
     val fathersName: String?,
     val address: String?,
+    @field:jakarta.validation.constraints.Pattern(regexp = "^\\d{6}$", message = "Invalid pincode", flags = [])
     val pincode: String?,
     val city: String?,
     val state: String?
 )
 
 data class LoanStep2Request(
+    @field:jakarta.validation.constraints.NotBlank(message = "employmentType is required")
     val employmentType: String,
     val employerName: String?,
+    @field:jakarta.validation.constraints.PositiveOrZero(message = "monthlyIncome must not be negative")
     val monthlyIncome: BigDecimal?,
     val cibilConsent: Boolean
 )
 
 data class LoanStep3Request(
+    @field:jakarta.validation.constraints.Positive(message = "requestedAmount must be positive")
     val requestedAmount: BigDecimal,
+    @field:jakarta.validation.constraints.Positive(message = "tenureMonths must be positive")
     val tenureMonths: Short
 )
 

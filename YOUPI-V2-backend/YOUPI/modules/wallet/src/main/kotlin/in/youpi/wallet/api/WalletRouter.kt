@@ -1,6 +1,7 @@
 ﻿package `in`.youpi.wallet.api
 
 import `in`.youpi.core.ApiResponse
+import `in`.youpi.core.awaitValidatedBody
 import `in`.youpi.core.Result
 import `in`.youpi.security.currentUserId
 import `in`.youpi.wallet.service.*
@@ -78,7 +79,7 @@ class WalletRouter(private val walletService: WalletService) {
     // NAYA: wallet topup order creation
     private suspend fun handleCreateTopupOrder(request: ServerRequest): ServerResponse {
         val userId = request.currentUserId()
-        val body = request.awaitBody<CreateWalletTopupOrderRequest>()
+        val body = request.awaitValidatedBody<CreateWalletTopupOrderRequest>()
         return when (val result = walletService.createTopupOrder(userId, body.amountRupees)) {
             is Result.Success -> ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
                 .bodyValueAndAwait(ApiResponse.ok(result.value))
