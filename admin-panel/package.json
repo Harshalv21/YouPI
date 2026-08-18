@@ -1,0 +1,10 @@
+{
+  "name": "youpi-admin-panel",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Standalone YouPI Admin Panel -- single-file HTML app, no build step needed",
+  "scripts": {
+    "dev": "npx serve -p 8090",
+    "start": "npx serve -p 8090"
+  }
+}

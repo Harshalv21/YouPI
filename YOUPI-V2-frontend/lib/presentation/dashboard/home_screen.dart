@@ -686,7 +686,7 @@ class _GoldRewardPopupState extends State<_GoldRewardPopup> {
             Text('Gold Reward', style: AppTextStyles.headlineSmall),
             const SizedBox(height: 6),
             Text(
-              'Earn 1% of every recharge as YouPi Coins',
+              'Earn 4% of every recharge as YouPi Coins',
               style: AppTextStyles.bodySmall.copyWith(color: AppColors.textSecondary),
               textAlign: TextAlign.center,
             ),

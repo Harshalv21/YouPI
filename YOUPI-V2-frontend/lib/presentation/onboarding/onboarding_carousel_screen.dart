@@ -45,7 +45,13 @@ class _OnboardingCarouselScreenState extends State<OnboardingCarouselScreen> {
                   child: Padding(
                     padding: const EdgeInsets.all(AppDimensions.paddingPage),
                     child: TextButton(
-                      onPressed: () => context.go('/auth/mobile'),
+                      // CHANGED: was context.go('/auth/mobile') — Skip now
+                      // routes into the financial-profile questions too,
+                      // same as Get Started. Only actual per-question Skip
+                      // (inside OnboardingQuestionsScreen) lets someone
+                      // bypass individual questions; this button no longer
+                      // bypasses the whole set.
+                      onPressed: () => context.go('/onboarding/questions'),
                       child: Text(AppStrings.onboardingSkip,
                           style: AppTextStyles.labelLarge.copyWith(color: AppColors.textSecondary)),
                     ),
@@ -64,7 +70,7 @@ class _OnboardingCarouselScreenState extends State<OnboardingCarouselScreen> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: List.generate(
                     _slides.length,
-                    (i) => AnimatedContainer(
+                        (i) => AnimatedContainer(
                       duration: const Duration(milliseconds: 300),
                       margin: const EdgeInsets.symmetric(horizontal: 4),
                       width: vm.currentPage == i ? 24 : 8,
@@ -83,7 +89,8 @@ class _OnboardingCarouselScreenState extends State<OnboardingCarouselScreen> {
                     label: vm.isLastPage ? AppStrings.onboardingGetStarted : AppStrings.onboardingNext,
                     onPressed: () {
                       if (vm.isLastPage) {
-                        context.go('/auth/mobile');
+                        // CHANGED: was context.go('/auth/mobile')
+                        context.go('/onboarding/questions');
                       } else {
                         vm.nextPage();
                         _pageController.nextPage(

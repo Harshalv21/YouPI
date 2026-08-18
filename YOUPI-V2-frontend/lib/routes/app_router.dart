@@ -6,6 +6,8 @@ import '../core/services/storage_service.dart';
 import '../presentation/splash/splash_screen.dart';
 import '../presentation/onboarding/welcome_screen.dart';
 import '../presentation/onboarding/onboarding_carousel_screen.dart';
+import '../presentation/onboarding/onboarding_questions_screen.dart'; // NEW
+import '../presentation/onboarding/smartsave_eligibility_screen.dart';
 import '../presentation/auth/mobile_entry_screen.dart';
 import '../presentation/auth/otp_verify_screen.dart';
 import '../presentation/auth/user_profile_setup_screen.dart';
@@ -51,17 +53,6 @@ import '../presentation/settings/help_support_screen.dart';
 class AppRouter {
   static final _rootNavigatorKey = GlobalKey<NavigatorState>();
 
-  // BUG FIX: this used to be `static GoRouter get router => GoRouter(...)`
-  // -- a getter that constructed a BRAND NEW GoRouter (with fresh, reset
-  // navigation state) on every single access. Harmless while the only
-  // reference was main.dart's one-time `routerConfig: AppRouter.router`
-  // at app startup, but push_notification_service.dart now needs to
-  // navigate the SAME router instance that's actually mounted in the
-  // widget tree when a notification is tapped -- a second call to the
-  // old getter would have silently created an orphaned router that no
-  // navigation calls could ever visibly affect. Lazy-cached singleton
-  // fixes that while keeping the exact same external API (`AppRouter.router`
-  // still just works, from anywhere).
   static GoRouter? _router;
   static GoRouter get router => _router ??= _buildRouter();
 
@@ -79,10 +70,6 @@ class AppRouter {
         return null;
       }
 
-      // Guests get to browse (dashboard/home, plans, invest, wallet screen
-      // itself, etc.) without a token. GuestGuard.requireAuth() is what
-      // actually blocks *operations* (Add Money, Apply for BNPL, KYC start,
-      // etc.) at the point of use -- not this route-level redirect.
       if (!hasToken && !isGuest) return '/auth/mobile';
 
       return null;
@@ -91,6 +78,28 @@ class AppRouter {
       GoRoute(path: '/splash', builder: (c, s) => const SplashScreen()),
       GoRoute(path: '/onboarding/welcome', builder: (c, s) => const WelcomeScreen()),
       GoRoute(path: '/onboarding/carousel', builder: (c, s) => const OnboardingCarouselScreen()),
+      // NEW: 5-question financial profile, shown after the carousel
+      // (both Skip and Get Started land here now), before phone entry.
+      // No backend call happens inside this screen -- answers are cached
+      // in memory (OnboardingAnswerCache) and submitted after OTP
+      // verification succeeds, only for isNewUser == true.
+      GoRoute(
+        path: '/onboarding/questions',
+        builder: (c, s) => OnboardingQuestionsScreen(
+          onComplete: (answers) {
+            OnboardingAnswerCache.instance.store(answers);
+            final eligible = computeSmartSaveEligibility(answers);
+            c.go('/onboarding/eligibility', extra: eligible);
+          },
+        ),
+      ),
+      GoRoute(
+        path: '/onboarding/eligibility',
+        builder: (c, s) => SmartSaveEligibilityScreen(
+          isEligible: s.extra as bool? ?? false,
+          onContinue: () => c.go('/auth/mobile'),
+        ),
+      ),
       GoRoute(path: '/auth/mobile', builder: (c, s) => const MobileEntryScreen()),
       GoRoute(
         path: '/auth/otp',
@@ -102,10 +111,6 @@ class AppRouter {
               isRecovery: extra['isRecovery'] == true,
             );
           }
-          // Backward-compat fallback -- shouldn't happen anymore now that
-          // both callers (mobile_entry_screen.dart, login_mpin_screen.dart)
-          // pass the Map form above, but a bare String extra defaults to
-          // isRecovery: false rather than crashing.
           return OtpVerifyScreen(mobile: extra as String? ?? '');
         },
       ),
@@ -122,10 +127,6 @@ class AppRouter {
           return MpinSetupScreen(isReset: extra?['isReset'] == true);
         },
       ),
-      // Bug #5 fix: intro/aadhaar/pan/success used to each spin up their own
-      // `KycViewModel()`, so PAN verification never knew about the Aadhaar
-      // step and vice versa. A single ChangeNotifierProvider here, shared by
-      // the whole /kyc/* flow via ShellRoute, fixes that.
       ShellRoute(
         builder: (context, state, child) => ChangeNotifierProvider(
           create: (_) => KycViewModel(),
@@ -151,15 +152,11 @@ class AppRouter {
       GoRoute(path: '/bnpl/not-approved', builder: (c, s) => const BnplNotApprovedScreen()),
       GoRoute(path: '/bnpl/smart-deposit', builder: (c, s) => const SmartDepositScreen()),
       GoRoute(path: '/bnpl/approved', builder: (c, s) => const BnplApprovedScreen()),
-      // Loan flow entry point is now reachable from Home / BNPL hub (see below).
       GoRoute(path: '/loan/apply/step1', builder: (c, s) => const LoanApplyStep1Screen()),
       GoRoute(path: '/loan/apply/step2', builder: (c, s) => const LoanApplyStep2Screen()),
       GoRoute(path: '/loan/apply/step3', builder: (c, s) => const LoanApplyStep3Screen()),
       GoRoute(path: '/loan/approved', builder: (c, s) => const LoanApprovedScreen()),
       GoRoute(path: '/loan/my-loans', builder: (c, s) => const MyLoansScreen()),
-      // NBFC Credit dashboard -- reached from Home (credit-limit card + the
-      // "Credit" quick action). Separate from the /loan/apply/* Personal
-      // Loan flow above.
       GoRoute(path: '/loan/nbfc-credit', builder: (c, s) => const NbfcCreditScreen()),
       GoRoute(path: '/wallet/add', builder: (c, s) => const AddMoneyScreen()),
       GoRoute(path: '/wallet/history', builder: (c, s) => const TransactionHistoryScreen()),
@@ -204,7 +201,6 @@ class MainShell extends StatefulWidget {
 }
 
 class _MainShellState extends State<MainShell> {
-  // The 5 bottom-nav tabs, in order.
   static const _tabRoutes = [
     '/dashboard/home',
     '/dashboard/plans',
@@ -213,13 +209,6 @@ class _MainShellState extends State<MainShell> {
     '/dashboard/settings',
   ];
 
-  // Invest isn't part of this release -- backend already blocks its API
-  // routes (403 FEATURE_DISABLED via FeatureGateFilter), this stops the
-  // bottom nav from routing into a screen that'll just hit raw API errors,
-  // showing a clean "Coming Soon" popup instead. Wallet MVP shipped --
-  // unlocked. Home, Plans, Settings tabs are untouched. Route definitions
-  // themselves are NOT removed (still there for future re-enabling), only
-  // this tap interception changed.
   static const _lockedTabs = <int, String>{};
 
   void _handleTabTap(int index) {
@@ -234,16 +223,12 @@ class _MainShellState extends State<MainShell> {
   Widget build(BuildContext context) {
     final location = GoRouterState.of(context).matchedLocation;
 
-    // Bug #6 fix: find the matching tab. If the current route isn't a tab
-    // (e.g. /dashboard/bnpl lives in the shell but has no tab), keep the nav
-    // bar but DON'T force-highlight Home — show no active tab instead of a wrong one.
     final matchedIndex =
     _tabRoutes.indexWhere((r) => location.startsWith(r));
 
     return Scaffold(
       body: widget.child,
       bottomNavigationBar: _YoupiBottomNav(
-        // -1 => no tab highlighted (valid for bnpl and other shell-but-not-tab routes)
         currentIndex: matchedIndex,
         onTap: _handleTabTap,
       ),
@@ -252,7 +237,7 @@ class _MainShellState extends State<MainShell> {
 }
 
 class _YoupiBottomNav extends StatelessWidget {
-  final int currentIndex; // -1 means "no active tab"
+  final int currentIndex;
   final void Function(int) onTap;
 
   const _YoupiBottomNav({required this.currentIndex, required this.onTap});
@@ -267,17 +252,12 @@ class _YoupiBottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // BottomNavigationBar needs a valid index (0..n-1). When there's no active
-    // tab (currentIndex == -1), we pass 0 but visually de-emphasise by using the
-    // unselected colour for everything via selectedItemColor matching unselected.
     final hasActive = currentIndex >= 0;
     return BottomNavigationBar(
       currentIndex: hasActive ? currentIndex : 0,
       onTap: onTap,
       items: _items,
       type: BottomNavigationBarType.fixed,
-      // When no tab is active, make the "selected" one look unselected so the
-      // user isn't misled into thinking Home is active on the BNPL screen.
       selectedItemColor: hasActive ? null : Colors.grey,
     );
   }

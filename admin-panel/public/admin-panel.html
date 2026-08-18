@@ -1,0 +1,866 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>YouPI Admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
+<style>
+  :root{
+    --bg:#0A0C10; --surface:#111318; --card:#181C24; --card-hover:#1E2330;
+    --border: rgba(255,255,255,0.08); --border-strong: rgba(255,255,255,0.14);
+    --accent:#00D4A1; --accent-dim: rgba(0,212,161,0.12); --accent-text:#0A0C10;
+    --text:#F5F7FA; --text-secondary:#8A9BB0; --text-tertiary:#5A6578;
+    --warn:#F5B94A; --warn-dim: rgba(245,185,74,0.12);
+    --err:#FF6B7A; --err-dim: rgba(255,107,122,0.12);
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; background:var(--bg); color:var(--text); font-family:'Inter',sans-serif; -webkit-font-smoothing:antialiased;}
+  .font-display{font-family:'Space Grotesk',sans-serif;}
+  .font-mono{font-family:'JetBrains Mono',monospace; font-variant-numeric: tabular-nums;}
+  ::-webkit-scrollbar{width:8px; height:8px;}
+  ::-webkit-scrollbar-track{background:transparent;}
+  ::-webkit-scrollbar-thumb{background:var(--border-strong); border-radius:4px;}
+  @keyframes pulse-dot{0%{box-shadow:0 0 0 0 rgba(0,212,161,0.55);}70%{box-shadow:0 0 0 6px rgba(0,212,161,0);}100%{box-shadow:0 0 0 0 rgba(0,212,161,0);}}
+  .pulse{animation:pulse-dot 2s infinite;}
+  @keyframes fade-in{from{opacity:0; transform:translateY(4px);}to{opacity:1; transform:translateY(0);}}
+  .fade-in{animation:fade-in .25s ease-out;}
+
+  /* ---------------- Responsive (mobile) overrides ---------------- */
+  @media (max-width: 768px){
+    .app-root{ flex-direction:column !important; min-height:auto !important; }
+
+    .sidebar{
+      width:100% !important; min-width:0 !important;
+      flex-direction:row !important;
+      border-right:none !important; border-bottom:1px solid var(--border);
+      padding:10px 12px !important;
+      align-items:center; justify-content:space-between !important;
+      gap:10px;
+    }
+    .sidebar-top{
+      display:flex !important; align-items:center; gap:12px;
+      flex:1; min-width:0; overflow-x:auto;
+    }
+    .sidebar-brand{ margin-bottom:0 !important; flex-shrink:0; }
+    .sidebar-nav{
+      flex-direction:row !important; gap:2px !important;
+      overflow-x:auto;
+    }
+    .sidebar-nav button{ padding:7px 9px !important; font-size:12px !important; white-space:nowrap; }
+    .sidebar-bottom{
+      border-top:none !important; padding-top:0 !important;
+      display:flex !important; align-items:center; gap:8px; flex-shrink:0;
+    }
+    .signed-in-text{ display:none !important; }
+    .sidebar-bottom button{ width:auto !important; padding:6px 10px !important; font-size:11px !important; white-space:nowrap; }
+
+    .content-area{ padding:16px !important; }
+
+    .search-input{ width:100% !important; }
+    .screen-header{ flex-direction:column !important; align-items:flex-start !important; gap:12px; }
+    .screen-header-controls{ width:100%; flex-direction:column !important; }
+    .screen-header-controls > *{ width:100% !important; }
+
+    .stats-grid{ grid-template-columns:1fr 1fr !important; }
+    .table-wrap{ overflow-x:auto !important; -webkit-overflow-scrolling:touch; }
+    .table-wrap table{ min-width:640px; }
+  }
+  @media (max-width: 420px){
+    .stats-grid{ grid-template-columns:1fr !important; }
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react,typescript">
+const { useState, useEffect, useMemo, useCallback, useRef } = React;
+
+/* =========================================================================
+   CONFIG -- flip USE_MOCK_DATA to false once the backend admin endpoints
+   (see the Kotlin spec doc shared alongside this file) are live. When
+   false, the api* functions below call API_BASE with a Bearer token from
+   the in-memory session instead of returning generated mock data.
+
+   NOTE ON PERSISTENCE: this file intentionally keeps the admin session in
+   memory only (no localStorage) -- refreshing the page logs you out. This
+   was a deliberate choice for the sandboxed preview environment. Once you
+   host this file yourself (Firebase Hosting / Cloud Run static / Netlify),
+   you can swap the two "session" functions near the bottom of this file to
+   persist the token in localStorage if you want sessions to survive a
+   refresh.
+   ========================================================================= */
+const USE_MOCK_DATA = false;
+const API_BASE = "https://youpi-api-887162129478.asia-south1.run.app/api/v1/admin-panel";
+
+/* ---------------------------- Mock data ------------------------------- */
+function seedRandom(seed){ let s = seed; return () => { s = (s * 9301 + 49297) % 233280; return s / 233280; }; }
+const rand = seedRandom(42);
+const OPERATORS = ["JIO","AIRTEL","VI","BSNL"];
+const CIRCLES = ["UP East","Mumbai","Delhi NCR","Karnataka","Kerala"];
+const STATUSES = ["RECHARGE_SUCCESS","RECHARGE_FAILED","PENDING_VERIFICATION","REFUNDED","INITIATED"];
+const NAMES = ["Aditi Sharma","Rohan Mehta","Kavya Iyer","Suresh Patel","Neha Gupta","Vikram Singh","Priya Nair","Arjun Rao","Meera Joshi","Karan Malhotra","Divya Reddy","Sanjay Kumar"];
+
+function genUsers(n){
+  return Array.from({length:n}).map((_,i)=>{
+    const kycOptions = ["VERIFIED","PENDING","NOT_STARTED","REJECTED"];
+    const daysAgo = Math.floor(rand()*90);
+    return {
+      id: `usr_${1000+i}`,
+      name: NAMES[i % NAMES.length],
+      mobile: `9${Math.floor(100000000+rand()*899999999)}`.slice(0,10),
+      email: `${NAMES[i%NAMES.length].split(' ')[0].toLowerCase()}${i}@example.com`,
+      kycStatus: kycOptions[Math.floor(rand()*kycOptions.length)],
+      status: rand() > 0.06 ? "ACTIVE" : "BLOCKED",
+      joinedAt: new Date(Date.now() - daysAgo*86400000).toISOString(),
+      totalRecharges: Math.floor(rand()*20),
+      totalSpend: Math.round(rand()*8000),
+    };
+  });
+}
+
+function genTransactions(n, users){
+  return Array.from({length:n}).map((_,i)=>{
+    const u = users[Math.floor(rand()*users.length)];
+    const amount = [29,33,49,99,149,199,249,299,399,599][Math.floor(rand()*10)];
+    const status = STATUSES[Math.floor(rand()*STATUSES.length)];
+    const minsAgo = Math.floor(rand()*10080);
+    return {
+      id: `ord_${2000+i}`,
+      userId: u.id,
+      userName: u.name,
+      mobile: u.mobile,
+      operator: OPERATORS[Math.floor(rand()*OPERATORS.length)],
+      circle: CIRCLES[Math.floor(rand()*CIRCLES.length)],
+      amount,
+      gateway: "Cashfree",
+      status,
+      createdAt: new Date(Date.now() - minsAgo*60000).toISOString(),
+    };
+  }).sort((a,b)=> new Date(b.createdAt) - new Date(a.createdAt));
+}
+
+function genGoldLedger(n, users){
+  return Array.from({length:n}).map((_,i)=>{
+    const u = users[Math.floor(rand()*users.length)];
+    const rechargeAmt = [249,299,399,599][Math.floor(rand()*4)];
+    const grams = +( (rechargeAmt*0.01) / 6000 * 10 ).toFixed(4);
+    const daysAgo = Math.floor(rand()*60);
+    return {
+      id: `gld_${3000+i}`,
+      userId: u.id,
+      userName: u.name,
+      rechargeAmount: rechargeAmt,
+      coinsEarned: Math.round(rechargeAmt*0.01/10),
+      grams,
+      createdAt: new Date(Date.now() - daysAgo*86400000).toISOString(),
+    };
+  }).sort((a,b)=> new Date(b.createdAt) - new Date(a.createdAt));
+}
+
+const MOCK_USERS = genUsers(64);
+const MOCK_TXNS = genTransactions(140, MOCK_USERS);
+const MOCK_GOLD = genGoldLedger(50, MOCK_USERS);
+
+/* ----------------------------- API layer -------------------------------
+   Every function below returns a Promise, so swapping USE_MOCK_DATA to
+   false and pointing API_BASE at the real backend requires no changes to
+   any screen component -- only these functions change behaviour.
+   See the accompanying "Admin API spec" doc for the exact endpoint
+   contracts these expect once wired to the real backend.
+------------------------------------------------------------------------- */
+function authHeader(token){ return token ? { Authorization: `Bearer ${token}` } : {}; }
+
+/* Backend wraps every response as { success, data, error, requestId, timestamp }
+   (see ApiResponse.kt). The mock functions above return raw shapes directly
+   (e.g. { token, adminName } for login), so real responses must be unwrapped
+   to .data to match -- otherwise session.token etc. end up undefined and every
+   subsequent authenticated call silently 401s even though login "succeeded". */
+async function unwrap(res, fallbackMessage){
+  let json;
+  try { json = await res.json(); } catch (e) { throw new Error(fallbackMessage); }
+  if (!res.ok || json.success === false) {
+    throw new Error(json?.error?.message || fallbackMessage);
+  }
+  return json.data;
+}
+
+async function apiLogin(email, password, setToast){
+  if (USE_MOCK_DATA){
+    await new Promise(r=>setTimeout(r, 500));
+    if (!email || !password) throw new Error("Email and password are required.");
+    return { token: "mock-admin-token", adminName: email.split('@')[0] };
+  }
+  const res = await fetch(`${API_BASE}/auth/login`, {
+    method: "POST", headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({ email, password })
+  });
+  return unwrap(res, "Invalid credentials.");
+}
+
+async function apiDashboardStats(token){
+  if (USE_MOCK_DATA){
+    await new Promise(r=>setTimeout(r, 300));
+    const successCount = MOCK_TXNS.filter(t=>t.status==="RECHARGE_SUCCESS").length;
+    const totalRevenue = MOCK_TXNS.filter(t=>t.status==="RECHARGE_SUCCESS").reduce((s,t)=>s+t.amount,0);
+    return {
+      totalUsers: MOCK_USERS.length,
+      activeToday: Math.floor(MOCK_USERS.length*0.18),
+      totalRevenue,
+      successRate: +( (successCount/MOCK_TXNS.length)*100 ).toFixed(1),
+      revenueTrend: Array.from({length:14}).map(()=> Math.round(rand()*4000+500)),
+      txnTrend: Array.from({length:14}).map(()=> Math.round(rand()*40+5)),
+    };
+  }
+  const res = await fetch(`${API_BASE}/dashboard/stats`, { headers: authHeader(token) });
+  return unwrap(res, "Failed to load dashboard stats.");
+}
+
+async function apiUsers(token, { search="", kyc="ALL", page=0, pageSize=20 }={}){
+  if (USE_MOCK_DATA){
+    await new Promise(r=>setTimeout(r, 300));
+    let filtered = MOCK_USERS;
+    if (search) filtered = filtered.filter(u => u.name.toLowerCase().includes(search.toLowerCase()) || u.mobile.includes(search));
+    if (kyc !== "ALL") filtered = filtered.filter(u => u.kycStatus === kyc);
+    const start = page*pageSize;
+    return { items: filtered.slice(start, start+pageSize), total: filtered.length };
+  }
+  const params = new URLSearchParams({ search, kyc, page, pageSize });
+  const res = await fetch(`${API_BASE}/users?${params}`, { headers: authHeader(token) });
+  const data = await unwrap(res, "Failed to load users.");
+  // Backend sends { fullName, isKycVerified, isActive, ... } (see AdminUserSummary.kt).
+  // UI reads { name, kycStatus, status } everywhere (built against the mock shape) --
+  // map here once instead of touching every render call site.
+  return {
+    ...data,
+    items: data.items.map(u => ({
+      ...u,
+      name: u.fullName || "Unnamed",
+      kycStatus: u.isKycVerified ? "VERIFIED" : "NOT_VERIFIED",
+      status: u.isActive ? "ACTIVE" : "BLOCKED",
+    }))
+  };
+}
+
+async function apiToggleUserStatus(token, userId, newStatus){
+  if (USE_MOCK_DATA){
+    await new Promise(r=>setTimeout(r, 300));
+    const u = MOCK_USERS.find(u=>u.id===userId);
+    if (u) u.status = newStatus;
+    return { ok:true };
+  }
+  const res = await fetch(`${API_BASE}/users/${userId}/status`, {
+    method:"PATCH", headers: {...authHeader(token), "Content-Type":"application/json"},
+    body: JSON.stringify({ isActive: newStatus === "ACTIVE" })
+  });
+  return unwrap(res, "Failed to update user status.");
+}
+
+async function apiTransactions(token, { search="", status="ALL", page=0, pageSize=20 }={}){
+  if (USE_MOCK_DATA){
+    await new Promise(r=>setTimeout(r, 300));
+    let filtered = MOCK_TXNS;
+    if (search) filtered = filtered.filter(t => t.userName.toLowerCase().includes(search.toLowerCase()) || t.mobile.includes(search) || t.id.includes(search));
+    if (status !== "ALL") filtered = filtered.filter(t => t.status === status);
+    const start = page*pageSize;
+    return { items: filtered.slice(start, start+pageSize), total: filtered.length };
+  }
+  const params = new URLSearchParams({ search, status, page, pageSize });
+  const res = await fetch(`${API_BASE}/transactions?${params}`, { headers: authHeader(token) });
+  return unwrap(res, "Failed to load transactions.");
+}
+
+async function apiGoldLedger(token, { search="", page=0, pageSize=20 }={}){
+  if (USE_MOCK_DATA){
+    await new Promise(r=>setTimeout(r, 300));
+    let filtered = MOCK_GOLD;
+    if (search) filtered = filtered.filter(g => g.userName.toLowerCase().includes(search.toLowerCase()));
+    const start = page*pageSize;
+    return { items: filtered.slice(start, start+pageSize), total: filtered.length };
+  }
+  const params = new URLSearchParams({ search, page, pageSize });
+  const res = await fetch(`${API_BASE}/gold-ledger?${params}`, { headers: authHeader(token) });
+  return unwrap(res, "Failed to load gold ledger.");
+}
+
+/* ----------------------------- UI atoms --------------------------------- */
+function StatusBadge({ status }){
+  const map = {
+    RECHARGE_SUCCESS: { label:"Success", bg:"var(--accent-dim)", fg:"var(--accent)" },
+    ACTIVE:           { label:"Active",  bg:"var(--accent-dim)", fg:"var(--accent)" },
+    VERIFIED:         { label:"Verified",bg:"var(--accent-dim)", fg:"var(--accent)" },
+    RECHARGE_FAILED:  { label:"Failed",  bg:"var(--err-dim)",    fg:"var(--err)" },
+    BLOCKED:          { label:"Blocked", bg:"var(--err-dim)",    fg:"var(--err)" },
+    REJECTED:         { label:"Rejected",bg:"var(--err-dim)",    fg:"var(--err)" },
+    PENDING_VERIFICATION: { label:"Pending", bg:"var(--warn-dim)", fg:"var(--warn)" },
+    PENDING:          { label:"Pending", bg:"var(--warn-dim)", fg:"var(--warn)" },
+    INITIATED:        { label:"Initiated", bg:"rgba(138,155,176,0.15)", fg:"var(--text-secondary)" },
+    REFUNDED:         { label:"Refunded", bg:"rgba(138,155,176,0.15)", fg:"var(--text-secondary)" },
+    NOT_STARTED:      { label:"Not started", bg:"rgba(138,155,176,0.15)", fg:"var(--text-secondary)" },
+    NOT_VERIFIED:     { label:"Not verified", bg:"var(--warn-dim)", fg:"var(--warn)" },
+  };
+  const s = map[status] || { label:status, bg:"rgba(138,155,176,0.15)", fg:"var(--text-secondary)" };
+  return (
+    <span className="font-mono" style={{
+      background:s.bg, color:s.fg, fontSize:11, fontWeight:600, padding:"3px 9px",
+      borderRadius:999, letterSpacing:0.3, whiteSpace:"nowrap"
+    }}>{s.label}</span>
+  );
+}
+
+function Sparkline({ data, color="var(--accent)" }){
+  const w = 96, h = 28, max = Math.max(...data), min = Math.min(...data);
+  const pts = data.map((v,i)=>{
+    const x = (i/(data.length-1)) * w;
+    const y = h - ((v-min)/((max-min)||1)) * h;
+    return `${x},${y}`;
+  }).join(" ");
+  return (
+    <svg width={w} height={h} style={{overflow:"visible"}}>
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" opacity="0.9"/>
+    </svg>
+  );
+}
+
+function StatCard({ label, value, sub, trend, accent }){
+  return (
+    <div className="fade-in" style={{
+      background:"var(--card)", border:"1px solid var(--border)", borderRadius:14, padding:18,
+      display:"flex", flexDirection:"column", gap:10, minWidth:0
+    }}>
+      <div style={{color:"var(--text-secondary)", fontSize:12.5, fontWeight:500}}>{label}</div>
+      <div style={{display:"flex", alignItems:"flex-end", justifyContent:"space-between", gap:12}}>
+        <div className="font-display" style={{fontSize:26, fontWeight:600, color:"var(--text)"}}>{value}</div>
+        {trend && <Sparkline data={trend} color={accent || "var(--accent)"} />}
+      </div>
+      {sub && <div style={{fontSize:11.5, color:"var(--text-tertiary)"}}>{sub}</div>}
+    </div>
+  );
+}
+
+function LiveIndicator({ lastRefreshed }){
+  const [, force] = useState(0);
+  useEffect(()=>{ const t = setInterval(()=>force(x=>x+1), 1000); return ()=>clearInterval(t); },[]);
+  const secsAgo = Math.max(0, Math.round((Date.now()-lastRefreshed)/1000));
+  return (
+    <div style={{display:"flex", alignItems:"center", gap:7, fontSize:12, color:"var(--text-secondary)"}}>
+      <span className="pulse" style={{width:7, height:7, borderRadius:999, background:"var(--accent)", display:"inline-block"}}/>
+      Live &middot; updated {secsAgo}s ago
+    </div>
+  );
+}
+
+function SearchInput({ value, onChange, placeholder }){
+  return (
+    <input
+      value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}
+      className="search-input"
+      style={{
+        background:"var(--surface)", border:"1px solid var(--border)", borderRadius:10,
+        padding:"9px 13px", fontSize:13.5, color:"var(--text)", outline:"none", width:260
+      }}
+      onFocus={e=>e.target.style.borderColor="var(--border-strong)"}
+      onBlur={e=>e.target.style.borderColor="var(--border)"}
+    />
+  );
+}
+
+function Select({ value, onChange, options }){
+  return (
+    <select value={value} onChange={e=>onChange(e.target.value)} style={{
+      background:"var(--surface)", border:"1px solid var(--border)", borderRadius:10,
+      padding:"9px 12px", fontSize:13.5, color:"var(--text)", outline:"none", cursor:"pointer"
+    }}>
+      {options.map(o=> <option key={o.value} value={o.value}>{o.label}</option>)}
+    </select>
+  );
+}
+
+function Pagination({ page, pageSize, total, onPage }){
+  const pages = Math.max(1, Math.ceil(total/pageSize));
+  return (
+    <div style={{display:"flex", alignItems:"center", gap:10, justifyContent:"flex-end", marginTop:14}}>
+      <span style={{fontSize:12.5, color:"var(--text-secondary)"}}>Page {page+1} of {pages} &middot; {total} total</span>
+      <button disabled={page<=0} onClick={()=>onPage(page-1)} style={btnGhost(page<=0)}>Prev</button>
+      <button disabled={page+1>=pages} onClick={()=>onPage(page+1)} style={btnGhost(page+1>=pages)}>Next</button>
+    </div>
+  );
+}
+function btnGhost(disabled){
+  return {
+    background:"var(--surface)", border:"1px solid var(--border)", color: disabled ? "var(--text-tertiary)" : "var(--text)",
+    borderRadius:8, padding:"6px 12px", fontSize:12.5, cursor: disabled?"default":"pointer", opacity: disabled?0.5:1
+  };
+}
+
+function fmtMoney(n){ return "₹" + Number(n).toLocaleString("en-IN"); }
+function fmtDate(iso){
+  const d = new Date(iso);
+  return d.toLocaleDateString("en-IN",{day:"2-digit",month:"short"}) + " · " + d.toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"});
+}
+
+/* ----------------------------- Screens ---------------------------------- */
+function LoginScreen({ onLogin }){
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setError(null); setLoading(true);
+    try {
+      const res = await apiLogin(email, password);
+      onLogin(res);
+    } catch (err){
+      setError(err.message);
+    } finally { setLoading(false); }
+  };
+
+  return (
+    <div style={{minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", background:"var(--bg)"}}>
+      <form onSubmit={submit} className="fade-in" style={{
+        width:360, background:"var(--card)", border:"1px solid var(--border)", borderRadius:16, padding:32
+      }}>
+        <div style={{display:"flex", alignItems:"center", gap:10, marginBottom:6}}>
+          <div style={{width:34, height:34, borderRadius:9, background:"var(--accent)", display:"flex", alignItems:"center", justifyContent:"center"}}>
+            <span className="font-display" style={{color:"var(--accent-text)", fontWeight:700, fontSize:16}}>Y</span>
+          </div>
+          <div className="font-display" style={{fontSize:19, fontWeight:600}}>YouPI Admin</div>
+        </div>
+        <div style={{color:"var(--text-secondary)", fontSize:13, marginBottom:24}}>Sign in to view live registrations, payments and recharges.</div>
+
+        {USE_MOCK_DATA && (
+          <div style={{background:"var(--warn-dim)", color:"var(--warn)", fontSize:11.5, padding:"8px 11px", borderRadius:8, marginBottom:18}}>
+            Preview mode &middot; any email/password signs in with sample data. Connect the real backend before sharing this link.
+          </div>
+        )}
+
+        <label style={{fontSize:12, color:"var(--text-secondary)", display:"block", marginBottom:6}}>Email</label>
+        <input type="email" required value={email} onChange={e=>setEmail(e.target.value)}
+          style={{width:"100%", background:"var(--surface)", border:"1px solid var(--border)", borderRadius:10, padding:"10px 13px", color:"var(--text)", fontSize:14, marginBottom:16, outline:"none"}} />
+
+        <label style={{fontSize:12, color:"var(--text-secondary)", display:"block", marginBottom:6}}>Password</label>
+        <input type="password" required value={password} onChange={e=>setPassword(e.target.value)}
+          style={{width:"100%", background:"var(--surface)", border:"1px solid var(--border)", borderRadius:10, padding:"10px 13px", color:"var(--text)", fontSize:14, marginBottom:8, outline:"none"}} />
+
+        {error && <div style={{color:"var(--err)", fontSize:12.5, marginBottom:12}}>{error}</div>}
+
+        <button type="submit" disabled={loading} style={{
+          width:"100%", background:"var(--accent)", color:"var(--accent-text)", border:"none",
+          borderRadius:10, padding:"11px 0", fontSize:14, fontWeight:600, cursor:"pointer", marginTop:10,
+          opacity: loading?0.7:1
+        }}>{loading ? "Signing in..." : "Sign in"}</button>
+      </form>
+    </div>
+  );
+}
+
+function Sidebar({ active, onNav, adminName, onLogout }){
+  const items = [
+    { key:"dashboard", label:"Dashboard", icon:"◧" },
+    { key:"users", label:"Users", icon:"◔" },
+    { key:"transactions", label:"Transactions", icon:"↻" },
+    { key:"gold", label:"Gold Ledger", icon:"◈" },
+  ];
+  return (
+    <div className="sidebar" style={{
+      width:224, minWidth:224, background:"var(--surface)", borderRight:"1px solid var(--border)",
+      display:"flex", flexDirection:"column", padding:"20px 14px", justifyContent:"space-between"
+    }}>
+      <div className="sidebar-top">
+        <div className="sidebar-brand" style={{display:"flex", alignItems:"center", gap:9, padding:"0 8px", marginBottom:28}}>
+          <div style={{width:28, height:28, borderRadius:8, background:"var(--accent)", display:"flex", alignItems:"center", justifyContent:"center"}}>
+            <span className="font-display" style={{color:"var(--accent-text)", fontWeight:700, fontSize:13}}>Y</span>
+          </div>
+          <span className="font-display" style={{fontWeight:600, fontSize:15}}>YouPI Admin</span>
+        </div>
+        <div className="sidebar-nav" style={{display:"flex", flexDirection:"column", gap:2}}>
+          {items.map(it=>(
+            <button key={it.key} onClick={()=>onNav(it.key)} style={{
+              display:"flex", alignItems:"center", gap:10, padding:"9px 11px", borderRadius:9,
+              background: active===it.key ? "var(--accent-dim)" : "transparent",
+              color: active===it.key ? "var(--accent)" : "var(--text-secondary)",
+              border:"none", fontSize:13.5, fontWeight:500, cursor:"pointer", textAlign:"left"
+            }}>
+              <span style={{fontSize:14, width:16, textAlign:"center"}}>{it.icon}</span>{it.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="sidebar-bottom" style={{borderTop:"1px solid var(--border)", paddingTop:14}}>
+        <div className="signed-in-text" style={{fontSize:12, color:"var(--text-secondary)", padding:"0 8px", marginBottom:8}}>Signed in as <span style={{color:"var(--text)"}}>{adminName}</span></div>
+        <button onClick={onLogout} style={{
+          width:"100%", background:"transparent", border:"1px solid var(--border)", color:"var(--text-secondary)",
+          borderRadius:9, padding:"8px 0", fontSize:12.5, cursor:"pointer"
+        }}>Sign out</button>
+      </div>
+    </div>
+  );
+}
+
+function DashboardScreen({ token }){
+  const [stats, setStats] = useState(null);
+  const [lastRefreshed, setLastRefreshed] = useState(Date.now());
+  const [error, setError] = useState(null);
+
+  const load = useCallback(async ()=>{
+    try { const s = await apiDashboardStats(token); setStats(s); setLastRefreshed(Date.now()); setError(null); }
+    catch(e){ setError(e.message); }
+  },[token]);
+
+  useEffect(()=>{
+    load();
+    const t = setInterval(load, 30000); // auto-refresh every 30s
+    return ()=>clearInterval(t);
+  },[load]);
+
+  if (error) return <ErrorBanner message={error} onRetry={load} />;
+  if (!stats) return <LoadingBlock />;
+
+  return (
+    <div className="fade-in">
+      <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:20}}>
+        <div>
+          <div className="font-display" style={{fontSize:22, fontWeight:600}}>Dashboard</div>
+          <div style={{color:"var(--text-secondary)", fontSize:13, marginTop:2}}>Real-time snapshot across all users and recharges.</div>
+        </div>
+        <LiveIndicator lastRefreshed={lastRefreshed} />
+      </div>
+
+      <div className="stats-grid" style={{display:"grid", gridTemplateColumns:"repeat(4, 1fr)", gap:14, marginBottom:24}}>
+        <StatCard label="Total users" value={stats.totalUsers.toLocaleString("en-IN")} sub={`${stats.activeToday} active today`} trend={stats.txnTrend} />
+        <StatCard label="Total revenue" value={fmtMoney(stats.totalRevenue)} sub="Successful recharges, all-time" trend={stats.revenueTrend} />
+        <StatCard label="Success rate" value={`${stats.successRate}%`} sub="Payment → recharge completion" trend={stats.txnTrend.slice().reverse()} accent="var(--warn)" />
+        <StatCard label="Active today" value={stats.activeToday} sub="Users with a transaction today" trend={stats.txnTrend} />
+      </div>
+
+      <div style={{color:"var(--text-tertiary)", fontSize:12}}>
+        Auto-refreshes every 30 seconds. Data below (Users / Transactions / Gold Ledger) refreshes when you open each tab.
+      </div>
+    </div>
+  );
+}
+
+function UsersScreen({ token }){
+  const [rows, setRows] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [search, setSearch] = useState("");
+  const [kyc, setKyc] = useState("ALL");
+  const [page, setPage] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [selected, setSelected] = useState(null);
+  const pageSize = 10;
+
+  const load = useCallback(async ()=>{
+    setLoading(true);
+    try { const r = await apiUsers(token, { search, kyc, page, pageSize }); setRows(r.items); setTotal(r.total); setError(null); }
+    catch(e){ setError(e.message); }
+    finally { setLoading(false); }
+  },[token, search, kyc, page]);
+
+  useEffect(()=>{ setPage(0); },[search, kyc]);
+  useEffect(()=>{ load(); },[load]);
+
+  const toggleStatus = async (user) => {
+    const next = user.status === "ACTIVE" ? "BLOCKED" : "ACTIVE";
+    await apiToggleUserStatus(token, user.id, next);
+    setSelected(s => s ? {...s, status:next} : s);
+    load();
+  };
+
+  return (
+    <div className="fade-in">
+      <div className="screen-header" style={{display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:18}}>
+        <div>
+          <div className="font-display" style={{fontSize:22, fontWeight:600}}>Users</div>
+          <div style={{color:"var(--text-secondary)", fontSize:13, marginTop:2}}>Everyone registered on YouPI, with KYC and account status.</div>
+        </div>
+        <div className="screen-header-controls" style={{display:"flex", gap:10}}>
+          <SearchInput value={search} onChange={setSearch} placeholder="Search name or mobile..." />
+          <Select value={kyc} onChange={setKyc} options={[
+            {value:"ALL", label:"All KYC"}, {value:"VERIFIED", label:"Verified"},
+            {value:"NOT_VERIFIED", label:"Not verified"}
+          ]}/>
+        </div>
+      </div>
+
+      {error ? <ErrorBanner message={error} onRetry={load}/> : (
+        <div className="table-wrap" style={{background:"var(--card)", border:"1px solid var(--border)", borderRadius:14, overflow:"hidden"}}>
+          <table style={{width:"100%", borderCollapse:"collapse"}}>
+            <thead>
+              <tr style={{textAlign:"left", borderBottom:"1px solid var(--border)"}}>
+                {["Name","Mobile","KYC","Status","Recharges","Total spend","Joined",""].map(h=>(
+                  <th key={h} style={{padding:"11px 16px", fontSize:11.5, color:"var(--text-secondary)", fontWeight:500, textTransform:"uppercase", letterSpacing:0.4}}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={8} style={{padding:24, textAlign:"center", color:"var(--text-secondary)", fontSize:13}}>Loading...</td></tr>
+              ) : rows.length === 0 ? (
+                <tr><td colSpan={8} style={{padding:24, textAlign:"center", color:"var(--text-secondary)", fontSize:13}}>No users match this search.</td></tr>
+              ) : rows.map(u=>(
+                <tr key={u.id} onClick={()=>setSelected(u)} style={{borderBottom:"1px solid var(--border)", cursor:"pointer"}}
+                    onMouseEnter={e=>e.currentTarget.style.background="var(--card-hover)"}
+                    onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                  <td style={{padding:"11px 16px", fontSize:13.5, fontWeight:500}}>{u.name}</td>
+                  <td className="font-mono" style={{padding:"11px 16px", fontSize:13}}>{u.mobile}</td>
+                  <td style={{padding:"11px 16px"}}><StatusBadge status={u.kycStatus}/></td>
+                  <td style={{padding:"11px 16px"}}><StatusBadge status={u.status}/></td>
+                  <td className="font-mono" style={{padding:"11px 16px", fontSize:13}}>{u.totalRecharges}</td>
+                  <td className="font-mono" style={{padding:"11px 16px", fontSize:13}}>{fmtMoney(u.totalSpend)}</td>
+                  <td style={{padding:"11px 16px", fontSize:12.5, color:"var(--text-secondary)"}}>{fmtDate(u.joinedAt)}</td>
+                  <td style={{padding:"11px 16px", fontSize:12.5, color:"var(--accent)"}}>View →</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {!error && <Pagination page={page} pageSize={pageSize} total={total} onPage={setPage}/>}
+
+      {selected && <UserDetailModal user={selected} onClose={()=>setSelected(null)} onToggleStatus={toggleStatus} />}
+    </div>
+  );
+}
+
+function UserDetailModal({ user, onClose, onToggleStatus }){
+  return (
+    <div onClick={onClose} style={{
+      position:"fixed", inset:0, background:"rgba(0,0,0,0.55)", display:"flex",
+      alignItems:"center", justifyContent:"center", zIndex:50
+    }}>
+      <div onClick={e=>e.stopPropagation()} className="fade-in" style={{
+        width:420, background:"var(--card)", border:"1px solid var(--border-strong)", borderRadius:16, padding:26
+      }}>
+        <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:18}}>
+          <div>
+            <div className="font-display" style={{fontSize:18, fontWeight:600}}>{user.name}</div>
+            <div className="font-mono" style={{fontSize:13, color:"var(--text-secondary)", marginTop:2}}>{user.mobile}</div>
+          </div>
+          <button onClick={onClose} style={{background:"transparent", border:"none", color:"var(--text-secondary)", fontSize:18, cursor:"pointer"}}>×</button>
+        </div>
+
+        <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:20}}>
+          <DetailField label="Email" value={user.email} />
+          <DetailField label="User ID" value={user.id} mono />
+          <DetailField label="KYC status" value={<StatusBadge status={user.kycStatus}/>} />
+          <DetailField label="Account status" value={<StatusBadge status={user.status}/>} />
+          <DetailField label="Total recharges" value={user.totalRecharges} />
+          <DetailField label="Total spend" value={fmtMoney(user.totalSpend)} />
+          <DetailField label="Joined" value={fmtDate(user.joinedAt)} />
+        </div>
+
+        <button onClick={()=>onToggleStatus(user)} style={{
+          width:"100%", padding:"10px 0", borderRadius:10, border:"none", fontWeight:600, fontSize:13.5, cursor:"pointer",
+          background: user.status==="ACTIVE" ? "var(--err-dim)" : "var(--accent-dim)",
+          color: user.status==="ACTIVE" ? "var(--err)" : "var(--accent)"
+        }}>
+          {user.status==="ACTIVE" ? "Block this user" : "Unblock this user"}
+        </button>
+      </div>
+    </div>
+  );
+}
+function DetailField({ label, value, mono }){
+  return (
+    <div>
+      <div style={{fontSize:11, color:"var(--text-tertiary)", marginBottom:3, textTransform:"uppercase", letterSpacing:0.3}}>{label}</div>
+      <div className={mono ? "font-mono" : ""} style={{fontSize:13.5}}>{value}</div>
+    </div>
+  );
+}
+
+function TransactionsScreen({ token }){
+  const [rows, setRows] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("ALL");
+  const [page, setPage] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [lastRefreshed, setLastRefreshed] = useState(Date.now());
+  const pageSize = 12;
+
+  const load = useCallback(async ()=>{
+    setLoading(true);
+    try { const r = await apiTransactions(token, { search, status, page, pageSize }); setRows(r.items); setTotal(r.total); setError(null); setLastRefreshed(Date.now()); }
+    catch(e){ setError(e.message); }
+    finally { setLoading(false); }
+  },[token, search, status, page]);
+
+  useEffect(()=>{ setPage(0); },[search, status]);
+  useEffect(()=>{ load(); },[load]);
+  useEffect(()=>{ const t = setInterval(load, 30000); return ()=>clearInterval(t); },[load]);
+
+  return (
+    <div className="fade-in">
+      <div className="screen-header" style={{display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:18}}>
+        <div>
+          <div className="font-display" style={{fontSize:22, fontWeight:600}}>Transactions</div>
+          <div style={{color:"var(--text-secondary)", fontSize:13, marginTop:2}}>All recharge orders across every gateway status.</div>
+        </div>
+        <LiveIndicator lastRefreshed={lastRefreshed} />
+      </div>
+
+      <div className="screen-header-controls" style={{display:"flex", gap:10, marginBottom:16}}>
+        <SearchInput value={search} onChange={setSearch} placeholder="Search name, mobile, order ID..." />
+        <Select value={status} onChange={setStatus} options={[
+          {value:"ALL", label:"All statuses"},
+          {value:"RECHARGE_SUCCESS", label:"Success"},
+          {value:"RECHARGE_FAILED", label:"Failed"},
+          {value:"PENDING_VERIFICATION", label:"Pending"},
+          {value:"REFUNDED", label:"Refunded"},
+          {value:"INITIATED", label:"Initiated"},
+        ]}/>
+      </div>
+
+      {error ? <ErrorBanner message={error} onRetry={load}/> : (
+        <div className="table-wrap" style={{background:"var(--card)", border:"1px solid var(--border)", borderRadius:14, overflow:"hidden"}}>
+          <table style={{width:"100%", borderCollapse:"collapse"}}>
+            <thead>
+              <tr style={{textAlign:"left", borderBottom:"1px solid var(--border)"}}>
+                {["Order ID","User","Mobile","Operator","Amount","Gateway","Status","Time"].map(h=>(
+                  <th key={h} style={{padding:"11px 16px", fontSize:11.5, color:"var(--text-secondary)", fontWeight:500, textTransform:"uppercase", letterSpacing:0.4}}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={8} style={{padding:24, textAlign:"center", color:"var(--text-secondary)", fontSize:13}}>Loading...</td></tr>
+              ) : rows.length === 0 ? (
+                <tr><td colSpan={8} style={{padding:24, textAlign:"center", color:"var(--text-secondary)", fontSize:13}}>No transactions match this filter.</td></tr>
+              ) : rows.map(t=>(
+                <tr key={t.id} style={{borderBottom:"1px solid var(--border)"}}
+                    onMouseEnter={e=>e.currentTarget.style.background="var(--card-hover)"}
+                    onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                  <td className="font-mono" style={{padding:"11px 16px", fontSize:12.5, color:"var(--text-secondary)"}}>{t.id}</td>
+                  <td style={{padding:"11px 16px", fontSize:13.5, fontWeight:500}}>{t.userName}</td>
+                  <td className="font-mono" style={{padding:"11px 16px", fontSize:13}}>{t.mobile}</td>
+                  <td style={{padding:"11px 16px", fontSize:13}}>{t.operator} · {t.circle}</td>
+                  <td className="font-mono" style={{padding:"11px 16px", fontSize:13, fontWeight:600}}>{fmtMoney(t.amount)}</td>
+                  <td style={{padding:"11px 16px", fontSize:13}}>{t.gateway}</td>
+                  <td style={{padding:"11px 16px"}}><StatusBadge status={t.status}/></td>
+                  <td style={{padding:"11px 16px", fontSize:12.5, color:"var(--text-secondary)"}}>{fmtDate(t.createdAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {!error && <Pagination page={page} pageSize={pageSize} total={total} onPage={setPage}/>}
+    </div>
+  );
+}
+
+function GoldLedgerScreen({ token }){
+  const [rows, setRows] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const pageSize = 12;
+
+  const load = useCallback(async ()=>{
+    setLoading(true);
+    try { const r = await apiGoldLedger(token, { search, page, pageSize }); setRows(r.items); setTotal(r.total); setError(null); }
+    catch(e){ setError(e.message); }
+    finally { setLoading(false); }
+  },[token, search, page]);
+
+  useEffect(()=>{ setPage(0); },[search]);
+  useEffect(()=>{ load(); },[load]);
+
+  return (
+    <div className="fade-in">
+      <div className="screen-header" style={{display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:18}}>
+        <div>
+          <div className="font-display" style={{fontSize:22, fontWeight:600}}>Gold Reward Ledger</div>
+          <div style={{color:"var(--text-secondary)", fontSize:13, marginTop:2}}>Gold coins credited to users for eligible recharges (₹249+).</div>
+        </div>
+        <SearchInput value={search} onChange={setSearch} placeholder="Search user..." />
+      </div>
+
+      {error ? <ErrorBanner message={error} onRetry={load}/> : (
+        <div className="table-wrap" style={{background:"var(--card)", border:"1px solid var(--border)", borderRadius:14, overflow:"hidden"}}>
+          <table style={{width:"100%", borderCollapse:"collapse"}}>
+            <thead>
+              <tr style={{textAlign:"left", borderBottom:"1px solid var(--border)"}}>
+                {["User","Recharge amount","Coins earned","Gold (grams)","Date"].map(h=>(
+                  <th key={h} style={{padding:"11px 16px", fontSize:11.5, color:"var(--text-secondary)", fontWeight:500, textTransform:"uppercase", letterSpacing:0.4}}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={5} style={{padding:24, textAlign:"center", color:"var(--text-secondary)", fontSize:13}}>Loading...</td></tr>
+              ) : rows.length === 0 ? (
+                <tr><td colSpan={5} style={{padding:24, textAlign:"center", color:"var(--text-secondary)", fontSize:13}}>No gold reward entries yet.</td></tr>
+              ) : rows.map(g=>(
+                <tr key={g.id} style={{borderBottom:"1px solid var(--border)"}}
+                    onMouseEnter={e=>e.currentTarget.style.background="var(--card-hover)"}
+                    onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                  <td style={{padding:"11px 16px", fontSize:13.5, fontWeight:500}}>{g.userName}</td>
+                  <td className="font-mono" style={{padding:"11px 16px", fontSize:13}}>{fmtMoney(g.rechargeAmount)}</td>
+                  <td className="font-mono" style={{padding:"11px 16px", fontSize:13, color:"var(--accent)", fontWeight:600}}>{g.coinsEarned} coins</td>
+                  <td className="font-mono" style={{padding:"11px 16px", fontSize:13}}>{g.grams}g</td>
+                  <td style={{padding:"11px 16px", fontSize:12.5, color:"var(--text-secondary)"}}>{fmtDate(g.createdAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {!error && <Pagination page={page} pageSize={pageSize} total={total} onPage={setPage}/>}
+    </div>
+  );
+}
+
+function LoadingBlock(){
+  return <div style={{padding:60, textAlign:"center", color:"var(--text-secondary)", fontSize:13.5}}>Loading dashboard...</div>;
+}
+function ErrorBanner({ message, onRetry }){
+  return (
+    <div style={{background:"var(--err-dim)", border:"1px solid rgba(255,107,122,0.3)", borderRadius:12, padding:18, display:"flex", justifyContent:"space-between", alignItems:"center"}}>
+      <div style={{color:"var(--err)", fontSize:13.5}}>{message}</div>
+      <button onClick={onRetry} style={{background:"transparent", border:"1px solid var(--err)", color:"var(--err)", borderRadius:8, padding:"6px 12px", fontSize:12.5, cursor:"pointer"}}>Retry</button>
+    </div>
+  );
+}
+
+/* ------------------------------ App root -------------------------------- */
+function App(){
+  const [session, setSession] = useState(null); // { token, adminName } -- in-memory only, see note at top of file
+  const [screen, setScreen] = useState("dashboard");
+
+  if (!session) return <LoginScreen onLogin={setSession} />;
+
+  const screens = {
+    dashboard: <DashboardScreen token={session.token} />,
+    users: <UsersScreen token={session.token} />,
+    transactions: <TransactionsScreen token={session.token} />,
+    gold: <GoldLedgerScreen token={session.token} />,
+  };
+
+  return (
+    <div className="app-root" style={{display:"flex", minHeight:"100vh"}}>
+      <Sidebar active={screen} onNav={setScreen} adminName={session.adminName} onLogout={()=>setSession(null)} />
+      <div className="content-area" style={{flex:1, padding:"28px 32px", overflow:"auto"}}>
+        {screens[screen]}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>

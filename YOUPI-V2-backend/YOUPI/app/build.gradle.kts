@@ -20,6 +20,7 @@ dependencies {
     implementation(project(":modules:loan"))
     implementation(project(":modules:admin"))
     implementation(project(":modules:gold"))
+    implementation(project(":modules:onboarding"))
     api(project(":modules:invest"))
 
     implementation(libs.spring.boot.starter.webflux)
