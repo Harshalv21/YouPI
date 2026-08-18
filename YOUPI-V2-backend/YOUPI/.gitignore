@@ -21,7 +21,7 @@ Thumbs.db
 # Environment & Secrets
 .env
 firebase/serviceAccountKey.json
-
+docker-compose.override.yml
 # Logs
 *.log
 
