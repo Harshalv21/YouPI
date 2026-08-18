@@ -1,15 +1,21 @@
 package `in`.youpi.payment.domain
 
 import `in`.youpi.core.BaseException
+import jakarta.validation.constraints.NotBlank
+import jakarta.validation.constraints.Positive
 import java.math.BigDecimal
 import java.util.UUID
 
 // ── Request/Response DTOs ──
+// NOTE: enforced via awaitValidatedBody<T>() in the router, not automatically
+// (functional coRouter handlers -- see shared/core RequestValidation.kt).
 
 data class CreatePaymentOrderRequest(
+    @field:Positive(message = "amount must be positive")
     val amount: BigDecimal,
     val purpose: PaymentPurpose,
     val referenceId: UUID? = null,
+    @field:NotBlank(message = "idempotencyKey is required")
     val idempotencyKey: String
 )
 
@@ -32,8 +38,11 @@ data class RazorpayWebhookPayload(
 )
 
 data class VerifyPaymentRequest(
+    @field:NotBlank(message = "razorpayPaymentId is required")
     val razorpayPaymentId: String,
+    @field:NotBlank(message = "razorpayOrderId is required")
     val razorpayOrderId: String,
+    @field:NotBlank(message = "razorpaySignature is required")
     val razorpaySignature: String
 )
 

@@ -1,6 +1,7 @@
 package `in`.youpi.loan.api
 
 import `in`.youpi.core.ApiResponse
+import `in`.youpi.core.awaitValidatedBody
 import `in`.youpi.core.Result
 import `in`.youpi.loan.service.*
 import `in`.youpi.security.currentUserId
@@ -83,7 +84,7 @@ class LoanRouter(private val loanService: LoanService) {
 
     private suspend fun handleStep1(request: ServerRequest): ServerResponse {
         val userId = request.currentUserId()
-        val body = request.awaitBody<LoanStep1Request>()
+        val body = request.awaitValidatedBody<LoanStep1Request>()
         return when (val result = loanService.submitStep1(userId, body)) {
             is Result.Success -> ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
                 .bodyValueAndAwait(ApiResponse.ok(mapOf("message" to result.value)))
@@ -93,7 +94,7 @@ class LoanRouter(private val loanService: LoanService) {
 
     private suspend fun handleStep2(request: ServerRequest): ServerResponse {
         val userId = request.currentUserId()
-        val body = request.awaitBody<LoanStep2Request>()
+        val body = request.awaitValidatedBody<LoanStep2Request>()
         return when (val result = loanService.submitStep2(userId, body)) {
             is Result.Success -> ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
                 .bodyValueAndAwait(ApiResponse.ok(mapOf("message" to result.value)))
@@ -103,7 +104,7 @@ class LoanRouter(private val loanService: LoanService) {
 
     private suspend fun handleStep3(request: ServerRequest): ServerResponse {
         val userId = request.currentUserId()
-        val body = request.awaitBody<LoanStep3Request>()
+        val body = request.awaitValidatedBody<LoanStep3Request>()
         return when (val result = loanService.submitStep3(userId, body)) {
             is Result.Success -> ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
                 .bodyValueAndAwait(ApiResponse.ok(result.value))

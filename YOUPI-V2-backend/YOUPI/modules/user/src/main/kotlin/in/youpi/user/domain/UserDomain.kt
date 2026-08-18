@@ -1,38 +1,64 @@
 package `in`.youpi.user.domain
 
 import `in`.youpi.core.BaseException
+import jakarta.validation.constraints.Email
+import jakarta.validation.constraints.NotBlank
+import jakarta.validation.constraints.Pattern
+import jakarta.validation.constraints.Size
 import java.time.LocalDate
 import java.util.UUID
 
 // ── Request DTOs ──
+// NOTE: enforced via awaitValidatedBody<T>() in the router, not automatically
+// (functional coRouter handlers, not @RestController -- see shared/core
+// RequestValidation.kt).
 
 data class UpdateProfileRequest(
+    @field:Size(max = 100, message = "fullName too long")
     val fullName: String? = null,
+    @field:Email(message = "Invalid email")
+    @field:Size(max = 254, message = "email too long")
     val email: String? = null,
     val dateOfBirth: LocalDate? = null
 )
 
-data class UpdateFcmTokenRequest(val token: String)
+data class UpdateFcmTokenRequest(
+    @field:NotBlank(message = "token is required")
+    @field:Size(max = 4096, message = "token too long")
+    val token: String
+)
 
-data class AadhaarOtpRequest(val aadhaarNumber: String) {
+data class AadhaarOtpRequest(
+    @field:Pattern(regexp = "^\\d{12}$", message = "Invalid Aadhaar number")
+    val aadhaarNumber: String
+) {
     init {
         require(aadhaarNumber.matches(Regex("^\\d{12}$"))) { "Invalid Aadhaar number" }
     }
 }
 
 data class AadhaarVerifyRequest(
+    @field:Pattern(regexp = "^\\d{12}$", message = "Invalid Aadhaar number")
     val aadhaarNumber: String,
+    @field:Pattern(regexp = "^\\d{4,6}$", message = "OTP must be 4-6 digits")
     val otp: String,
+    @field:NotBlank(message = "digioRequestId is required")
     val digioRequestId: String
 )
 
-data class PanVerifyRequest(val panNumber: String) {
+data class PanVerifyRequest(
+    @field:Pattern(regexp = "^[A-Z]{5}\\d{4}[A-Z]$", message = "Invalid PAN format")
+    val panNumber: String
+) {
     init {
         require(panNumber.matches(Regex("^[A-Z]{5}\\d{4}[A-Z]$"))) { "Invalid PAN format" }
     }
 }
 
-data class SelfieUploadRequest(val selfieBase64: String)
+data class SelfieUploadRequest(
+    @field:NotBlank(message = "selfieBase64 is required")
+    val selfieBase64: String
+)
 
 // ── Response DTOs ──
 

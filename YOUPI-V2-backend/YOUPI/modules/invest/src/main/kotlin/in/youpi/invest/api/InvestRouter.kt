@@ -1,6 +1,7 @@
 package `in`.youpi.invest.api
 
 import `in`.youpi.core.ApiResponse
+import `in`.youpi.core.awaitValidatedBody
 import `in`.youpi.core.Result
 import `in`.youpi.invest.service.InvestService
 import `in`.youpi.security.currentUserId
@@ -187,7 +188,7 @@ class InvestRouter(private val investService: InvestService) {
 
     private suspend fun handleGoldBuy(request: ServerRequest): ServerResponse {
         val userId = request.currentUserId()
-        val body = request.awaitBody<BuyGoldRequest>()
+        val body = request.awaitValidatedBody<BuyGoldRequest>()
         return when (
             val result = investService.buyGold(
                 userId = userId,
@@ -203,7 +204,7 @@ class InvestRouter(private val investService: InvestService) {
 
     private suspend fun handleGoldSell(request: ServerRequest): ServerResponse {
         val userId = request.currentUserId()
-        val body = request.awaitBody<SellGoldRequest>()
+        val body = request.awaitValidatedBody<SellGoldRequest>()
         return when (
             val result = investService.sellGold(
                 userId = userId,
@@ -256,7 +257,7 @@ class InvestRouter(private val investService: InvestService) {
 
     private suspend fun handleCreateAugmontUser(request: ServerRequest): ServerResponse {
         val userId = request.currentUserId()
-        val body = request.awaitBody<CreateAugmontUserRequest>()
+        val body = request.awaitValidatedBody<CreateAugmontUserRequest>()
         val uniqueId =
             investService.ensureAugmontUser(
                 userId = userId,

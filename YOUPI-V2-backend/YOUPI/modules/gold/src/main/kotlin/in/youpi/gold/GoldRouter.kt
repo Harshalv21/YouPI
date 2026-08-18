@@ -1,6 +1,7 @@
 package `in`.youpi.gold
 
 import `in`.youpi.core.ApiResponse
+import `in`.youpi.core.awaitValidatedBody
 import `in`.youpi.core.Result
 import `in`.youpi.security.currentUserId
 import io.swagger.v3.oas.annotations.Operation
@@ -58,7 +59,7 @@ class GoldRouter(
 
     private suspend fun handleWithdraw(request: ServerRequest): ServerResponse {
         val userId = request.currentUserId()
-        val body = request.awaitBody<GoldWithdrawRequest>()
+        val body = request.awaitValidatedBody<GoldWithdrawRequest>()
         return when (val result = goldWithdrawService.withdraw(userId, body)) {
             is Result.Success -> ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
                 .bodyValueAndAwait(ApiResponse.ok(result.value))

@@ -5,6 +5,7 @@ import `in`.youpi.admin.service.AdminAuthService
 import `in`.youpi.admin.service.AdminJwtService
 import `in`.youpi.admin.service.AdminPanelService
 import `in`.youpi.core.ApiResponse
+import `in`.youpi.core.awaitValidatedBody
 import `in`.youpi.core.NotFoundException
 import `in`.youpi.core.Result
 import org.slf4j.LoggerFactory
@@ -83,7 +84,7 @@ class AdminPanelRouter(
             )))
 
     private suspend fun handleLogin(request: ServerRequest): ServerResponse {
-        val body = request.awaitBody<AdminLoginRequest>()
+        val body = request.awaitValidatedBody<AdminLoginRequest>()
         return when (val result = adminAuthService.login(body)) {
             is Result.Success -> ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
                 .bodyValueAndAwait(ApiResponse.ok(result.value))

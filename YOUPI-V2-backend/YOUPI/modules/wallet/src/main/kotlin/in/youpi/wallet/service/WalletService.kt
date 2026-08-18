@@ -96,6 +96,7 @@ data class WalletInfo(
 )
 
 data class CreateWalletTopupOrderRequest(
+    @field:jakarta.validation.constraints.Positive(message = "amountRupees must be positive")
     val amountRupees: BigDecimal
 )
 

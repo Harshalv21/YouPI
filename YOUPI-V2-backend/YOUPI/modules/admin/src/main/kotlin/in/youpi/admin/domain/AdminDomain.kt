@@ -1,6 +1,8 @@
 package `in`.youpi.admin.domain
 
 import `in`.youpi.core.BaseException
+import jakarta.validation.constraints.Email
+import jakarta.validation.constraints.NotBlank
 import java.math.BigDecimal
 import java.time.Instant
 import java.util.UUID
@@ -8,7 +10,10 @@ import java.util.UUID
 // ── Auth ──
 
 data class AdminLoginRequest(
+    @field:NotBlank(message = "email is required")
+    @field:Email(message = "Invalid email")
     val email: String,
+    @field:NotBlank(message = "password is required")
     val password: String
 )
 

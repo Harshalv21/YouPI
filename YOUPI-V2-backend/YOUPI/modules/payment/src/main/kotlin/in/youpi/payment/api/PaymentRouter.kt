@@ -1,6 +1,7 @@
 package `in`.youpi.payment.api
 
 import `in`.youpi.core.ApiResponse
+import `in`.youpi.core.awaitValidatedBody
 import `in`.youpi.core.Result
 import `in`.youpi.payment.domain.*
 import `in`.youpi.payment.service.PaymentService
@@ -52,7 +53,7 @@ class PaymentRouter(private val paymentService: PaymentService) {
 
     private suspend fun handleCreateOrder(request: ServerRequest): ServerResponse {
         val userId = request.currentUserId()
-        val body = request.awaitBody<CreatePaymentOrderRequest>()
+        val body = request.awaitValidatedBody<CreatePaymentOrderRequest>()
         return when (val result = paymentService.createOrder(userId, body)) {
             is Result.Success -> ServerResponse.status(201).contentType(MediaType.APPLICATION_JSON)
                 .bodyValueAndAwait(ApiResponse.created(result.value))
@@ -62,7 +63,7 @@ class PaymentRouter(private val paymentService: PaymentService) {
 
     private suspend fun handleVerifyPayment(request: ServerRequest): ServerResponse {
         val userId = request.currentUserId()
-        val body = request.awaitBody<VerifyPaymentRequest>()
+        val body = request.awaitValidatedBody<VerifyPaymentRequest>()
         return when (val result = paymentService.verifyPayment(userId, body)) {
             is Result.Success -> ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
                 .bodyValueAndAwait(ApiResponse.ok(result.value))

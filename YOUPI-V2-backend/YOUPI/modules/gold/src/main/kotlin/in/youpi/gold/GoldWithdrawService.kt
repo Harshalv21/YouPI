@@ -14,6 +14,7 @@ import java.util.UUID
 // ── DTOs ──
 
 data class GoldWithdrawRequest(
+    @field:jakarta.validation.constraints.Positive(message = "amountRupees must be positive")
     val amountRupees: BigDecimal
 )
 
