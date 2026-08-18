@@ -39,12 +39,14 @@ import java.util.UUID
  */
 @Component
 class AugmontClient(
-    // Augmont sent new sandbox credentials + a NEW base URL on 2026-07-22:
-    // uat-api.augmontgold.com/api (previously uat-api.augmont.com -- the old
-    // domain, without "gold", may be deprecated/unreachable, which likely
-    // explains the weeks of 503s/timeouts). No separate AUGMONT_BASE_URL
-    // secret exists in GCP -- this default is the actual configured value.
-    @Value("\${youpi.augmont.base-url:https://uat-api.augmontgold.com/api}") private val baseUrl: String,
+    // Augmont's team (Robin Paul / Arbaaz Sayed) confirmed on 2026-08-18 a
+    // FURTHER base-url change: uat-api.merchant.augmont.com/api (previously
+    // uat-api.augmontgold.com/api, set on 2026-07-22 -- that one is now
+    // itself deprecated). Static IP 34.93.194.49 whitelisting for this new
+    // domain is pending confirmation from Augmont -- see email thread. No
+    // separate AUGMONT_BASE_URL secret exists in GCP -- this default is the
+    // actual configured value.
+    @Value("\${youpi.augmont.base-url:https://uat-api.merchant.augmont.com/api}") private val baseUrl: String,
     @Value("\${youpi.augmont.email:}") private val email: String,
     @Value("\${youpi.augmont.password:}") private val password: String,
     @Value("\${youpi.proxy.enabled:true}") private val proxyEnabled: Boolean,
