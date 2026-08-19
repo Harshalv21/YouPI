@@ -71,6 +71,12 @@ class UserRouter(private val userService: UserService) {
                 tags = ["User"],
                 requestBody = SwaggerRequestBody(content = [Content(schema = Schema(implementation = PanVerifyRequest::class))]),
                 responses = [SwaggerApiResponse(responseCode = "200", description = "PAN verified")])),
+        RouterOperation(path = "/v1/user/kyc/bank/verify", method = [RequestMethod.POST],
+            operation = Operation(operationId = "verifyBankAccount", summary = "Verify bank account",
+                description = "Verifies a bank account number + IFSC via Eko, independent of the Aadhaar/PAN/Selfie KYC sequence.",
+                tags = ["User"],
+                requestBody = SwaggerRequestBody(content = [Content(schema = Schema(implementation = BankAccountVerifyRequest::class))]),
+                responses = [SwaggerApiResponse(responseCode = "200", description = "Bank account verified")])),
         RouterOperation(path = "/v1/user/kyc/selfie", method = [RequestMethod.POST],
             operation = Operation(operationId = "uploadSelfie", summary = "Upload selfie for face match",
                 description = "Uploads a selfie (base64) for face-match verification against Aadhaar photo.",
@@ -88,6 +94,7 @@ class UserRouter(private val userService: UserService) {
             POST("/kyc/aadhaar/verify") { handleAadhaarVerify(it) }
             POST("/kyc/pan/verify") { handlePanVerify(it) }
             POST("/kyc/selfie") { handleSelfieUpload(it) }
+            POST("/kyc/bank/verify") { handleBankVerify(it) }
         }
     }
 
@@ -149,6 +156,15 @@ class UserRouter(private val userService: UserService) {
         val userId = request.currentUserId()
         val body = request.awaitValidatedBody<PanVerifyRequest>()
         return when (val result = userService.verifyPan(userId, body.panNumber)) {
+            is Result.Success -> ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
+                .bodyValueAndAwait(ApiResponse.ok(result.value))
+            is Result.Failure -> throw result.error
+        }
+    }
+    private suspend fun handleBankVerify(request: ServerRequest): ServerResponse {
+        val userId = request.currentUserId()
+        val body = request.awaitValidatedBody<BankAccountVerifyRequest>()
+        return when (val result = userService.verifyBankAccount(userId, body)) {
             is Result.Success -> ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
                 .bodyValueAndAwait(ApiResponse.ok(result.value))
             is Result.Failure -> throw result.error

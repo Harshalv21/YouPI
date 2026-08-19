@@ -54,6 +54,20 @@ data class PanVerifyRequest(
         require(panNumber.matches(Regex("^[A-Z]{5}\\d{4}[A-Z]$"))) { "Invalid PAN format" }
     }
 }
+data class BankAccountVerifyRequest(
+    @field:jakarta.validation.constraints.NotBlank(message = "accountNumber is required")
+    @field:jakarta.validation.constraints.Pattern(regexp = "^\\d{9,18}$", message = "Invalid account number")
+    val accountNumber: String,
+
+    @field:jakarta.validation.constraints.NotBlank(message = "ifsc is required")
+    @field:jakarta.validation.constraints.Pattern(regexp = "^[A-Z]{4}0[A-Z0-9]{6}$", message = "Invalid IFSC code")
+    val ifsc: String
+) {
+    init {
+        require(accountNumber.matches(Regex("^\\d{9,18}$"))) { "Invalid account number" }
+        require(ifsc.matches(Regex("^[A-Z]{4}0[A-Z0-9]{6}$"))) { "Invalid IFSC code" }
+    }
+}
 
 data class SelfieUploadRequest(
     @field:NotBlank(message = "selfieBase64 is required")
@@ -79,7 +93,10 @@ data class KycStatusResponse(
     val aadhaarVerified: Boolean,
     val panVerified: Boolean,
     val selfieUploaded: Boolean,
-    val faceMatchScore: Double?
+    val faceMatchScore: Double?,
+    val panHolderName: String?,
+    val bankVerified: Boolean,
+    val bankAccountHolderName: String?
 )
 
 data class AadhaarOtpResponse(

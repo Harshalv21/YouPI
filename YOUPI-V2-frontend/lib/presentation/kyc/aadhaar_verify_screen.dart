@@ -43,10 +43,10 @@ class _AadhaarVerifyScreenState extends State<AadhaarVerifyScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            LinearProgressIndicator(value: 2 / 3, backgroundColor: AppColors.divider,
+            LinearProgressIndicator(value: 2 / 4, backgroundColor: AppColors.divider,
                 valueColor: const AlwaysStoppedAnimation(AppColors.primary)),
             const SizedBox(height: 8),
-            Text('Step 2 of 3', style: AppTextStyles.labelMedium),
+            Text('Step 2 of 4', style: AppTextStyles.labelMedium),
             const SizedBox(height: 24),
             Text(AppStrings.aadhaarTitle, style: AppTextStyles.displaySmall),
             Text(AppStrings.aadhaarSubtitle,

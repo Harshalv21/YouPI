@@ -2,14 +2,39 @@
 //
 // Real backend-connected user repository.
 // Endpoints (Bearer token auto-added by ApiService):
-//   GET /v1/user/profile        -> profile
-//   PUT /v1/user/profile        -> update name/email/dob
-//   GET /v1/user/kyc/status     -> KYC status
+//   GET  /v1/user/profile          -> profile
+//   PUT  /v1/user/profile          -> update name/email/dob
+//   GET  /v1/user/kyc/status       -> KYC status
+//   POST /v1/user/kyc/pan/verify   -> PAN verification (via Eko)
+//   POST /v1/user/kyc/bank/verify  -> Bank account verification (via Eko)
 
 import 'package:dio/dio.dart';
 import '../../core/services/api_service.dart';
 import '../models/user_model.dart';
 import 'package:flutter/foundation.dart';
+
+/// Result of a PAN verification call -- carries the name Eko matched
+/// against the PAN, so the UI can show the user what was found (and let
+/// them notice a mismatch before continuing).
+class PanVerifyResult {
+  final bool verified;
+  final String? nameOnPan;
+  PanVerifyResult({required this.verified, this.nameOnPan});
+}
+
+/// Result of a bank account verification call.
+class BankVerifyResult {
+  final bool verified;
+  final String? accountHolderName;
+  final String? bankName;
+  final String? branch;
+  BankVerifyResult({
+    required this.verified,
+    this.accountHolderName,
+    this.bankName,
+    this.branch,
+  });
+}
 
 class UserRepository {
   final Dio _dio = ApiService.instance;
@@ -50,7 +75,6 @@ class UserRepository {
     try {
       final res = await _dio.get('/v1/user/kyc/status');
       final data = ApiService.unwrap(res);
-      // Response may be { status: "VERIFIED" } or { kycStatus: "..." } or a bool.
       if (data is Map) {
         final s = (data['status'] ?? data['kycStatus'])?.toString();
         if (s != null && s.isNotEmpty) return s.toLowerCase();
@@ -62,18 +86,62 @@ class UserRepository {
     }
   }
 
+  /// Verifies a PAN number via the backend (Eko fetch-pan under the hood).
+  /// Throws on network/server error; a "PAN not found"-type rejection from
+  /// Eko comes back as a normal failed-Result on the backend, surfaced here
+  /// as a thrown exception (via ApiService.toException) same as any other
+  /// 4xx -- caller should catch and show the message.
+  Future<PanVerifyResult> verifyPan(String panNumber) async {
+    try {
+      final res = await _dio.post('/v1/user/kyc/pan/verify', data: {
+        'panNumber': panNumber,
+      });
+      final data = ApiService.unwrap(res);
+      if (data is Map) {
+        return PanVerifyResult(
+          verified: data['panVerified'] == true,
+          nameOnPan: data['panHolderName']?.toString(),
+        );
+      }
+      return PanVerifyResult(verified: false);
+    } on DioException catch (e) {
+      throw ApiService.toException(e);
+    }
+  }
+
+  /// Verifies a bank account number + IFSC via the backend (Eko
+  /// bank-account/sync under the hood). Independent of the Aadhaar/PAN/
+  /// Selfie sequence -- see UserService.kt's verifyBankAccount() doc
+  /// comment on the backend side.
+  Future<BankVerifyResult> verifyBankAccount({
+    required String accountNumber,
+    required String ifsc,
+  }) async {
+    try {
+      final res = await _dio.post('/v1/user/kyc/bank/verify', data: {
+        'accountNumber': accountNumber,
+        'ifsc': ifsc,
+      });
+      final data = ApiService.unwrap(res);
+      if (data is Map) {
+        return BankVerifyResult(
+          verified: data['bankVerified'] == true,
+          accountHolderName: data['bankAccountHolderName']?.toString(),
+        );
+      }
+      return BankVerifyResult(verified: false);
+    } on DioException catch (e) {
+      throw ApiService.toException(e);
+    }
+  }
+
   /// Registers/refreshes this device's FCM token -- lets the backend push
   /// a notification straight to this device when a recharge confirms
   /// after the app has been closed (see PushNotificationService.kt).
-  /// Called on every app launch and whenever Firebase reports a token
-  /// refresh (see push_notification_service.dart).
   Future<void> updateFcmToken(String token) async {
     try {
       await _dio.put('/v1/user/fcm-token', data: {'token': token});
     } on DioException catch (e) {
-      // Non-fatal by design -- a failed token registration just means
-      // this device won't get the closed-app push this session; it
-      // shouldn't block app startup or surface an error to the user.
       debugPrint('updateFcmToken failed (non-fatal): ${e.message}');
     }
   }

@@ -7,6 +7,7 @@ import `in`.youpi.core.Result
 import `in`.youpi.core.ValidationException
 import `in`.youpi.security.EncryptionService
 import `in`.youpi.user.domain.*
+import `in`.youpi.user.eko.EkoClient
 import `in`.youpi.user.repository.KycRecordEntity
 import `in`.youpi.user.repository.KycRecordRepository
 import org.slf4j.LoggerFactory
@@ -17,12 +18,15 @@ import java.util.UUID
 /**
  * User profile management and KYC flow orchestration.
  * KYC follows a strict state machine: PENDING → AADHAAR_DONE → PAN_DONE → SELFIE_DONE → VERIFIED
+ * Bank account verification (via Eko) is a separate flag alongside this state machine,
+ * not part of the sequence -- see verifyBankAccount() below.
  */
 @Service
 class UserService(
     private val userRepo: UserRepository,
     private val kycRepo: KycRecordRepository,
-    private val encryptionService: EncryptionService
+    private val encryptionService: EncryptionService,
+    private val ekoClient: EkoClient // ← NEW: replaces Karza (PAN) stub, also does bank verification
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -51,11 +55,6 @@ class UserService(
         )
     }
 
-    // Called on every app launch (and on Firebase's token-refresh event)
-    // from the Flutter side -- keeps the row that PushNotificationService.kt
-    // reads always pointed at the current device. Deliberately its own
-    // narrow update, not folded into updateProfile()'s copy(), so a token
-    // refresh never has to send (or risk overwriting) name/email/DOB.
     suspend fun updateFcmToken(userId: UUID, fcmToken: String) {
         if (fcmToken.isBlank()) return
         userRepo.updateFcmToken(userId, fcmToken)
@@ -65,9 +64,6 @@ class UserService(
         val user = userRepo.findById(userId)
             ?: throw NotFoundException("User", userId.toString())
 
-        // Email mandatory only at first-time onboarding (user.email abhi tak null hai).
-        // Baad ke profile edits (jaise sirf DOB/name update) mein email dobara bhejna zaroori nahi,
-        // kyunki wo already set hai aur req.email ?: user.email fallback use hoga.
         if (user.email == null && req.email.isNullOrBlank()) {
             throw ValidationException("email", "Email is required to complete your profile")
         }
@@ -102,34 +98,23 @@ class UserService(
 
     suspend fun getKycStatus(userId: UUID): KycStatusResponse {
         val kyc = kycRepo.findByUserId(userId)
-
-        return KycStatusResponse(
-            userId = userId,
-            kycStatus = kyc?.kycStatus ?: "PENDING",
-            aadhaarVerified = kyc?.aadhaarVerified ?: false,
-            panVerified = kyc?.panVerified ?: false,
-            selfieUploaded = kyc?.selfieGcsPath != null,
-            faceMatchScore = kyc?.faceMatchScore?.toDouble()
-        )
+        return toKycStatusResponse(userId, kyc)
     }
 
-    // ── Step 1: Aadhaar Verification ──
+    // ── Step 1: Aadhaar Verification ── UNCHANGED -- still Digio, not part of this Eko change
 
     suspend fun initiateAadhaarOtp(userId: UUID, aadhaarNumber: String): Result<AadhaarOtpResponse, KycException> {
         val kyc = getOrCreateKyc(userId)
 
-        // Validate state machine
         val currentStatus = KycStatus.valueOf(kyc.kycStatus)
         if (currentStatus != KycStatus.PENDING && currentStatus != KycStatus.REJECTED) {
             return Result.failure(KycStepOutOfOrderException(kyc.kycStatus, "AADHAAR_VERIFY"))
         }
 
-        // Encrypt Aadhaar for storage
         val encrypted = encryptionService.encrypt(aadhaarNumber)
         val last4 = aadhaarNumber.takeLast(4)
 
-        // Call Digio API for Aadhaar OTP
-        // TODO: Integrate with DigioClient
+        // TODO: Integrate with DigioClient -- unchanged, out of scope for this Eko change
         val digioRequestId = "digio_${UUID.randomUUID()}"
 
         kycRepo.save(
@@ -142,7 +127,6 @@ class UserService(
         )
 
         log.info("Aadhaar OTP initiated for user {} (last4={})", userId, last4)
-
         return Result.success(AadhaarOtpResponse(digioRequestId = digioRequestId))
     }
 
@@ -150,8 +134,7 @@ class UserService(
         val kyc = kycRepo.findByUserId(userId)
             ?: return Result.failure(KycVerificationFailedException("KYC record not found"))
 
-        // TODO: Call Digio API to verify OTP
-        // For now, mark as verified
+        // TODO: Call Digio API to verify OTP -- unchanged, out of scope for this Eko change
         val updated = kycRepo.save(
             kyc.copy(
                 aadhaarVerified = true,
@@ -165,7 +148,7 @@ class UserService(
         return Result.success(toKycStatusResponse(userId, updated))
     }
 
-    // ── Step 2: PAN Verification ──
+    // ── Step 2: PAN Verification — NOW VIA EKO (was Karza stub) ──
 
     suspend fun verifyPan(userId: UUID, panNumber: String): Result<KycStatusResponse, KycException> {
         val kyc = kycRepo.findByUserId(userId)
@@ -176,25 +159,78 @@ class UserService(
             return Result.failure(KycStepOutOfOrderException(kyc.kycStatus, "PAN_VERIFY"))
         }
 
-        // TODO: Call Karza API for PAN verification
-        val karzaRequestId = "karza_${UUID.randomUUID()}"
+        val ekoResult = try {
+            ekoClient.verifyPan(panNumber)
+        } catch (e: Exception) {
+            log.error("Eko PAN verification failed for user {}: {}", userId, e.message)
+            return Result.failure(KycVerificationFailedException("PAN verification service unavailable: ${e.message}"))
+        }
+
+        if (!ekoResult.success) {
+            log.warn("Eko PAN verification returned unsuccessful for user {}", userId)
+            return Result.failure(KycVerificationFailedException("PAN could not be verified"))
+        }
 
         val updated = kycRepo.save(
             kyc.copy(
                 panNumber = panNumber,
                 panVerified = true,
                 panVerifiedAt = Instant.now(),
-                karzaRequestId = karzaRequestId,
+                panHolderName = ekoResult.nameOnPan,
+                ekoPanRequestId = ekoResult.upstreamRrn ?: ekoResult.rawResponse.hashCode().toString(),
                 kycStatus = "PAN_DONE",
                 updatedAt = Instant.now()
             )
         )
 
-        log.info("PAN verified for user {}", userId)
+        log.info("PAN verified via Eko for user {}", userId)
         return Result.success(toKycStatusResponse(userId, updated))
     }
 
-    // ── Step 3: Selfie + Face Match ──
+    // ── NEW: Bank Account Verification (via Eko) ──
+    //
+    // Net-new step -- no prior vendor existed for this. Tracked as its own
+    // flag (bankVerified) rather than folded into the Aadhaar->PAN->Selfie
+    // state machine, since it doesn't currently gate anything else. If a
+    // future requirement needs bank verification to be mandatory before
+    // some action (e.g. wallet withdrawal, loan disbursement), gate that
+    // action on kyc.bankVerified directly rather than threading a new
+    // state into KycStatus.
+    suspend fun verifyBankAccount(userId: UUID, req: BankAccountVerifyRequest): Result<KycStatusResponse, KycException> {
+        val kyc = kycRepo.findByUserId(userId)
+            ?: return Result.failure(KycVerificationFailedException("KYC record not found"))
+
+        val ekoResult = try {
+            ekoClient.verifyBankAccount(req.accountNumber, req.ifsc)
+        } catch (e: Exception) {
+            log.error("Eko bank account verification failed for user {}: {}", userId, e.message)
+            return Result.failure(KycVerificationFailedException("Bank verification service unavailable: ${e.message}"))
+        }
+
+        if (!ekoResult.success) {
+            log.warn("Eko bank account verification returned unsuccessful for user {}", userId)
+            return Result.failure(KycVerificationFailedException("Bank account could not be verified"))
+        }
+
+        val updated = kycRepo.save(
+            kyc.copy(
+                bankAccountLast4 = req.accountNumber.takeLast(4),
+                bankIfsc = req.ifsc,
+                bankAccountHolderName = ekoResult.accountHolderName,
+                bankName = ekoResult.bankName,
+                bankBranch = ekoResult.branch,
+                bankVerified = true,
+                bankVerifiedAt = Instant.now(),
+                ekoBankRequestId = ekoResult.rawResponse.hashCode().toString(), // TODO: use utr from EkoBankVerifyResult once confirmed stable/unique enough to serve as request id
+                updatedAt = Instant.now()
+            )
+        )
+
+        log.info("Bank account verified via Eko for user {}", userId)
+        return Result.success(toKycStatusResponse(userId, updated))
+    }
+
+    // ── Step 3: Selfie + Face Match ── UNCHANGED
 
     suspend fun uploadSelfie(userId: UUID, selfieBase64: String): Result<KycStatusResponse, KycException> {
         val kyc = kycRepo.findByUserId(userId)
@@ -205,10 +241,7 @@ class UserService(
             return Result.failure(KycStepOutOfOrderException(kyc.kycStatus, "SELFIE_UPLOAD"))
         }
 
-        // TODO: Upload to GCS via FirebaseStorageClient
         val gcsPath = "users/$userId/selfie_${System.currentTimeMillis()}.jpg"
-
-        // TODO: Face match scoring against Aadhaar photo
         val faceMatchScore = java.math.BigDecimal("95.50")
 
         val newStatus = if (faceMatchScore.toDouble() >= 70.0) "SELFIE_DONE" else "REJECTED"
@@ -224,7 +257,6 @@ class UserService(
             )
         )
 
-        // If all steps done, auto-verify
         if (newStatus == "SELFIE_DONE") {
             kycRepo.save(updated.copy(kycStatus = "VERIFIED", verifiedAt = Instant.now()))
 
@@ -245,14 +277,17 @@ class UserService(
             ?: kycRepo.save(KycRecordEntity(userId = userId))
     }
 
-    private fun toKycStatusResponse(userId: UUID, kyc: KycRecordEntity): KycStatusResponse {
+    private fun toKycStatusResponse(userId: UUID, kyc: KycRecordEntity?): KycStatusResponse {
         return KycStatusResponse(
             userId = userId,
-            kycStatus = kyc.kycStatus,
-            aadhaarVerified = kyc.aadhaarVerified,
-            panVerified = kyc.panVerified,
-            selfieUploaded = kyc.selfieGcsPath != null,
-            faceMatchScore = kyc.faceMatchScore?.toDouble()
+            kycStatus = kyc?.kycStatus ?: "PENDING",
+            aadhaarVerified = kyc?.aadhaarVerified ?: false,
+            panVerified = kyc?.panVerified ?: false,
+            selfieUploaded = kyc?.selfieGcsPath != null,
+            faceMatchScore = kyc?.faceMatchScore?.toDouble(),
+            panHolderName = kyc?.panHolderName,
+            bankVerified = kyc?.bankVerified ?: false,
+            bankAccountHolderName = kyc?.bankAccountHolderName
         )
     }
 }

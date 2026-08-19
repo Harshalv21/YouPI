@@ -30,6 +30,16 @@ data class KycRecordEntity(
     val verifiedAt: Instant? = null,
     val digioRequestId: String? = null,
     val karzaRequestId: String? = null,
+    val ekoPanRequestId: String? = null,
+    val panHolderName: String? = null,
+    val bankAccountLast4: String? = null,
+    val bankIfsc: String? = null,
+    val bankAccountHolderName: String? = null,
+    val bankName: String? = null,
+    val bankBranch: String? = null,
+    val bankVerified: Boolean = false,
+    val bankVerifiedAt: Instant? = null,
+    val ekoBankRequestId: String? = null,
     val createdAt: Instant = Instant.now(),
     val updatedAt: Instant = Instant.now()
 ) {

@@ -150,11 +150,15 @@ youpi:
     callback-token: ${A1TOPUP_CALLBACK_TOKEN:}
 
   augmont:
-    base-url: ${AUGMONT_BASE_URL:https://uat-api.augmontgold.com/api}
+    base-url: ${AUGMONT_BASE_URL:https://uat-api.merchant.augmont.com/api}
     email: ${AUGMONT_EMAIL:}
     password: ${AUGMONT_PASSWORD:}
 
-
+  eko:
+    base-url: ${EKO_BASE_URL:https://api.eko.in/ekoicici/v3}
+    developer-key: ${EKO_DEVELOPER_KEY:}
+    initiator-id: ${EKO_INITIATOR_ID:}
+    authenticator-key: ${EKO_AUTHENTICATOR_KEY:}
 
   digio:
     api-key: ${DIGIO_API_KEY:}

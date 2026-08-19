@@ -14,9 +14,6 @@ class PanVerifyScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Bug #5 fix: shares the same KycViewModel instance as the Aadhaar step
-    // (provided once by the KYC ShellRoute in app_router.dart) instead of
-    // spinning up a disconnected one just for this screen.
     final vm = context.watch<KycViewModel>();
     final ctx = context;
     return Scaffold(
@@ -27,10 +24,12 @@ class PanVerifyScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            LinearProgressIndicator(value: 1.0, backgroundColor: AppColors.divider,
+            // Now 3 of 4 steps in this route sequence (was 3 of 3) --
+            // Bank Account verification is a new step after this one.
+            LinearProgressIndicator(value: 3 / 4, backgroundColor: AppColors.divider,
                 valueColor: const AlwaysStoppedAnimation(AppColors.primary)),
             const SizedBox(height: 8),
-            Text('Step 3 of 3', style: AppTextStyles.labelMedium),
+            Text('Step 3 of 4', style: AppTextStyles.labelMedium),
             const SizedBox(height: 24),
             Text(AppStrings.panTitle, style: AppTextStyles.displaySmall),
             const SizedBox(height: 24),
@@ -39,6 +38,14 @@ class PanVerifyScreen extends StatelessWidget {
               hint: 'ABCDE1234F',
               maxLength: 10,
               onChanged: (v) => vm.setPan(v.toUpperCase()),
+            ),
+            const SizedBox(height: 12),
+            YoupiButton(
+              label: vm.panVerified ? 'Verified ✓' : 'Verify PAN',
+              isLoading: vm.isLoading,
+              onPressed: (vm.isPanFormatValid && !vm.panVerified)
+                  ? () => vm.verifyPanWithBackend()
+                  : null,
             ),
             if (vm.panVerified)
               Padding(
@@ -53,15 +60,22 @@ class PanVerifyScreen extends StatelessWidget {
                   child: Row(children: [
                     const Icon(Icons.check_circle_rounded, color: AppColors.success, size: 16),
                     const SizedBox(width: 8),
-                    // Was a hardcoded fake name ("Siddhant V... MATCHED WITH
-                    // AADHAAR") shown to every user regardless of who they
-                    // are. No real name-match data exists until this is
-                    // wired to the actual Digio/Karza backend, so show an
-                    // honest, generic confirmation instead.
-                    Text('PAN details verified',
-                        style: AppTextStyles.bodySmall.copyWith(color: AppColors.success)),
+                    Expanded(
+                      child: Text(
+                        vm.panHolderName != null
+                            ? 'PAN verified — ${vm.panHolderName}'
+                            : 'PAN details verified',
+                        style: AppTextStyles.bodySmall.copyWith(color: AppColors.success),
+                      ),
+                    ),
                   ]),
                 ),
+              ),
+            if (vm.panError != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: Text(vm.panError!,
+                    style: AppTextStyles.bodySmall.copyWith(color: AppColors.error)),
               ),
             const SizedBox(height: 24),
             Text('Selfie Verification', style: AppTextStyles.headlineSmall),
@@ -100,13 +114,13 @@ class PanVerifyScreen extends StatelessWidget {
                 style: AppTextStyles.captionText, textAlign: TextAlign.center),
             const SizedBox(height: 32),
             YoupiButton(
-              label: AppStrings.completeKyc,
-              isLoading: vm.isLoading,
+              label: 'Continue',
+              // CHANGED: was AppStrings.completeKyc + vm.completeKyc() +
+              // navigate straight to /kyc/success. Now goes to the new
+              // Bank Account verification step instead -- completeKyc()
+              // moved to the end of that screen.
               onPressed: (vm.panVerified && vm.selfieCapture)
-                  ? () async {
-                final ok = await vm.completeKyc();
-                if (ok && ctx.mounted) ctx.go('/kyc/success');
-              }
+                  ? () => ctx.push('/kyc/bank-account')
                   : null,
             ),
           ],

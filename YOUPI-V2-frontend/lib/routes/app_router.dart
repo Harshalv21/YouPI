@@ -18,6 +18,7 @@ import '../presentation/kyc/kyc_viewmodel.dart';
 import '../presentation/kyc/kyc_intro_screen.dart';
 import '../presentation/kyc/aadhaar_verify_screen.dart';
 import '../presentation/kyc/pan_verify_screen.dart';
+import '../presentation/kyc/bank_account_verify_screen.dart';
 import '../presentation/kyc/kyc_success_screen.dart';
 import '../presentation/dashboard/home_screen.dart';
 import '../presentation/recharge/recharge_home_screen.dart';
@@ -136,6 +137,7 @@ class AppRouter {
           GoRoute(path: '/kyc/intro', builder: (c, s) => const KycIntroScreen()),
           GoRoute(path: '/kyc/aadhaar', builder: (c, s) => const AadhaarVerifyScreen()),
           GoRoute(path: '/kyc/pan', builder: (c, s) => const PanVerifyScreen()),
+          GoRoute(path: '/kyc/bank-account', builder: (c, s) => const BankAccountVerifyScreen()),
           GoRoute(path: '/kyc/success', builder: (c, s) => const KycSuccessScreen()),
         ],
       ),
