@@ -6,30 +6,43 @@ import '../../core/constants/app_dimensions.dart';
 import '../../core/constants/app_text_styles.dart';
 import '../../core/widgets/youpi_button.dart';
 import '../../core/widgets/youpi_card.dart';
+import '../../data/repositories/wallet_repository.dart';
 import 'gold_coin_reward_screen.dart';
 import 'recharge_viewmodel.dart';
 
-// EMI options removed for this version -- full-amount-only, per launch
-// scope. The backend/paymentMode enum still technically support
-// EMI_3/6/12 for a future version; this screen just no longer offers
-// them -- it always confirms with PaymentMode.FULL.
-class EmiSelectionScreen extends StatelessWidget {
+class EmiSelectionScreen extends StatefulWidget {
   const EmiSelectionScreen({super.key});
 
-  // ── TEMPORARY PREVIEW TOGGLE ──
-  // true  = skip Razorpay/backend entirely, jump straight to the coin-toss
-  //         animation. Zero payment, zero A1Topup call, zero risk -- purely
-  //         to eyeball the animation running for real in the app.
-  // false = normal real flow (Razorpay Checkout -> webhook -> A1Topup ->
-  //         animation only on confirmed success).
-  // SET BACK TO false BEFORE ANY REAL TESTING OR RELEASE BUILD.
+  @override
+  State<EmiSelectionScreen> createState() => _EmiSelectionScreenState();
+}
+
+class _EmiSelectionScreenState extends State<EmiSelectionScreen> {
   static const bool _previewAnimationOnly = false;
 
-  // MUST stay in sync with backend GoldRewardService.kt (REWARD_PERCENTAGE,
-  // COIN_VALUE_RUPEES, HALF_UP rounding) and gold_coin_reward_screen.dart's
-  // internal _valueEarned/_coinsEarned -- these are used purely to show the
-  // correct number in Home's post-recharge toast; the ACTUAL credit always
-  // happens server-side off the webhook, this is just display.
+  final WalletRepository _walletRepo = WalletRepository();
+  double? _walletBalance;
+  bool _walletLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    // Default to FULL every time this screen opens
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<RechargeViewModel>().selectFullPayment();
+    });
+    _loadWalletBalance();
+  }
+
+  Future<void> _loadWalletBalance() async {
+    try {
+      final bal = await _walletRepo.getNbfcBalance();
+      if (mounted) setState(() { _walletBalance = bal; _walletLoading = false; });
+    } catch (_) {
+      if (mounted) setState(() { _walletLoading = false; });
+    }
+  }
+
   double _valueForAmount(double rechargeAmount) => rechargeAmount * 0.01;
   int _coinsForAmount(double rechargeAmount) =>
       (_valueForAmount(rechargeAmount) / 0.10).round();
@@ -40,8 +53,7 @@ class EmiSelectionScreen extends StatelessWidget {
       final plan = vm.selectedPlan;
       if (plan == null) return const Scaffold(body: Center(child: Text('No plan selected')));
 
-      // Force full payment -- no EMI path offered this version.
-      vm.selectFullPayment();
+      final walletSufficient = _walletBalance != null && _walletBalance! >= plan.price;
 
       return Scaffold(
         backgroundColor: AppColors.backgroundPrimary,
@@ -80,30 +92,69 @@ class EmiSelectionScreen extends StatelessWidget {
                       style: AppTextStyles.amountMedium.copyWith(color: AppColors.primary)),
                 ]),
               ),
-              const SizedBox(height: 24),
-              Text(
-                'Full amount charged immediately via Razorpay Checkout',
-                style: AppTextStyles.captionText,
-                textAlign: TextAlign.center,
+              const SizedBox(height: 20),
+
+              // ── Payment method selector ──
+              Text('Pay using', style: AppTextStyles.bodySmall.copyWith(color: AppColors.textSecondary)),
+              const SizedBox(height: 8),
+              _PaymentModeOption(
+                title: 'Wallet',
+                subtitle: _walletLoading
+                    ? 'Checking balance...'
+                    : (_walletBalance == null
+                        ? 'Balance unavailable'
+                        : 'Balance: ₹${_walletBalance!.toStringAsFixed(0)}'),
+                selected: vm.paymentMode == 'WALLET',
+                // ← Wallet hamesha selectable rahegi, chahe balance 0 ho ya
+                // kam ho -- sirf loading state mein disable hoti hai.
+                enabled: !_walletLoading,
+                onTap: () => vm.selectWalletPayment(),
               ),
+
+              // ← Turant dikhta hai jaise hi Wallet select ho aur balance
+              // kam ho -- Pay button dabane ka wait nahi karna padta.
+              if (vm.paymentMode == 'WALLET' && !_walletLoading && !walletSufficient)
+                Container(
+                  margin: const EdgeInsets.only(top: 8),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppColors.error.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        'Insufficient wallet balance. You need ₹${(plan.price - (_walletBalance ?? 0)).toStringAsFixed(0)} more.',
+                        style: AppTextStyles.bodySmall.copyWith(color: AppColors.error),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 8),
+                      YoupiButton(
+                        label: 'Add Money to Wallet',
+                        onPressed: () => ctx.push('/wallet/add'),
+                      ),
+                    ],
+                  ),
+                ),
+
+              const SizedBox(height: 10),
+              _PaymentModeOption(
+                title: 'Pay via Gateway',
+                subtitle: 'UPI, Cards, NetBanking via Razorpay',
+                selected: vm.paymentMode == 'FULL',
+                enabled: true,
+                onTap: () => vm.selectFullPayment(),
+              ),
+
               const SizedBox(height: 20),
               YoupiButton(
                 label: _previewAnimationOnly
                     ? 'Preview Coin Animation'
                     : (vm.paymentInProgress ? 'Confirming payment...' : 'Confirm & Pay ₹${plan.price.toStringAsFixed(0)}'),
                 isLoading: !_previewAnimationOnly && (vm.isLoading || vm.paymentInProgress),
-                onPressed: () async {
+                onPressed: (vm.paymentMode == 'WALLET' && !walletSufficient) ? null : () async {
                   if (_previewAnimationOnly) {
-                    // Bypasses payAndConfirm() entirely -- no order created,
-                    // no Razorpay Checkout opened, no backend call at all.
-                    // NOTE: since real gold-crediting now happens via the
-                    // backend webhook hook (RechargeService ->
-                    // GoldRewardService), this preview path does NOT
-                    // increment any real coin count -- it's purely a visual
-                    // animation preview. To see the badge update for real,
-                    // test with _previewAnimationOnly = false and an actual
-                    // successful recharge (one that reaches RECHARGE_SUCCESS,
-                    // not just PAYMENT_DONE/REFUNDED).
                     await showGoldCoinReward(
                       ctx,
                       plan.price,
@@ -123,12 +174,6 @@ class EmiSelectionScreen extends StatelessWidget {
                   final ok = await vm.payAndConfirm();
                   if (!ctx.mounted) return;
                   if (ok) {
-                    // Reverted to ₹249 for real launch (was temporarily
-                    // ₹20 during testing). Threshold matches backend's
-                    // GOLD_ELIGIBLE_PLAN_AMOUNT (>= ₹249, see
-                    // RechargeService.kt) -- keep both in sync, or the
-                    // animation and the actual coin credit will disagree
-                    // about which recharges qualify.
                     if (plan.price >= 249) {
                       await showGoldCoinReward(
                         ctx,
@@ -146,12 +191,6 @@ class EmiSelectionScreen extends StatelessWidget {
                       ctx.go('/plans/success');
                     }
                   } else if (vm.stillProcessing) {
-                    // Payment genuinely succeeded -- fulfillment just
-                    // hasn't confirmed within the polling window yet.
-                    // Not an error: send them to Home (Active Recharge /
-                    // History will pick up the final status once it
-                    // resolves) instead of a scary red snackbar for
-                    // something that didn't actually fail.
                     ctx.go('/dashboard/home');
                     ScaffoldMessenger.of(ctx).showSnackBar(
                       SnackBar(
@@ -171,5 +210,61 @@ class EmiSelectionScreen extends StatelessWidget {
         ),
       );
     });
+  }
+}
+
+class _PaymentModeOption extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final bool selected;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  const _PaymentModeOption({
+    required this.title,
+    required this.subtitle,
+    required this.selected,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Opacity(
+      opacity: enabled ? 1.0 : 0.5,
+      child: InkWell(
+        onTap: enabled ? onTap : null,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: AppColors.backgroundCard,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: selected ? AppColors.primary : Colors.transparent,
+              width: 1.5,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                selected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+                color: selected ? AppColors.primary : AppColors.textSecondary,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: AppTextStyles.bodyMedium),
+                    Text(subtitle, style: AppTextStyles.captionText),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }

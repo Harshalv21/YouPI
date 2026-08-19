@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 // import '../../core/services/cashfree_service.dart';
+import '../../core/services/api_service.dart';
 import '../../core/services/razorpay_service.dart';
 import '../../core/services/storage_service.dart';
 import '../../data/models/recharge_plan_model.dart';
@@ -31,6 +32,15 @@ class RechargeViewModel extends ChangeNotifier {
   // genuine failure (cancelled/rejected payment). The caller should show a
   // "still processing" message and let the user continue, not an error.
   bool _stillProcessing = false;
+
+  // ── Payment mode (NEW -- Wallet support) ──
+  String _paymentMode = 'FULL'; // FULL or WALLET
+  double? _walletShortfall;
+  double? _walletBalance;
+
+  String get paymentMode => _paymentMode;
+  double? get walletShortfall => _walletShortfall;
+  double? get walletBalance => _walletBalance;
 
   // ---- Recharge history state (NEW) ----
   List<RechargeRecord> _recentRecharges = [];
@@ -113,16 +123,6 @@ class RechargeViewModel extends ChangeNotifier {
 
   // ---------------------------------------------------------------------
   // Recharge history (NEW)
-  // ---------------------------------------------------------------------
-  // NOTE: This calls _repo.getRecentRecharges(...) and _repo.getAllHistory(...)
-  // which need to be added to RechargeRepository (see recharge_repository.dart
-  // notes below the class). Until those exist on the backend/repo, this will
-  // throw and recentRecharges will just stay empty -- the UI already handles
-  // that gracefully (section hides itself when the list is empty).
-  // ---------------------------------------------------------------------
-  // TEMPORARY: Mock data for UI testing (remove once backend history is
-  // confirmed working end-to-end). Toggle _useMockHistory to switch back
-  // to the real API instantly.
   // ---------------------------------------------------------------------
   static const bool _useMockHistory = false; // now using real backend history
 
@@ -231,10 +231,6 @@ class RechargeViewModel extends ChangeNotifier {
   // ---------------------------------------------------------------------
 
   Future<void> loadRecentRecharges() async {
-    // NOTE: intentionally NOT gated on `_mobile.length == 10` -- this shows
-    // the user's last 4 recharges across ALL numbers they've recharged,
-    // not just whatever number happens to be typed in right now. So it
-    // loads once on screen open regardless of the mobile field's state.
     _isLoadingRecent = true;
     notifyListeners();
     try {
@@ -277,10 +273,6 @@ class RechargeViewModel extends ChangeNotifier {
     if (record.mobileNumber.length == 10) {
       setMobile(record.mobileNumber);
     }
-    // TODO: once RechargeRepository exposes a way to fetch a plan by id/
-    // amount+operator, auto-select it here via selectPlan(...). For now the
-    // user lands back on the plans list with the correct number & operator
-    // pre-filled.
   }
 
   void selectPlan(RechargePlanModel plan) {
@@ -289,24 +281,6 @@ class RechargeViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  // BUG FIX: setMobile() triggers _detectOperator() asynchronously
-  // (fire-and-forget, not awaited) -- fine for the normal browse-plans
-  // flow, where the user views/taps through at least one more screen
-  // before payAndConfirm() ever runs, giving the network round-trip
-  // plenty of time to finish. But recharge_contact_history_screen.dart's
-  // "Repeat recharge" button calls payAndConfirm() IMMEDIATELY after
-  // setMobile(), with no user-interaction delay in between -- the async
-  // detection almost never finishes in time, so payAndConfirm() was
-  // reading _operator/_circle while they were still at their stale
-  // default ('airtel' / 'UP East', see field declarations above) or
-  // left over from whatever number was detected last. This is exactly
-  // why a repeat-recharge on a JIO number could create an order tagged
-  // AIRTEL (wrong operator sent to the backend/A1Topup), and why some
-  // repeat-recharge attempts simply never completed. Callers who already
-  // have a correctly-detected operator/circle for this exact number
-  // (recharge_contact_history_screen.dart's own _operator/_circle,
-  // populated by its own _loadPlans()) should call this instead of
-  // relying on setMobile()'s internal race-prone re-detection.
   void setOperatorAndCircle(String operator, String circle) {
     _operator = operator.toLowerCase();
     _circle = circle;
@@ -320,6 +294,14 @@ class RechargeViewModel extends ChangeNotifier {
   }
 
   void selectFullPayment() {
+    _paymentMode = 'FULL';
+    _selectedEmi = null;
+    notifyListeners();
+  }
+
+  // ← NAYA: wallet-as-payment-method ke liye
+  void selectWalletPayment() {
+    _paymentMode = 'WALLET';
     _selectedEmi = null;
     notifyListeners();
   }
@@ -329,21 +311,6 @@ class RechargeViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  // BUG FIX: setMobile() used to ALWAYS kick off _detectOperator() in the
-  // background, with no way to opt out. A caller like _repeatRecharge()
-  // (recharge_contact_history_screen.dart) that already has the CORRECT,
-  // already-detected operator/circle for this exact number would call
-  // setMobile() then immediately setOperatorAndCircle() to correct it --
-  // but that only wins the RACE if the background detection is slower.
-  // If _detectOperator()'s network call resolved (or failed) AFTER
-  // setOperatorAndCircle() but WHILE payAndConfirm() was still running,
-  // it would silently overwrite the correct values with a fresh (and for
-  // some numbers, wrong/stale/failed) detection result -- explains a
-  // repeat-recharge on a JIO number creating an order tagged AIRTEL, and
-  // some repeat-recharge attempts hanging entirely (createOrder() sent a
-  // corrupted/failed-detection operator value). autoDetectOperator: false
-  // removes the race at its ROOT -- no background task is ever started,
-  // so nothing can race with the caller's own known-correct values.
   void setMobile(String m, {bool autoDetectOperator = true}) {
     _mobile = m;
     // StorageService.saveLastRechargeMobile(m);
@@ -371,10 +338,6 @@ class RechargeViewModel extends ChangeNotifier {
       _detectionState = OperatorDetectionState.failed;
     }
     notifyListeners();
-    // silent:true -- this reload must NOT flip the screen back to the
-    // full-screen shimmer. The user is already looking at the plans list;
-    // we just want the underlying data (now for the correct operator) to
-    // swap in quietly once it's ready.
     loadPlans(silent: true);
   }
 
@@ -395,11 +358,6 @@ class RechargeViewModel extends ChangeNotifier {
       return false;
     }
 
-    // Don't silently pay with a stale/wrong operator if detection never
-    // actually succeeded for this number (mPlan HLR lookup can fail for
-    // specific numbers) -- send them to the manual "Change operator"
-    // picker instead (recharge_contact_history_screen.dart) rather than
-    // risk the recharge going to the wrong network.
     if (_detectionState == OperatorDetectionState.failed) {
       _error = 'Could not confirm the operator for this number. Please pick it manually and try again.';
       notifyListeners();
@@ -409,6 +367,8 @@ class RechargeViewModel extends ChangeNotifier {
     _isLoading = true;
     _error = null;
     _stillProcessing = false;
+    _walletShortfall = null;
+    _walletBalance = null;
     notifyListeners();
 
     try {
@@ -419,13 +379,22 @@ class RechargeViewModel extends ChangeNotifier {
         planId: _selectedPlan!.id,
         planAmount: _selectedPlan!.price,
         validityDays: _selectedPlan!.validityDays,
-        paymentMode: _selectedEmi == null
-            ? 'FULL'
-            : 'EMI_${_selectedEmi!.months}',
+        paymentMode: _paymentMode == 'WALLET'
+            ? 'WALLET'
+            : (_selectedEmi == null ? 'FULL' : 'EMI_${_selectedEmi!.months}'),
         idempotencyKey: '${_mobile}-${_selectedPlan!.id}-${DateTime.now().millisecondsSinceEpoch}',
       );
       _lastOrderId = order.orderId;
       _lastRazorpayOrderId = order.razorpayOrderId;
+
+      // ── WALLET branch -- synchronous, no Razorpay checkout at all ──
+      // Backend already debited + attempted A1Topup delivery by the time
+      // createOrder() returns (see RechargeService.createWalletPaidOrder()).
+      if (_paymentMode == 'WALLET') {
+        _rechargeSuccess = order.status == 'RECHARGE_SUCCESS';
+        loadRecentRecharges();
+        return _rechargeSuccess;
+      }
 
       if (order.razorpayOrderId.isEmpty) {
         _error = 'Could not start payment. Please try again.';
@@ -437,10 +406,6 @@ class RechargeViewModel extends ChangeNotifier {
 
       final ownMobile = await StorageService.getLastMobile();
 
-      // Gateway branch -- paymentSessionId is only populated when the
-      // backend created this order via Cashfree (youpi.payment.gateway).
-      // Presence of that field, not a separate flag, decides the path
-      // here -- stays in sync with the backend automatically.
       if (order.razorpayKeyId == null || order.razorpayKeyId!.isEmpty) {
         _error = 'Could not start payment. Please try again.';
         _rechargeSuccess = false;
@@ -456,7 +421,6 @@ class RechargeViewModel extends ChangeNotifier {
       );
 
       if (rzResult.status == RazorpayResultStatus.cancelled) {
-        // user backed out -- not an error, just stop quietly
         _rechargeSuccess = false;
         return false;
       }
@@ -475,16 +439,17 @@ class RechargeViewModel extends ChangeNotifier {
         _error =
         'Payment received but confirmation is taking longer than usual. '
             'Check My Recharges in a few minutes for the final status.';
-        // Hand off to Home's async follow-up check instead of just
-        // dropping this order on the floor -- see storage_service.dart's
-        // doc comment on setPendingCoinAnimation for the full mechanism.
         await StorageService.setPendingCoinAnimation(order.orderId, _selectedPlan!.price);
       }
-      // Refresh recent recharges so the new one shows up next time the
-      // user opens this screen / the strip re-renders.
       loadRecentRecharges();
       return confirmed;
     } catch (e) {
+      // ← NAYA: wallet insufficient-balance case -- pull structured
+      // details out so UI can show exact shortfall + "Add Money" CTA.
+      if (e is ApiException && e.code == 'WALLET_PAYMENT_REJECTED') {
+        _walletBalance = (e.details?['walletBalance'] as num?)?.toDouble();
+        _walletShortfall = (e.details?['shortfall'] as num?)?.toDouble();
+      }
       _error = e.toString();
       _rechargeSuccess = false;
       return false;
@@ -496,13 +461,6 @@ class RechargeViewModel extends ChangeNotifier {
   }
 
   Future<bool> _pollOrderStatus(String orderId) async {
-    // Was 10 attempts x 2s = 20s total -- too short. A1Topup fulfillment can
-    // genuinely take longer than that (we've seen real orders sit in
-    // PENDING for well over a minute), and when it does, payAndConfirm()
-    // returned false even though the PAYMENT itself succeeded -- which
-    // skipped the gold coin animation entirely and showed an error snackbar
-    // instead, even though nothing had actually failed. 25 x 2s = 50s gives
-    // real fulfillment much more room to land within this synchronous wait.
     const maxAttempts = 25;
     const interval = Duration(seconds: 2);
     for (var attempt = 0; attempt < maxAttempts; attempt++) {

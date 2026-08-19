@@ -1,6 +1,22 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'storage_service.dart';
+
+/// Carries the full structured error from the backend (code, message,
+/// details) instead of just a plain string -- needed so UI can read
+/// numeric fields like details['shortfall'] for things like the
+/// wallet "Add Money" CTA, not just display a generic message.
+class ApiException implements Exception {
+  final String code;
+  final String message;
+  final Map<String, dynamic>? details;
+
+  ApiException({required this.code, required this.message, this.details});
+
+  @override
+  String toString() => message;
+}
+
 /// Central HTTP client for all YOUPI backend calls.
 ///
 /// Key feature: on a 401, it tries to silently refresh the access token using
@@ -50,13 +66,17 @@ class ApiService {
     debugPrint('🔴 unwrap() fallback -- statusCode: ${res.statusCode}, '
         'bodyType: ${body.runtimeType}');
     debugPrint('🔴 unwrap() raw body: $body');
-    throw Exception(_extractError(res.data) ??
-        'Request failed (status ${res.statusCode})');
+    final errMap = _extractErrorMap(res.data);
+    throw ApiException(
+      code: errMap?['code']?.toString() ?? 'UNKNOWN_ERROR',
+      message: errMap?['message']?.toString() ?? 'Request failed (status ${res.statusCode})',
+      details: errMap?['details'] is Map ? Map<String, dynamic>.from(errMap!['details']) : null,
+    );
   }
 
-  static String? _extractError(dynamic data) {
+  static Map<String, dynamic>? _extractErrorMap(dynamic data) {
     if (data is Map && data['error'] is Map) {
-      return data['error']['message'] as String?;
+      return Map<String, dynamic>.from(data['error'] as Map);
     }
     return null;
   }
@@ -65,9 +85,12 @@ class ApiService {
     debugPrint('🔴 DioException -- status: ${e.response?.statusCode}, '
         'path: ${e.requestOptions.path}');
     debugPrint('🔴 DioException raw body: ${e.response?.data}');
-    final msg =
-        _extractError(e.response?.data) ?? e.message ?? 'Network error';
-    return Exception(msg);
+    final errMap = _extractErrorMap(e.response?.data);
+    return ApiException(
+      code: errMap?['code']?.toString() ?? 'NETWORK_ERROR',
+      message: errMap?['message']?.toString() ?? e.message ?? 'Network error',
+      details: errMap?['details'] is Map ? Map<String, dynamic>.from(errMap!['details']) : null,
+    );
   }
 
   /// Get a new access token via refresh token. De-duplicated across callers.
@@ -98,9 +121,6 @@ class ApiService {
     }
   }
 }
-
-// Add this import at the top of api_service.dart if not already present:
-// import 'package:flutter/foundation.dart' show kDebugMode;
 
 class _AuthInterceptor extends Interceptor {
   @override

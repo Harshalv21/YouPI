@@ -147,8 +147,9 @@ data class ConfirmRechargeResponse(
 sealed class RechargeException(
     code: String,
     message: String,
-    httpStatus: Int = 400
-) : BaseException(code, message) {
+    httpStatus: Int = 400,
+    details: Map<String, Any>? = null
+) : BaseException(code = code, message = message, details = details) {
     override val httpStatus: Int = httpStatus
 }
 
@@ -174,7 +175,19 @@ class RechargeAlreadyConfirmedException(val orderId: UUID) : RechargeException(
     "RECHARGE_ALREADY_CONFIRMED", "Recharge order $orderId is already confirmed.", 409
 )
 
-// ← NAYA: wallet-as-payment-method ke liye
-class WalletPaymentRejectedException(reason: String) : RechargeException(
-    "WALLET_PAYMENT_REJECTED", reason, 402
+// ← CHANGED: available/required optional params add kiye, taaki client ko
+// exact wallet balance + shortfall mile "Add Money" CTA ke liye
+class WalletPaymentRejectedException(
+    reason: String,
+    available: BigDecimal? = null,
+    required: BigDecimal? = null
+) : RechargeException(
+    code = "WALLET_PAYMENT_REJECTED",
+    message = reason,
+    httpStatus = 402,
+    details = if (available != null && required != null) mapOf(
+        "walletBalance" to available,
+        "requiredAmount" to required,
+        "shortfall" to (required - available)
+    ) else null
 )

@@ -471,15 +471,19 @@ class WalletService(
 
         return when (result) {
             is Result.Success -> WalletDebitOutcome.Success(result.value.walletId, result.value.balance)
-            is Result.Failure -> when (result.error) {
+            is Result.Failure -> when (val err = result.error) {
+                // ← CHANGED: available/required forward kiya
                 is InsufficientBalanceException -> WalletDebitOutcome.Rejected(
-                    WalletDebitRejectionReason.INSUFFICIENT_BALANCE, result.error.message
+                    reason = WalletDebitRejectionReason.INSUFFICIENT_BALANCE,
+                    message = err.message,
+                    available = err.available,
+                    required = err.required
                 )
                 is WalletNotFoundException -> WalletDebitOutcome.Rejected(
-                    WalletDebitRejectionReason.WALLET_NOT_FOUND, result.error.message
+                    WalletDebitRejectionReason.WALLET_NOT_FOUND, err.message
                 )
                 else -> WalletDebitOutcome.Rejected(
-                    WalletDebitRejectionReason.WALLET_NOT_FOUND, result.error.message
+                    WalletDebitRejectionReason.WALLET_NOT_FOUND, err.message
                 )
             }
         }

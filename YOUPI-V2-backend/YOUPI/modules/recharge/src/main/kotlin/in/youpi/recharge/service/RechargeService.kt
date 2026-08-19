@@ -532,11 +532,19 @@ class RechargeService(
             idempotencyKey = "recharge_debit_${req.idempotencyKey}"
         )
 
-        when (debitOutcome) {
+               when (debitOutcome) {
             is WalletDebitOutcome.Rejected -> {
                 log.warn("WALLET-paid recharge rejected at debit: userId={}, reason={}, message={}",
                     userId, debitOutcome.reason, debitOutcome.message)
-                return Result.failure(WalletPaymentRejectedException(debitOutcome.message))
+                // ← CHANGED: available/required forward kiya taaki client ko
+                // exact shortfall mile "Add Money" CTA ke liye
+                return Result.failure(
+                    WalletPaymentRejectedException(
+                        reason = debitOutcome.message,
+                        available = debitOutcome.available,
+                        required = debitOutcome.required
+                    )
+                )
             }
             is WalletDebitOutcome.Success -> { /* proceed */ }
         }
