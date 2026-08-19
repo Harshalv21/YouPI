@@ -54,10 +54,20 @@ class _ContactPickerFieldState extends State<ContactPickerField> {
     // the user actually starts typing digits, so we're not asking for
     // contacts access before they've shown any intent to use it.
     if (_allContacts.isNotEmpty || _loading) return;
+    if (!mounted) return;
     setState(() => _loading = true);
 
+    // FIX: every one of these awaits can resolve after the user has
+    // already navigated away (e.g. to the SmartSave detail screen),
+    // which disposes this widget mid-flight. Without a `mounted` check,
+    // the setState() below that call throws "setState() called after
+    // dispose()" and crashes the app. Bail out immediately if we're no
+    // longer in the tree.
     await FlutterContacts.permissions.request(PermissionType.read);
+    if (!mounted) return;
+
     final granted = await FlutterContacts.permissions.has(PermissionType.read);
+    if (!mounted) return;
 
     if (!granted) {
       setState(() {
@@ -74,12 +84,14 @@ class _ContactPickerFieldState extends State<ContactPickerField> {
       final contacts = await FlutterContacts.getAll(
         properties: {ContactProperty.name, ContactProperty.phone},
       );
+      if (!mounted) return;
       setState(() {
         _allContacts = contacts.where((c) => c.phones.isNotEmpty).toList();
         _loading = false;
       });
       _onQueryChanged();
     } catch (_) {
+      if (!mounted) return;
       setState(() => _loading = false);
     }
   }

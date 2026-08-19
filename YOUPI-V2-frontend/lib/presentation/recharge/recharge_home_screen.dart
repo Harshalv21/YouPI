@@ -13,6 +13,20 @@ import '../../core/widgets/youpi_card.dart';
 import 'recharge_contact_picker_screen.dart';
 import 'recharge_history_screen.dart';
 import 'recharge_viewmodel.dart';
+import 'smart_save_recommendation.dart';
+import 'smart_save_plan_detail_screen.dart';
+import 'smart_save_eligibility_gate.dart';
+
+// SmartSave -- FRONTEND ONLY (mock data). Backend recommendation API
+// (Dikshi Finlease benefit-signature matching) is not ready yet, so this
+// pulls from mockSmartSaveRecommendations (smart_save_recommendation.dart).
+// Swap it for a real vm.smartSaveRecommendations (from RechargeViewModel)
+// once the backend endpoint exists.
+enum PlanTabType { recharge, smartSave }
+
+// Purple used by the SmartSave tab/badge to match the lightning-bolt
+// accent already used on the standalone Plans screen.
+const Color _smartSavePurple = Color(0xFF9C7CFF);
 
 class RechargeHomeScreen extends StatefulWidget {
   const RechargeHomeScreen({super.key});
@@ -26,6 +40,9 @@ class _RechargeHomeScreenState extends State<RechargeHomeScreen> {
   // and picking a number via the full contact-picker screen (_openContactPicker)
   // pushes the result back into this controller.
   final _mobileCtrl = TextEditingController();
+
+  // Which tab is active in the "Best Selling Plans" section.
+  PlanTabType _selectedPlanTab = PlanTabType.recharge;
 
   @override
   void initState() {
@@ -247,122 +264,357 @@ class _RechargeHomeScreenState extends State<RechargeHomeScreen> {
               ],
               // -------------- end Recent Recharges strip (NEW) --------------
 
+              // ---------------- Recharge / SmartSave toggle (NEW) ----------------
+              _buildPlanTabToggle(),
+              const SizedBox(height: 16),
+              // ------------- end Recharge / SmartSave toggle (NEW) ----------------
+
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('Best Selling Plans', style: AppTextStyles.headlineSmall),
-                  TextButton(
-                    onPressed: () => ctx.push('/plans/browse'),
-                    child: Text('Browse All', style: AppTextStyles.tealLink.copyWith(decoration: TextDecoration.none)),
+                  Text(
+                    _selectedPlanTab == PlanTabType.recharge ? 'Best Selling Plans' : 'SmartSave For You',
+                    style: AppTextStyles.headlineSmall,
                   ),
+                  if (_selectedPlanTab == PlanTabType.recharge)
+                    TextButton(
+                      onPressed: () => ctx.push('/plans/browse'),
+                      child: Text('Browse All', style: AppTextStyles.tealLink.copyWith(decoration: TextDecoration.none)),
+                    ),
                 ],
               ),
               const SizedBox(height: 12),
-              ...vm.plans.take(3).map((plan) => Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: YoupiCard(
-                  padding: EdgeInsets.zero,
-                  onTap: () {
-                    vm.selectPlan(plan);
-                    ctx.push('/plans/emi-select');
-                  },
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (plan.tier.isNotEmpty)
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: AppColors.primary.withOpacity(0.15),
-                            borderRadius: const BorderRadius.only(
-                              topLeft: Radius.circular(12),
-                              topRight: Radius.circular(12),
+
+              if (_selectedPlanTab == PlanTabType.recharge)
+                ...vm.plans.take(3).map((plan) => Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: YoupiCard(
+                    padding: EdgeInsets.zero,
+                    onTap: () {
+                      vm.selectPlan(plan);
+                      ctx.push('/plans/emi-select');
+                    },
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (plan.tier.isNotEmpty)
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withOpacity(0.15),
+                              borderRadius: const BorderRadius.only(
+                                topLeft: Radius.circular(12),
+                                topRight: Radius.circular(12),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    plan.tier,
+                                    style: AppTextStyles.labelSmall.copyWith(color: AppColors.primary),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                if (plan.isPopular)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.primary,
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text('Popular',
+                                        style: AppTextStyles.labelSmall.copyWith(
+                                            color: AppColors.backgroundPrimary)),
+                                  ),
+                              ],
                             ),
                           ),
+                        Padding(
+                          padding: const EdgeInsets.all(14),
                           child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Expanded(
-                                child: Text(
-                                  plan.tier,
-                                  style: AppTextStyles.labelSmall.copyWith(color: AppColors.primary),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(plan.name,
+                                        style: AppTextStyles.labelLarge,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      '${plan.dataPerDay}/day • ${plan.validityDays} Days • ${plan.callsInfo}',
+                                      style: AppTextStyles.bodySmall,
+                                    ),
+                                    if (plan.extras.isNotEmpty)
+                                      Text(plan.extras.first,
+                                          style: AppTextStyles.captionText.copyWith(color: AppColors.secondary)),
+                                  ],
                                 ),
                               ),
-                              if (plan.isPopular)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.primary,
-                                    borderRadius: BorderRadius.circular(4),
+                              const SizedBox(width: 12),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text('₹${plan.price.toStringAsFixed(0)}',
+                                      style: AppTextStyles.headlineSmall.copyWith(color: AppColors.primary)),
+                                  const SizedBox(height: 6),
+                                  Container(
+                                    width: 28,
+                                    height: 28,
+                                    decoration: const BoxDecoration(
+                                      color: AppColors.primary,
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: Icon(
+                                      Icons.chevron_right_rounded,
+                                      size: 20,
+                                      color: AppColors.backgroundPrimary,
+                                    ),
                                   ),
-                                  child: Text('Popular',
-                                      style: AppTextStyles.labelSmall.copyWith(
-                                          color: AppColors.backgroundPrimary)),
-                                ),
+                                ],
+                              ),
                             ],
                           ),
                         ),
-                      Padding(
-                        padding: const EdgeInsets.all(14),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(plan.name,
-                                      style: AppTextStyles.labelLarge,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    '${plan.dataPerDay}/day • ${plan.validityDays} Days • ${plan.callsInfo}',
-                                    style: AppTextStyles.bodySmall,
-                                  ),
-                                  if (plan.extras.isNotEmpty)
-                                    Text(plan.extras.first,
-                                        style: AppTextStyles.captionText.copyWith(color: AppColors.secondary)),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                Text('₹${plan.price.toStringAsFixed(0)}',
-                                    style: AppTextStyles.headlineSmall.copyWith(color: AppColors.primary)),
-                                const SizedBox(height: 6),
-                                Container(
-                                  width: 28,
-                                  height: 28,
-                                  decoration: const BoxDecoration(
-                                    color: AppColors.primary,
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: Icon(
-                                    Icons.chevron_right_rounded,
-                                    size: 20,
-                                    color: AppColors.backgroundPrimary,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
+                )).toList()
+              else if (!mockSmartSaveEligible)
+                // ---------------- SmartSave eligibility gate (NEW) ----------------
+                SmartSaveEligibilityGate(
+                  onRechargeNow: () => setState(() => _selectedPlanTab = PlanTabType.recharge),
+                )
+                // ------------- end SmartSave eligibility gate (NEW) ----------------
+              else
+                // ---------------- SmartSave mock cards (NEW) ----------------
+                ...mockSmartSaveRecommendations.map(
+                  (r) => _buildSmartSaveCard(context, r),
                 ),
-              )).toList(),
+              // ------------- end SmartSave mock cards (NEW) ----------------
             ],
           ),
         ),
       );
     });
   }
+
+  // ---------------- Recharge / SmartSave toggle widget (NEW) ----------------
+  Widget _buildPlanTabToggle() {
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: AppColors.backgroundCard,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: _planTabButton(
+              label: 'Recharge Plans',
+              icon: Icons.smartphone_rounded,
+              tab: PlanTabType.recharge,
+              activeColor: AppColors.primary,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Expanded(
+            child: _planTabButton(
+              label: 'SmartSave Plans',
+              icon: Icons.bolt_rounded,
+              tab: PlanTabType.smartSave,
+              activeColor: _smartSavePurple,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _planTabButton({
+    required String label,
+    required IconData icon,
+    required PlanTabType tab,
+    required Color activeColor,
+  }) {
+    final isActive = _selectedPlanTab == tab;
+    return GestureDetector(
+      onTap: () => setState(() => _selectedPlanTab = tab),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          color: isActive ? activeColor.withOpacity(0.15) : Colors.transparent,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: isActive ? activeColor : Colors.transparent),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 16, color: isActive ? activeColor : AppColors.textSecondary),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                label,
+                style: AppTextStyles.labelSmall.copyWith(
+                  color: isActive ? activeColor : AppColors.textSecondary,
+                  fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  // ------------- end Recharge / SmartSave toggle widget (NEW) ----------------
+
+  // ---------------- SmartSave recommendation card (NEW, mock data) ----------------
+  Widget _buildSmartSaveCard(BuildContext context, SmartSaveRecommendation r) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: AppColors.backgroundCard,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _smartSavePurple.withOpacity(0.35)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: _smartSavePurple.withOpacity(0.15),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(12),
+                topRight: Radius.circular(12),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.bolt_rounded, size: 14, color: _smartSavePurple),
+                const SizedBox(width: 4),
+                Text(
+                  'SMARTSAVE',
+                  style: AppTextStyles.labelSmall.copyWith(color: _smartSavePurple),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    ContactAvatar(mobileNumber: r.mobileNumber, radius: 16),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(r.displayName, style: AppTextStyles.labelLarge),
+                          Text(r.mobileNumber,
+                              style: AppTextStyles.captionText.copyWith(color: AppColors.textSecondary)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'You\'ve recharged ₹${r.currentPlanAmount} every month for the last '
+                  '${r.currentPlanFrequencyMonths} months.',
+                  style: AppTextStyles.bodySmall,
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppColors.backgroundPrimary,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Suggested Plan',
+                                style: AppTextStyles.captionText.copyWith(color: AppColors.textSecondary)),
+                            const SizedBox(height: 2),
+                            Text(
+                              '₹${r.suggestedPlanAmount} • ${r.suggestedPlanValidityDays} Days',
+                              style: AppTextStyles.labelLarge,
+                            ),
+                          ],
+                        ),
+                      ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text('Pay Monthly',
+                              style: AppTextStyles.captionText.copyWith(color: AppColors.textSecondary)),
+                          const SizedBox(height: 2),
+                          Text(
+                            '₹${r.monthlyInstalment}/mo',
+                            style: AppTextStyles.labelLarge.copyWith(color: _smartSavePurple),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.savings_rounded, size: 14, color: AppColors.primary),
+                      const SizedBox(width: 6),
+                      Text(
+                        'You save ₹${r.totalSavings} total',
+                        style: AppTextStyles.labelSmall.copyWith(color: AppColors.primary),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: YoupiButton(
+                    label: 'View SmartSave Plan',
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => SmartSavePlanDetailScreen(recommendation: r),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  // ------------- end SmartSave recommendation card (NEW, mock data) ----------------
 }
 
 Future<void> _openContactPicker(
