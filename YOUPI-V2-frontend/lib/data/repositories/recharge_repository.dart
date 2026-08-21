@@ -81,8 +81,9 @@ class RechargeRepository {
     // succeeds -- without this, "Active Recharge" on the home screen has
     // no way to know when the plan actually expires.
     required int validityDays,
-    required String paymentMode, // 'FULL' | 'EMI_3' | 'EMI_6' | 'EMI_12'
+    required String paymentMode, // 'FULL' | 'EMI_3' | 'EMI_6' | 'EMI_12' | 'WALLET' | 'SPLIT'
     required String idempotencyKey,
+    double? walletAmount, // ← NAYA: required only for SPLIT mode
   }) async {
     try {
       final res = await _dio.post('/v1/recharge/order', data: {
@@ -94,6 +95,7 @@ class RechargeRepository {
         'planValidityDays': validityDays,
         'paymentMode': paymentMode,
         'idempotencyKey': idempotencyKey,
+        if (walletAmount != null) 'walletAmount': walletAmount,
       });
       final data = ApiService.unwrap(res) as Map<String, dynamic>;
       return RechargeOrderResult.fromJson(data);
@@ -246,6 +248,8 @@ class RechargeOrderResult {
   final double amount;
   final String status;
   final String paymentMode;
+  final double? walletAmount;       // ← NAYA: SPLIT mode wallet portion
+  final double? gatewayAmount;      // ← NAYA: SPLIT mode gateway portion
 
   RechargeOrderResult({
     required this.orderId,
@@ -255,6 +259,8 @@ class RechargeOrderResult {
     required this.amount,
     required this.status,
     required this.paymentMode,
+    this.walletAmount,
+    this.gatewayAmount,
   });
 
   factory RechargeOrderResult.fromJson(Map<String, dynamic> json) => RechargeOrderResult(
@@ -265,6 +271,8 @@ class RechargeOrderResult {
     amount: (json['amount'] as num).toDouble(),
     status: json['status'] as String,
     paymentMode: json['paymentMode'] as String,
+    walletAmount: (json['walletAmount'] as num?)?.toDouble(),
+    gatewayAmount: (json['gatewayAmount'] as num?)?.toDouble(),
   );
 }
 

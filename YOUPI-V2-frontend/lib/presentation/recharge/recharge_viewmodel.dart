@@ -33,14 +33,24 @@ class RechargeViewModel extends ChangeNotifier {
   // "still processing" message and let the user continue, not an error.
   bool _stillProcessing = false;
 
-  // ── Payment mode (NEW -- Wallet support) ──
-  String _paymentMode = 'FULL'; // FULL or WALLET
+  // ── Payment mode (Wallet + SPLIT support) ──
+  String _paymentMode = 'FULL'; // FULL or WALLET or SPLIT
   double? _walletShortfall;
   double? _walletBalance;
+
+  // ← NAYA: SPLIT mode ke liye -- kitna wallet se use karna hai (consent
+  // screen se set hota hai), aur order create hone ke baad backend se
+  // mila actual breakdown.
+  double? _splitWalletAmount;
+  double? _orderWalletAmount;
+  double? _orderGatewayAmount;
 
   String get paymentMode => _paymentMode;
   double? get walletShortfall => _walletShortfall;
   double? get walletBalance => _walletBalance;
+  double? get splitWalletAmount => _splitWalletAmount;
+  double? get orderWalletAmount => _orderWalletAmount;
+  double? get orderGatewayAmount => _orderGatewayAmount;
 
   // ---- Recharge history state (NEW) ----
   List<RechargeRecord> _recentRecharges = [];
@@ -299,10 +309,23 @@ class RechargeViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ← NAYA: wallet-as-payment-method ke liye
+  // ← wallet-as-payment-method ke liye
   void selectWalletPayment() {
     _paymentMode = 'WALLET';
     _selectedEmi = null;
+    notifyListeners();
+  }
+
+  // ← NAYA: wallet + gateway combination ke liye
+  void selectSplitPayment() {
+    _paymentMode = 'SPLIT';
+    _selectedEmi = null;
+    notifyListeners();
+  }
+
+  // ← NAYA: SPLIT mode mein wallet se kitna use karna hai, ye set karta hai
+  void setSplitWalletAmount(double amount) {
+    _splitWalletAmount = amount;
     notifyListeners();
   }
 
@@ -381,11 +404,17 @@ class RechargeViewModel extends ChangeNotifier {
         validityDays: _selectedPlan!.validityDays,
         paymentMode: _paymentMode == 'WALLET'
             ? 'WALLET'
-            : (_selectedEmi == null ? 'FULL' : 'EMI_${_selectedEmi!.months}'),
+            : (_paymentMode == 'SPLIT'
+                ? 'SPLIT'
+                : (_selectedEmi == null ? 'FULL' : 'EMI_${_selectedEmi!.months}')),
         idempotencyKey: '${_mobile}-${_selectedPlan!.id}-${DateTime.now().millisecondsSinceEpoch}',
+        walletAmount: _paymentMode == 'SPLIT' ? _splitWalletAmount : null,
       );
       _lastOrderId = order.orderId;
       _lastRazorpayOrderId = order.razorpayOrderId;
+      // ← NAYA: SPLIT breakdown backend se store kar lo (consent UI ke liye)
+      _orderWalletAmount = order.walletAmount;
+      _orderGatewayAmount = order.gatewayAmount;
 
       // ── WALLET branch -- synchronous, no Razorpay checkout at all ──
       // Backend already debited + attempted A1Topup delivery by the time
@@ -412,10 +441,16 @@ class RechargeViewModel extends ChangeNotifier {
         return false;
       }
 
+      // ← NAYA: SPLIT mode mein Razorpay ko sirf gateway-portion bhejna hai,
+      // poora plan price nahi. FULL/EMI mode mein pehle jaisa behaviour hi.
+      final gatewayPayableAmount = (_paymentMode == 'SPLIT' && order.gatewayAmount != null)
+          ? order.gatewayAmount!
+          : _selectedPlan!.price;
+
       final rzResult = await _razorpayService.open(
         orderId: order.razorpayOrderId,
         keyId: order.razorpayKeyId!,
-        amountPaise: (_selectedPlan!.price * 100).round(),
+        amountPaise: (gatewayPayableAmount * 100).round(),
         description: 'Recharge for $_mobile',
         contactPhone: ownMobile,
       );
@@ -444,7 +479,7 @@ class RechargeViewModel extends ChangeNotifier {
       loadRecentRecharges();
       return confirmed;
     } catch (e) {
-      // ← NAYA: wallet insufficient-balance case -- pull structured
+      // ← wallet insufficient-balance case -- pull structured
       // details out so UI can show exact shortfall + "Add Money" CTA.
       if (e is ApiException && e.code == 'WALLET_PAYMENT_REJECTED') {
         _walletBalance = (e.details?['walletBalance'] as num?)?.toDouble();

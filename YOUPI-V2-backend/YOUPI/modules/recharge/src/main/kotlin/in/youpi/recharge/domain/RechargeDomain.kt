@@ -39,11 +39,19 @@ data class CreateRechargeRequest(
     val planValidityDays: Int,
     val paymentMode: PaymentMode,
     @field:NotBlank(message = "idempotencyKey is required")
-    val idempotencyKey: String
+    val idempotencyKey: String,
+    // ← NEW: only required when paymentMode == SPLIT. The user-consented
+    // wallet-portion amount (rest goes via Razorpay). Still re-validated
+    // server-side against live wallet balance in
+    // RechargeService.createSplitPaymentOrder() -- never trust this alone.
+    val walletAmount: BigDecimal? = null
 )
 
+// ← CHANGED: SPLIT added. FULL = existing gateway-only mode (Razorpay for
+// the entire plan amount). WALLET = existing full-wallet mode. SPLIT = NEW,
+// part wallet + part Razorpay.
 enum class PaymentMode {
-    FULL, EMI_3, EMI_6, EMI_12, SMART_SAVER_WALLET, WALLET
+    FULL, EMI_3, EMI_6, EMI_12, SMART_SAVER_WALLET, WALLET, SPLIT
 }
 
 /**
@@ -111,9 +119,20 @@ data class RechargeOrderResponse(
     // this (not orderId) to open the
     // hosted payment page. Null when
     // gateway is Razorpay.
+    // For SPLIT orders: this is the GATEWAY-CHARGE amount (what Razorpay
+    // checkout should open for), NOT the full plan price. Full plan price
+    // isn't repeated here -- client already has it from the plan the user
+    // picked. See walletAmount/gatewayAmount below for the breakdown.
     val amount: BigDecimal,
     val status: String,
-    val paymentMode: String
+    val paymentMode: String,
+    // ← NEW: populated only for SPLIT orders. Lets the UI show an exact
+    // "₹149 from Wallet + ₹200 via UPI" breakdown without re-deriving it,
+    // and lets recharge_viewmodel.dart know unambiguously what amount to
+    // pass into the Razorpay checkout SDK (gatewayAmount, not `amount`
+    // being confused with the full plan price).
+    val walletAmount: BigDecimal? = null,
+    val gatewayAmount: BigDecimal? = null
 )
 
 data class RechargeStatusResponse(

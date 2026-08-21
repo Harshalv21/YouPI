@@ -394,7 +394,7 @@ class WalletService(
             amount = amountRupees,
             referenceType = "WALLET_TOPUP",
             referenceId = wallet.id,
-            description = "Wallet top-up via Razorpay ($cashfreeOrderId)",
+            description = "Money Added",
             idempotencyKey = idempotencyKey
         )
 

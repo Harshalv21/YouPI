@@ -54,6 +54,9 @@ class _EmiSelectionScreenState extends State<EmiSelectionScreen> {
       if (plan == null) return const Scaffold(body: Center(child: Text('No plan selected')));
 
       final walletSufficient = _walletBalance != null && _walletBalance! >= plan.price;
+      // ← NAYA: partial balance hai (0 se zyada, lekin plan price se kam) --
+      // tabhi SPLIT option dikhega.
+      final walletPartial = _walletBalance != null && _walletBalance! > 0 && !walletSufficient;
 
       return Scaffold(
         backgroundColor: AppColors.backgroundPrimary,
@@ -113,6 +116,9 @@ class _EmiSelectionScreenState extends State<EmiSelectionScreen> {
 
               // ← Turant dikhta hai jaise hi Wallet select ho aur balance
               // kam ho -- Pay button dabane ka wait nahi karna padta.
+              // SPLIT option available hai toh yaha "Add Money" ke bajaye
+              // uski taraf point karna zyada useful hai -- lekin Add Money
+              // ka link bhi rakha hai unke liye jo poora balance chahte hain.
               if (vm.paymentMode == 'WALLET' && !_walletLoading && !walletSufficient)
                 Container(
                   margin: const EdgeInsets.only(top: 8),
@@ -133,6 +139,63 @@ class _EmiSelectionScreenState extends State<EmiSelectionScreen> {
                       YoupiButton(
                         label: 'Add Money to Wallet',
                         onPressed: () => ctx.push('/wallet/add'),
+                      ),
+                    ],
+                  ),
+                ),
+
+              // ← NAYA: Wallet + Gateway (SPLIT) option -- sirf tab dikhta
+              // hai jab wallet mein kuch balance hai lekin poora plan cover
+              // karne ke liye kam hai.
+              if (walletPartial) ...[
+                const SizedBox(height: 10),
+                _PaymentModeOption(
+                  title: 'Wallet + Gateway',
+                  subtitle:
+                      '₹${_walletBalance!.toStringAsFixed(0)} from wallet + ₹${(plan.price - _walletBalance!).toStringAsFixed(0)} via UPI/Card',
+                  selected: vm.paymentMode == 'SPLIT',
+                  enabled: true,
+                  onTap: () {
+                    vm.selectSplitPayment();
+                    vm.setSplitWalletAmount(_walletBalance!);
+                  },
+                ),
+              ],
+
+              // ← NAYA: SPLIT consent breakdown -- explicit dikhata hai ki
+              // kitna wallet se aur kitna gateway se katega, "Confirm & Pay"
+              // dabane se pehle.
+              if (vm.paymentMode == 'SPLIT')
+                Container(
+                  margin: const EdgeInsets.only(top: 8),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.06),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: AppColors.primary.withOpacity(0.3)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Payment breakdown',
+                          style: AppTextStyles.labelSmall.copyWith(color: AppColors.textSecondary)),
+                      const SizedBox(height: 6),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text('From Wallet', style: AppTextStyles.bodySmall),
+                          Text('₹${(_walletBalance ?? 0).toStringAsFixed(0)}',
+                              style: AppTextStyles.bodySmall.copyWith(fontWeight: FontWeight.w600)),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text('Via UPI/Card', style: AppTextStyles.bodySmall),
+                          Text('₹${(plan.price - (_walletBalance ?? 0)).toStringAsFixed(0)}',
+                              style: AppTextStyles.bodySmall.copyWith(fontWeight: FontWeight.w600)),
+                        ],
                       ),
                     ],
                   ),

@@ -136,7 +136,7 @@ class _TransactionTile extends StatelessWidget {
       const SizedBox(width: 12),
       Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(tx.title, style: AppTextStyles.labelLarge),
-        Text(tx.category, style: AppTextStyles.bodySmall),
+        // Text(tx.category, style: AppTextStyles.bodySmall),
       ])),
       Text(
         '${tx.isCredit ? '+' : '-'}${CurrencyFormatter.format(tx.amount)}',

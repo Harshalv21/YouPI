@@ -486,6 +486,9 @@ class _RechargeHomeScreenState extends State<RechargeHomeScreen> {
   // ------------- end Recharge / SmartSave toggle widget (NEW) ----------------
 
   // ---------------- SmartSave recommendation card (NEW, mock data) ----------------
+  // NOTE: card intentionally does NOT show avatar/name/mobile number or the
+  // "You've recharged ₹X every month for the last Y months" pattern line --
+  // only the plan itself (Suggested Plan / Pay Monthly / savings / CTA).
   Widget _buildSmartSaveCard(BuildContext context, SmartSaveRecommendation r) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -523,29 +526,6 @@ class _RechargeHomeScreenState extends State<RechargeHomeScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    ContactAvatar(mobileNumber: r.mobileNumber, radius: 16),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(r.displayName, style: AppTextStyles.labelLarge),
-                          Text(r.mobileNumber,
-                              style: AppTextStyles.captionText.copyWith(color: AppColors.textSecondary)),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  'You\'ve recharged ₹${r.currentPlanAmount} every month for the last '
-                  '${r.currentPlanFrequencyMonths} months.',
-                  style: AppTextStyles.bodySmall,
-                ),
-                const SizedBox(height: 12),
                 Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
