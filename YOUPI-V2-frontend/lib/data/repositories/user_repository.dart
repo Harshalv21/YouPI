@@ -35,7 +35,44 @@ class BankVerifyResult {
     this.branch,
   });
 }
+class KycDetailsResult {
+  final String kycStatus;
+  final bool aadhaarVerified;
+  final bool panVerified;
+  final String? panNumberMasked;
+  final String? panHolderName;
+  final bool bankVerified;
+  final String? bankAccountLast4;
+  final String? bankIfsc;
+  final String? bankName;
+  final String? bankAccountHolderName;
 
+  KycDetailsResult({
+    required this.kycStatus,
+    required this.aadhaarVerified,
+    required this.panVerified,
+    this.panNumberMasked,
+    this.panHolderName,
+    required this.bankVerified,
+    this.bankAccountLast4,
+    this.bankIfsc,
+    this.bankName,
+    this.bankAccountHolderName,
+  });
+
+  factory KycDetailsResult.fromJson(Map<String, dynamic> j) => KycDetailsResult(
+    kycStatus: (j['kycStatus'] ?? 'PENDING').toString(),
+    aadhaarVerified: j['aadhaarVerified'] == true,
+    panVerified: j['panVerified'] == true,
+    panNumberMasked: j['panNumberMasked']?.toString(),
+    panHolderName: j['panHolderName']?.toString(),
+    bankVerified: j['bankVerified'] == true,
+    bankAccountLast4: j['bankAccountLast4']?.toString(),
+    bankIfsc: j['bankIfsc']?.toString(),
+    bankName: j['bankName']?.toString(),
+    bankAccountHolderName: j['bankAccountHolderName']?.toString(),
+  );
+}
 class UserRepository {
   final Dio _dio = ApiService.instance;
 
@@ -84,6 +121,7 @@ class UserRepository {
     } on DioException catch (e) {
       throw ApiService.toException(e);
     }
+
   }
 
   /// Verifies a PAN number via the backend (Eko fetch-pan under the hood).
@@ -135,6 +173,18 @@ class UserRepository {
     }
   }
 
+  /// Full KYC details for the Settings > PAN Details / Bank Details screens
+  /// (GPay/PhonePe-style "view what you've verified" screens). Same backend
+  /// endpoint as getKycStatus() -- just parses the richer response.
+  Future<KycDetailsResult> getKycDetails() async {
+    try {
+      final res = await _dio.get('/v1/user/kyc/status');
+      final data = ApiService.unwrap(res);
+      return KycDetailsResult.fromJson(data as Map<String, dynamic>);
+    } on DioException catch (e) {
+      throw ApiService.toException(e);
+    }
+  }
   /// Registers/refreshes this device's FCM token -- lets the backend push
   /// a notification straight to this device when a recharge confirms
   /// after the app has been closed (see PushNotificationService.kt).

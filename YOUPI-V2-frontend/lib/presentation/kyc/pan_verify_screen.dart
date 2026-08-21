@@ -81,11 +81,19 @@ class PanVerifyScreen extends StatelessWidget {
             Text('Selfie Verification', style: AppTextStyles.headlineSmall),
             const SizedBox(height: 16),
             Center(
+              // BUG FIX: onTap now actually opens the camera (see
+              // KycViewModel.captureSelfie) instead of just flipping a flag
+              // with nothing happening on screen.
               child: GestureDetector(
-                onTap: vm.captureSelfie,
+                onTap: vm.isLoading
+                    ? null
+                    : () async {
+                  await vm.captureSelfie();
+                },
                 child: Container(
                   width: 160,
                   height: 160,
+                  clipBehavior: Clip.antiAlias,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     border: Border.all(
@@ -93,14 +101,22 @@ class PanVerifyScreen extends StatelessWidget {
                       width: 2,
                     ),
                     color: AppColors.backgroundCard,
+                    image: vm.selfieCapture && vm.selfiePhoto != null
+                        ? DecorationImage(image: FileImage(vm.selfiePhoto!), fit: BoxFit.cover)
+                        : null,
                   ),
-                  child: Center(
-                    child: vm.selfieCapture
-                        ? Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                      const Icon(Icons.check_circle_rounded, color: AppColors.success, size: 48),
-                      Text('Selfie Captured', style: AppTextStyles.labelMedium.copyWith(color: AppColors.success)),
-                    ])
-                        : Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  child: (vm.selfieCapture && vm.selfiePhoto != null)
+                      ? Align(
+                    alignment: Alignment.bottomCenter,
+                    child: Container(
+                      width: double.infinity,
+                      color: Colors.black.withOpacity(0.45),
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      child: const Icon(Icons.check_circle_rounded, color: AppColors.success, size: 22),
+                    ),
+                  )
+                      : Center(
+                    child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
                       const Icon(Icons.camera_alt_rounded, color: AppColors.primary, size: 40),
                       const SizedBox(height: 8),
                       Text('Open Camera', style: AppTextStyles.labelMedium.copyWith(color: AppColors.primary)),
@@ -109,6 +125,23 @@ class PanVerifyScreen extends StatelessWidget {
                 ),
               ),
             ),
+            if (vm.selfieCapture)
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: Center(
+                  child: TextButton(
+                    onPressed: vm.retakeSelfie,
+                    child: Text('Retake photo', style: AppTextStyles.tealLink),
+                  ),
+                ),
+              ),
+            if (vm.selfieError != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: Text(vm.selfieError!,
+                    style: AppTextStyles.bodySmall.copyWith(color: AppColors.error),
+                    textAlign: TextAlign.center),
+              ),
             const SizedBox(height: 12),
             Text('Well lit room • Face visible • No hats/sunglasses',
                 style: AppTextStyles.captionText, textAlign: TextAlign.center),

@@ -114,6 +114,46 @@ class EkoClient(
         }
     }
 
+    private suspend fun doGet(path: String, query: Map<String, String> = emptyMap()): String {
+        val (secretKey, timestamp) = generateSecretKey()
+        return try {
+            webClient.get()
+                .uri { builder ->
+                    builder.path(path)
+                    query.forEach { (k, v) -> builder.queryParam(k, v) }
+                    builder.build()
+                }
+                .header("developer_key", developerKey)
+                .header("secret-key", secretKey)
+                .header("secret-key-timestamp", timestamp)
+                .retrieve()
+                .bodyToMono(String::class.java)
+                .awaitSingle()
+        } catch (e: Exception) {
+            log.error("Eko API call failed: path={}", path, e)
+            throw ExternalServiceException("Eko", "Call to $path failed: ${e.message}", e)
+        }
+    }
+
+    private suspend fun doPut(path: String, body: Map<String, Any?>): String {
+        val (secretKey, timestamp) = generateSecretKey()
+        return try {
+            webClient.put()
+                .uri(path)
+                .header("developer_key", developerKey)
+                .header("secret-key", secretKey)
+                .header("secret-key-timestamp", timestamp)
+                .header("content-type", "application/json")
+                .bodyValue(body)
+                .retrieve()
+                .bodyToMono(String::class.java)
+                .awaitSingle()
+        } catch (e: Exception) {
+            log.error("Eko API call failed: path={}", path, e)
+            throw ExternalServiceException("Eko", "Call to $path failed: ${e.message}", e)
+        }
+    }
+
     // ── PAN Verification (fetch-pan) ──
     suspend fun verifyPan(panNumber: String): EkoPanVerifyResult {
         val clientRefId = generateClientRefId()
@@ -172,6 +212,43 @@ class EkoClient(
             branch = data.path("branch").asText(null),
             utr = data.path("utr").asText(null),
             rawResponse = response
+        )
+    }
+
+    // ── Get All Services (diagnostic) ──
+    // CONFIRMED via live curl test (21 Aug 2026): GET /user/account/services
+    // with a service_code query param returns a clean 200 with
+    // {"data":{"user_services":[...]}} -- empty array means that
+    // service_code is not activated for this initiator_id. This is the
+    // exact call that proved the 403 on fetch-pan/bank-account/sync is a
+    // vendor-side activation gap, not an auth/URL/signing bug on our end.
+    suspend fun getAllServices(serviceCode: Int? = null): String {
+        val query = buildMap {
+            put("initiator_id", initiatorId)
+            if (serviceCode != null) put("service_code", serviceCode.toString())
+        }
+        return doGet(path = "/user/account/services", query = query)
+    }
+
+    // ── Activate Service for User ──
+    // Endpoint + auth pattern taken from developers.eko.in's
+    // "Activate Service for User" page (PUT .../admin/network/agent/
+    // {user_code}), which is documented under the "ekoapi" v3 product --
+    // NOT confirmed yet to be the same product our initiator_id is
+    // provisioned under (see base-url discrepancy noted above the class).
+    // service_code 4 = PAN Verification, per Eko's docs. Bank Account
+    // Verification's service_code is still unconfirmed (F4 in the
+    // pre-prod checklist) -- get it from Eko or via getAllServices()
+    // once that's verified working.
+    //
+    // userCode here is EKO's user_code for this initiator/agent, NOT our
+    // internal YouPi userId -- for a first-party integration like ours,
+    // this is typically the same as initiatorId, but confirm with Eko
+    // rather than assuming.
+    suspend fun activateService(serviceCode: Int, userCode: String = initiatorId): String {
+        return doPut(
+            path = "/admin/network/agent/$userCode",
+            body = mapOf("service_code" to serviceCode)
         )
     }
 }

@@ -7,7 +7,6 @@ import '../presentation/splash/splash_screen.dart';
 import '../presentation/onboarding/welcome_screen.dart';
 import '../presentation/onboarding/onboarding_carousel_screen.dart';
 import '../presentation/onboarding/onboarding_questions_screen.dart'; // NEW
-import '../presentation/onboarding/smartsave_eligibility_screen.dart';
 import '../presentation/auth/mobile_entry_screen.dart';
 import '../presentation/auth/otp_verify_screen.dart';
 import '../presentation/auth/user_profile_setup_screen.dart';
@@ -50,6 +49,8 @@ import '../presentation/settings/settings_screen.dart';
 import '../presentation/settings/privacy_policy_screen.dart';
 import '../presentation/settings/terms_of_service_screen.dart';
 import '../presentation/settings/help_support_screen.dart';
+import '../presentation/settings/pan_details_screen.dart';
+import '../presentation/settings/bank_details_screen.dart';
 
 class AppRouter {
   static final _rootNavigatorKey = GlobalKey<NavigatorState>();
@@ -79,26 +80,24 @@ class AppRouter {
       GoRoute(path: '/splash', builder: (c, s) => const SplashScreen()),
       GoRoute(path: '/onboarding/welcome', builder: (c, s) => const WelcomeScreen()),
       GoRoute(path: '/onboarding/carousel', builder: (c, s) => const OnboardingCarouselScreen()),
-      // NEW: 5-question financial profile, shown after the carousel
-      // (both Skip and Get Started land here now), before phone entry.
-      // No backend call happens inside this screen -- answers are cached
+      // 5-question financial profile, shown after the carousel (both
+      // Skip and Get Started land here now), before phone entry. No
+      // backend call happens inside this screen -- answers are cached
       // in memory (OnboardingAnswerCache) and submitted after OTP
       // verification succeeds, only for isNewUser == true.
+      //
+      // Director's change: the separate "SmartSave eligibility" page
+      // that used to sit between this and phone entry has been removed
+      // from the flow. The confetti celebration now plays directly on
+      // this screen's own summary page ("Your YouPi Financial Profile")
+      // instead, so Continue here goes straight to phone entry.
       GoRoute(
         path: '/onboarding/questions',
         builder: (c, s) => OnboardingQuestionsScreen(
           onComplete: (answers) {
             OnboardingAnswerCache.instance.store(answers);
-            final eligible = computeSmartSaveEligibility(answers);
-            c.go('/onboarding/eligibility', extra: eligible);
+            c.go('/auth/mobile');
           },
-        ),
-      ),
-      GoRoute(
-        path: '/onboarding/eligibility',
-        builder: (c, s) => SmartSaveEligibilityScreen(
-          isEligible: s.extra as bool? ?? false,
-          onContinue: () => c.go('/auth/mobile'),
         ),
       ),
       GoRoute(path: '/auth/mobile', builder: (c, s) => const MobileEntryScreen()),
@@ -165,6 +164,8 @@ class AppRouter {
       GoRoute(path: '/settings/edit-profile', builder: (c, s) => const EditProfileScreen()),
       GoRoute(path: '/settings/notifications', builder: (c, s) => const NotificationsSettingsScreen()),
       GoRoute(path: '/settings/change-mpin', builder: (c, s) => const ChangeMpinScreen()),
+      GoRoute(path: '/settings/pan-details', builder: (c, s) => const PanDetailsScreen()),
+      GoRoute(path: '/settings/bank-details', builder: (c, s) => const BankDetailsScreen()),
       GoRoute(path: '/settings/privacy-policy', builder: (c, s) => const PrivacyPolicyScreen()),
       GoRoute(path: '/settings/terms-of-service', builder: (c, s) => const TermsOfServiceScreen()),
       GoRoute(path: '/settings/help-support', builder: (c, s) => const HelpSupportScreen()),

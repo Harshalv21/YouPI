@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../core/services/storage_service.dart';
 import '../../data/repositories/user_repository.dart';
 
@@ -11,6 +13,8 @@ class KycViewModel extends ChangeNotifier {
   String _pan = '';
   bool _aadhaarOtpSent = false;
   bool _selfieCapture = false;
+  File? _selfiePhoto;
+  String? _selfieError;
   int _aadhaarCountdown = 24;
 
   // ── PAN (now backend-verified via Eko, not just regex) ──
@@ -33,6 +37,8 @@ class KycViewModel extends ChangeNotifier {
   String? get panHolderName => _panHolderName;
   String? get panError => _panError;
   bool get selfieCapture => _selfieCapture;
+  File? get selfiePhoto => _selfiePhoto;
+  String? get selfieError => _selfieError;
   int get aadhaarCountdown => _aadhaarCountdown;
   String get aadhaar => _aadhaar;
   String get pan => _pan;
@@ -171,8 +177,37 @@ class KycViewModel extends ChangeNotifier {
     return otp.length == 6;
   }
 
+  // BUG FIX: this used to just flip `_selfieCapture = true` with no actual
+  // camera call -- tapping the circle did nothing visible because there was
+  // never a real ImagePicker invocation behind it. Now opens the device
+  // camera for real and only marks the step done once a photo comes back.
   Future<void> captureSelfie() async {
-    _selfieCapture = true;
+    _selfieError = null;
+    try {
+      final XFile? shot = await ImagePicker().pickImage(
+        source: ImageSource.camera,
+        preferredCameraDevice: CameraDevice.front,
+        imageQuality: 85,
+      );
+      if (shot == null) {
+        // User backed out of the camera -- not an error, just no-op.
+        return;
+      }
+      _selfiePhoto = File(shot.path);
+      _selfieCapture = true;
+    } catch (e) {
+      // Most common cause here is a missing/denied CAMERA permission --
+      // surfaced to the UI via selfieError instead of failing silently.
+      _selfieError = 'Could not open camera. Check camera permission in app settings and try again.';
+    } finally {
+      notifyListeners();
+    }
+  }
+
+  void retakeSelfie() {
+    _selfiePhoto = null;
+    _selfieCapture = false;
+    _selfieError = null;
     notifyListeners();
   }
 

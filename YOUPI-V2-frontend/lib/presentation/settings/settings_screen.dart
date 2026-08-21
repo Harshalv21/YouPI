@@ -83,8 +83,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _SettingsTile('Notifications', Icons.notifications_none_rounded, () => context.push('/settings/notifications')),
           ],
           const SizedBox(height: 16),
-          Text('Support', style: AppTextStyles.labelMedium.copyWith(color: AppColors.textSecondary)),
+          Text('KYC & Documents', style: AppTextStyles.labelMedium.copyWith(color: AppColors.textSecondary)),
           const SizedBox(height: 8),
+          ...[
+            _SettingsTile('PAN Details', Icons.badge_outlined, () async {
+              if (!await GuestGuard.requireAuth(context, actionLabel: 'view your PAN details')) return;
+              if (context.mounted) context.push('/settings/pan-details');
+            }),
+            _SettingsTile('Bank Account', Icons.account_balance_outlined, () async {
+              if (!await GuestGuard.requireAuth(context, actionLabel: 'view your bank account')) return;
+              if (context.mounted) context.push('/settings/bank-details');
+            }),
+          ],
+          const SizedBox(height: 16),
+          Text('Support', style: AppTextStyles.labelMedium.copyWith(color: AppColors.textSecondary)),
+
+// Reuses the existing _SettingsTile widget and GuestGuard.requireAuth
+// pattern already used by Edit Profile / Change MPIN above it -- no new
+// imports needed, both are already imported in this file.
           ...[
             _SettingsTile('Help & Support', Icons.help_outline_rounded,
         () => context.push('/settings/help-support')),

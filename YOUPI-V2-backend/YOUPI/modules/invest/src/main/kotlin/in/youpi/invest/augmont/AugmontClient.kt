@@ -283,7 +283,14 @@ class AugmontClient(
             "modeOfPayment" to request.modeOfPayment
         )
         request.userName?.let { fields["userName"] = it }
-        request.bankAccountId?.let { fields["bankAccountId"] = it }
+        // BUG FIX: Augmont's actual /merchant/v1/sell API does NOT have a flat
+        // "bankAccountId" field -- per their Postman collection, bank details
+        // are nested under "userBank[...]". Using a saved bank means sending
+        // "userBank[userBankId]", not "bankAccountId" (which Augmont's schema
+        // doesn't recognize at all -- it was silently ignored, so sell
+        // requests with a chosen bank account were reaching Augmont with NO
+        // bank info attached).
+        request.bankAccountId?.let { fields["userBank[userBankId]"] = it }
 
         return doPost("/merchant/v1/sell", fields, clazz = AugmontSellResponse::class.java)
     }

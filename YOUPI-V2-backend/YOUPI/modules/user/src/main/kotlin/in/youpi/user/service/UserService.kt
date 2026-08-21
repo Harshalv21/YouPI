@@ -277,6 +277,15 @@ class UserService(
             ?: kycRepo.save(KycRecordEntity(userId = userId))
     }
 
+    // Masks a PAN for display -- e.g. "ABCDE1234F" -> "AB****234F".
+    // Same spirit as maskMobile()/aadhaarLast4 elsewhere in this codebase:
+    // enough to let the user recognise their own PAN, not enough to be
+    // useful if this response ever leaked somewhere it shouldn't.
+    private fun maskPan(pan: String?): String? {
+        if (pan == null || pan.length != 10) return null
+        return "${pan.take(2)}****${pan.takeLast(4)}"
+    }
+
     private fun toKycStatusResponse(userId: UUID, kyc: KycRecordEntity?): KycStatusResponse {
         return KycStatusResponse(
             userId = userId,
@@ -286,8 +295,12 @@ class UserService(
             selfieUploaded = kyc?.selfieGcsPath != null,
             faceMatchScore = kyc?.faceMatchScore?.toDouble(),
             panHolderName = kyc?.panHolderName,
+            panNumberMasked = maskPan(kyc?.panNumber),
             bankVerified = kyc?.bankVerified ?: false,
-            bankAccountHolderName = kyc?.bankAccountHolderName
+            bankAccountHolderName = kyc?.bankAccountHolderName,
+            bankAccountLast4 = kyc?.bankAccountLast4,
+            bankIfsc = kyc?.bankIfsc,
+            bankName = kyc?.bankName
         )
     }
 }

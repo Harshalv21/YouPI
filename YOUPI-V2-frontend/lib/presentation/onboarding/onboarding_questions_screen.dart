@@ -1,4 +1,19 @@
 import 'package:flutter/material.dart';
+import 'confetti_burst.dart';
+
+/// Very lightweight, client-side heuristic — NOT the real eligibility
+/// check. Actual SmartSave eligibility (benefit-signature match, NBFC
+/// sign-off thresholds, etc.) happens later against the backend once the
+/// user is registered. This only decides whether the summary page
+/// celebrates with confetti.
+///
+/// Moved here (was previously in the now-removed dedicated "SmartSave
+/// eligibility" screen) per director's instruction: that separate page
+/// is gone from the flow, but the underlying eligibility check is still
+/// useful to gate the celebration on the summary page itself.
+bool computeSmartSaveEligibility(OnboardingAnswers answers) {
+  return answers.selections.values.any((v) => v.isNotEmpty);
+}
 
 /// YouPi — Financial Profile Onboarding (5 tap-only questions)
 ///
@@ -207,6 +222,13 @@ class _OnboardingQuestionsScreenState extends State<OnboardingQuestionsScreen> {
 
   static const _otherId = '_other';
 
+  // Confetti now lives on the summary page itself (director's change:
+  // the separate "SmartSave eligibility" page is gone; the celebration
+  // fires the moment the user lands on "Your YouPi Financial Profile"
+  // instead). Fires once, only for an eligible profile.
+  bool _showConfetti = false;
+  bool _celebrationFired = false;
+
   @override
   void dispose() {
     _pageController.dispose();
@@ -233,10 +255,31 @@ class _OnboardingQuestionsScreenState extends State<OnboardingQuestionsScreen> {
 
   void _next() {
     if (_page < _questions.length) {
+      // BUG FIX: confetti used to trigger only from PageView's
+      // onPageChanged callback, which fires once the nextPage() scroll
+      // animation crosses the page boundary. That's timing-dependent --
+      // if the callback doesn't land cleanly (fast taps, a rebuild mid
+      // animation, etc.) the celebration silently never fires even
+      // though the user genuinely selected answers. Firing it here,
+      // synchronously the moment we know we're moving from the last
+      // question into the summary, removes that dependency entirely.
+      final goingToSummary = _page == _questions.length - 1;
       _pageController.nextPage(
         duration: const Duration(milliseconds: 280),
         curve: Curves.easeOutCubic,
       );
+      if (goingToSummary) {
+        _maybeFireCelebration();
+      }
+    }
+  }
+
+  void _maybeFireCelebration() {
+    if (_celebrationFired) return;
+    final eligible = _selected.values.any((v) => v.isNotEmpty);
+    if (eligible) {
+      _celebrationFired = true;
+      setState(() => _showConfetti = true);
     }
   }
 
@@ -259,53 +302,76 @@ class _OnboardingQuestionsScreenState extends State<OnboardingQuestionsScreen> {
     widget.onComplete(OnboardingAnswers(selections, Map.of(_otherText)));
   }
 
+  void _onPageChanged(int i) {
+    setState(() => _page = i);
+    // Kept as a backup path (belt-and-suspenders): if this DOES fire
+    // correctly, _maybeFireCelebration()'s own _celebrationFired guard
+    // makes it a harmless no-op when _next() already handled it.
+    if (i == _questions.length) {
+      _maybeFireCelebration();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _bg,
-      body: SafeArea(
-        child: Column(
-          children: [
-            _Header(
-              page: _page,
-              total: _questions.length,
-              isSummary: _isSummary,
-              onBack: _back,
-              onSkip: _isSummary ? null : _next,
+      body: Stack(
+        children: [
+          SafeArea(
+            child: Column(
+              children: [
+                _Header(
+                  page: _page,
+                  total: _questions.length,
+                  isSummary: _isSummary,
+                  onBack: _back,
+                  onSkip: _isSummary ? null : _next,
+                ),
+                Expanded(
+                  child: PageView.builder(
+                    controller: _pageController,
+                    physics: const NeverScrollableScrollPhysics(),
+                    onPageChanged: _onPageChanged,
+                    itemCount: _questions.length + 1,
+                    itemBuilder: (context, i) {
+                      if (i == _questions.length) {
+                        return _SummaryPage(
+                          selected: _selected,
+                          otherText: _otherText,
+                          onContinue: _finish,
+                        );
+                      }
+                      final q = _questions[i];
+                      return _QuestionPage(
+                        question: q,
+                        selected: _selected[q.id] ?? const {},
+                        otherController: q.allowOther
+                            ? _otherControllers.putIfAbsent(
+                            q.id, () => TextEditingController(text: _otherText[q.id]))
+                            : null,
+                        onToggle: (id) => _toggle(q, id),
+                        onOtherChanged: (v) => _otherText[q.id] = v.trim(),
+                        onContinue: _next,
+                        canContinue: (_selected[q.id]?.isNotEmpty ?? false),
+                        otherId: _otherId,
+                      );
+                    },
+                  ),
+                ),
+              ],
             ),
-            Expanded(
-              child: PageView.builder(
-                controller: _pageController,
-                physics: const NeverScrollableScrollPhysics(),
-                onPageChanged: (i) => setState(() => _page = i),
-                itemCount: _questions.length + 1,
-                itemBuilder: (context, i) {
-                  if (i == _questions.length) {
-                    return _SummaryPage(
-                      selected: _selected,
-                      otherText: _otherText,
-                      onContinue: _finish,
-                    );
-                  }
-                  final q = _questions[i];
-                  return _QuestionPage(
-                    question: q,
-                    selected: _selected[q.id] ?? const {},
-                    otherController: q.allowOther
-                        ? _otherControllers.putIfAbsent(
-                        q.id, () => TextEditingController(text: _otherText[q.id]))
-                        : null,
-                    onToggle: (id) => _toggle(q, id),
-                    onOtherChanged: (v) => _otherText[q.id] = v.trim(),
-                    onContinue: _next,
-                    canContinue: (_selected[q.id]?.isNotEmpty ?? false),
-                    otherId: _otherId,
-                  );
+          ),
+          // Full-screen overlay, bottom-left/bottom-right cannon burst.
+          if (_showConfetti)
+            Positioned.fill(
+              child: ConfettiBurst(
+                onFinished: () {
+                  if (mounted) setState(() => _showConfetti = false);
                 },
               ),
             ),
-          ],
-        ),
+        ],
       ),
     );
   }

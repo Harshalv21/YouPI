@@ -95,8 +95,12 @@ data class KycStatusResponse(
     val selfieUploaded: Boolean,
     val faceMatchScore: Double?,
     val panHolderName: String?,
+    val panNumberMasked: String?,        // NEW -- e.g. "AB****780Q", never the raw PAN
     val bankVerified: Boolean,
-    val bankAccountHolderName: String?
+    val bankAccountHolderName: String?,
+    val bankAccountLast4: String?,       // NEW
+    val bankIfsc: String?,               // NEW
+    val bankName: String?
 )
 
 data class AadhaarOtpResponse(

@@ -206,9 +206,20 @@ class _HomeScreenState extends State<HomeScreen> {
                         nbfcName: 'DreamFin NBFC',
                         isActive: true,
                       ),
+
                       const SizedBox(height: 24),
                       // Quick actions
                       Text('Quick Actions', style: AppTextStyles.headlineSmall),
+                      // Quick actions
+                      const SizedBox(height: 12),
+
+// ═══════════════════════════════════════════════════════════
+// ASSUMPTION TO CONFIRM: this uses vm.user.isKycVerified (matches
+// UserProfileResponse.isKycVerified on the backend, and UserModel already
+// has an isKycVerified field per user_repository.dart's getProfile()
+// parsing). If HomeViewModel's user model field is named differently,
+// the condition needs a one-word adjustment.
+// ═══════════════════════════════════════════════════════════
                       const SizedBox(height: 12),
                       SizedBox(
                         height: 90,

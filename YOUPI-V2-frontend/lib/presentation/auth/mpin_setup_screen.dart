@@ -118,7 +118,16 @@ class _MpinSetupScreenState extends State<MpinSetupScreen> {
         // -- the natural moment, same as Google Pay/PhonePe do it.
         await _maybeEnableBiometric();
         if (mounted) {
-          context.go('/dashboard/home');
+          // This is the branch the class doc-comment on `isReset` already
+          // described but never actually implemented: a fresh signup
+          // (isReset == false) goes to KYC next; a returning user
+          // recovering their MPIN (isReset == true) has already been
+          // through onboarding, so they go straight to the dashboard.
+          if (widget.isReset) {
+            context.go('/dashboard/home');
+          } else {
+            context.go('/kyc/intro');
+          }
         }
       }
     } catch (e) {
