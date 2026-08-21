@@ -34,6 +34,12 @@ data class RechargeOrderEntity(
     val goldAutoInvest: Boolean = false,
     val goldTxnId: UUID? = null,
     val idempotencyKey: String,
+    // ← NEW: only populated for paymentMode = "SPLIT". walletAmount is the
+    // portion debited from the user's Wallet, gatewayAmount is the portion
+    // charged via Razorpay. walletAmount + gatewayAmount == planAmount for
+    // SPLIT orders; both null for every other payment mode.
+    val walletAmount: BigDecimal? = null,
+    val gatewayAmount: BigDecimal? = null,
     val createdAt: Instant = Instant.now(),
     val updatedAt: Instant = Instant.now()
 )
@@ -45,20 +51,31 @@ interface RechargeOrderRepository : CoroutineCrudRepository<RechargeOrderEntity,
     // razorpay_order_id, not our internal recharge order UUID.
     suspend fun findByRazorpayOrderId(razorpayOrderId: String): RechargeOrderEntity?
 
+    // ← NEW: needed by RechargeService.reconcileStuckSplitOrders() to find
+    // SPLIT orders sitting in INITIATED (wallet debited, gateway checkout
+    // not yet completed) so abandoned ones can have their wallet hold
+    // auto-released. Kept generic (paymentMode + status, not SPLIT-specific)
+    // in case it's useful for other reconciliation needs later.
+    @Query("SELECT * FROM recharge_orders WHERE payment_mode = :paymentMode AND status = :status")
+    suspend fun findByPaymentModeAndStatus(paymentMode: String, status: String): List<RechargeOrderEntity>
+
     // Custom insert with explicit ::jsonb cast — Spring Data's auto-generated
     // save() can't reliably bind a plain String into a JSONB column without
     // a registered converter, and a global converter caused type mismatches
     // on unrelated VARCHAR columns (see MPIN verify bug). This scopes the
     // JSONB handling to just this one column.
+    //
+    // ← CHANGED: wallet_amount, gateway_amount columns added to the INSERT
+    // (nullable -- NULL for every payment mode except SPLIT).
     @Query("""
         INSERT INTO recharge_orders 
         (user_id, mobile_number, operator, circle, plan_id, plan_amount, plan_details, 
          payment_mode, emi_months, emi_amount, status, razorpay_order_id, gold_auto_invest, 
-         idempotency_key, plan_validity_days)
+         idempotency_key, plan_validity_days, wallet_amount, gateway_amount)
         VALUES 
         (:userId, :mobileNumber, :operator, :circle, :planId, :planAmount, CAST(:planDetails AS jsonb),
          :paymentMode, :emiMonths, :emiAmount, :status, :razorpayOrderId, :goldAutoInvest, 
-         :idempotencyKey, :planValidityDays)
+         :idempotencyKey, :planValidityDays, :walletAmount, :gatewayAmount)
         RETURNING *
     """)
     suspend fun insertOrder(
@@ -76,7 +93,11 @@ interface RechargeOrderRepository : CoroutineCrudRepository<RechargeOrderEntity,
         razorpayOrderId: String?,
         goldAutoInvest: Boolean,
         idempotencyKey: String,
-        planValidityDays: Int?
+        planValidityDays: Int?,
+        // ← NEW params, default null so every existing call site (WALLET,
+        // gateway-only, EMI orders) keeps compiling unchanged.
+        walletAmount: BigDecimal? = null,
+        gatewayAmount: BigDecimal? = null
     ): RechargeOrderEntity
 
     // Separate, tiny update -- only fires on confirmed RECHARGE_SUCCESS, so

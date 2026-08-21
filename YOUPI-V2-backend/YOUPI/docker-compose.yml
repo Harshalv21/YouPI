@@ -78,7 +78,7 @@ services:
       # ── TEMP: local testing only, mPlan proxy VM (10.160.0.2:3128) not
       # reachable from local machine, and this bypasses it with fake plans.
       # MUST be removed/false before real deploy. ──
-
+      
 
       # ── Firebase (CORRECT project id) ──
       FIREBASE_PROJECT_ID: "you-pi-55f85"

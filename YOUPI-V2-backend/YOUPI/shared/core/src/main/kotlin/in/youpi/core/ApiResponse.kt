@@ -4,11 +4,6 @@ import com.fasterxml.jackson.annotation.JsonInclude
 import java.time.Instant
 import java.util.UUID
 
-/**
- * Canonical API response envelope for all endpoints.
- * Every response from YouPI follows this structure:
- *   { success: true/false, data: T, error: ErrorInfo?, requestId: UUID, timestamp: Instant }
- */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 data class ApiResponse<T>(
     val success: Boolean,
@@ -37,9 +32,10 @@ data class ApiResponse<T>(
             requestId = requestId ?: UUID.randomUUID().toString()
         )
 
+        // ← CHANGED: ex.details ab ErrorInfo mein forward ho raha hai
         fun fromException(ex: BaseException, requestId: String? = null): ApiResponse<Nothing> = ApiResponse(
             success = false,
-            error = ErrorInfo(code = ex.code, message = ex.message),
+            error = ErrorInfo(code = ex.code, message = ex.message, details = ex.details),
             requestId = requestId ?: UUID.randomUUID().toString()
         )
     }

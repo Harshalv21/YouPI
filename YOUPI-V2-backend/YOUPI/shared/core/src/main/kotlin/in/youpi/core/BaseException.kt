@@ -13,14 +13,18 @@ import java.time.Instant
 abstract class BaseException(
     open val code: String,
     override val message: String,
-    override val cause: Throwable? = null
+    override val cause: Throwable? = null,
+    // ← NAYA: optional structured data (e.g. wallet balance, shortfall) —
+    // default null rakha hai taaki existing sab subclasses (jo sirf
+    // code+message pass karte hain) bina kisi change ke compile karte rahein.
+    open val details: Map<String, Any>? = null
 ) : RuntimeException(message, cause) {
 
     /** HTTP status code to return — override in subclasses */
     open val httpStatus: Int = 500
 }
 
-// ── System-level exceptions (shared across all modules) ──
+// ── System-level exceptions (shared across all modules) ── UNCHANGED, kuch mat badalna neeche
 
 class NotFoundException(
     val resource: String,

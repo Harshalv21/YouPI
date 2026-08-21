@@ -28,6 +28,11 @@ enum PlanTabType { recharge, smartSave }
 // accent already used on the standalone Plans screen.
 const Color _smartSavePurple = Color(0xFF9C7CFF);
 
+// TEMPORARY -- SmartSave eligibility gate UI disabled for now (feature
+// and code kept intact, just not rendered). Set back to true when ready
+// to show this section again.
+const bool _smartSaveGateVisible = false;
+
 class RechargeHomeScreen extends StatefulWidget {
   const RechargeHomeScreen({super.key});
   @override
@@ -385,12 +390,16 @@ class _RechargeHomeScreenState extends State<RechargeHomeScreen> {
                     ),
                   ),
                 )).toList()
-              else if (!mockSmartSaveEligible)
+              else if (!mockSmartSaveEligible && _smartSaveGateVisible)
                 // ---------------- SmartSave eligibility gate (NEW) ----------------
                 SmartSaveEligibilityGate(
                   onRechargeNow: () => setState(() => _selectedPlanTab = PlanTabType.recharge),
                 )
                 // ------------- end SmartSave eligibility gate (NEW) ----------------
+              else if (!mockSmartSaveEligible)
+                // ← TEMPORARY: gate disabled, section hidden until re-enabled
+                // (set _smartSaveGateVisible = true above to restore)
+                const SizedBox.shrink()
               else
                 // ---------------- SmartSave mock cards (NEW) ----------------
                 ...mockSmartSaveRecommendations.map(
@@ -477,6 +486,9 @@ class _RechargeHomeScreenState extends State<RechargeHomeScreen> {
   // ------------- end Recharge / SmartSave toggle widget (NEW) ----------------
 
   // ---------------- SmartSave recommendation card (NEW, mock data) ----------------
+  // NOTE: card intentionally does NOT show avatar/name/mobile number or the
+  // "You've recharged ₹X every month for the last Y months" pattern line --
+  // only the plan itself (Suggested Plan / Pay Monthly / savings / CTA).
   Widget _buildSmartSaveCard(BuildContext context, SmartSaveRecommendation r) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -514,29 +526,6 @@ class _RechargeHomeScreenState extends State<RechargeHomeScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    ContactAvatar(mobileNumber: r.mobileNumber, radius: 16),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(r.displayName, style: AppTextStyles.labelLarge),
-                          Text(r.mobileNumber,
-                              style: AppTextStyles.captionText.copyWith(color: AppColors.textSecondary)),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  'You\'ve recharged ₹${r.currentPlanAmount} every month for the last '
-                  '${r.currentPlanFrequencyMonths} months.',
-                  style: AppTextStyles.bodySmall,
-                ),
-                const SizedBox(height: 12),
                 Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(

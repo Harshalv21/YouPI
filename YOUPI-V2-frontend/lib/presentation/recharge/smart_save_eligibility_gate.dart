@@ -8,7 +8,7 @@ import '../../core/constants/app_text_styles.dart';
 // not ready -- see mockSmartSaveEligible below. Swap that for a real
 // vm.isSmartSaveEligible (from RechargeViewModel) once the backend
 // endpoint exists.
-const bool mockSmartSaveEligible = false;
+const bool mockSmartSaveEligible = true;
 
 const Color _smartSaveGatePurple = Color(0xFF9C7CFF);
 
