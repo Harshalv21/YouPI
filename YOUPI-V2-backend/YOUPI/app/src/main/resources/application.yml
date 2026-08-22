@@ -23,6 +23,7 @@ spring:
     password: ${DB_PASSWORD:}
     locations: classpath:db/migrations
     baseline-on-migrate: true
+    out-of-order: true
 
   # ── Redis ──
   data:
