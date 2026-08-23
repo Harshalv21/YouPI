@@ -7,6 +7,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
+import 'package:go_router/go_router.dart';
 import '../../core/constants/app_colors.dart';
 import '../../data/repositories/recharge_repository.dart';
 import '../../core/constants/app_text_styles.dart';
@@ -171,7 +172,12 @@ String formatShortDate(DateTime dt) {
     'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
   ];
-  return '${dt.day} ${months[dt.month - 1]}';
+  // ← .toLocal() -- backend timestamps come in UTC; without converting,
+  // an IST evening recharge can already fall on the "next day" in UTC,
+  // showing up under the wrong date group (e.g. "Today" for something
+  // done yesterday evening).
+  final local = dt.toLocal();
+  return '${local.day} ${months[local.month - 1]}';
 }
 
 String formatFullDateTime(DateTime dt) {
@@ -179,10 +185,34 @@ String formatFullDateTime(DateTime dt) {
     'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
   ];
-  final hour = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
-  final ampm = dt.hour >= 12 ? 'PM' : 'AM';
-  final minute = dt.minute.toString().padLeft(2, '0');
-  return '${dt.day} ${months[dt.month - 1]} ${dt.year}, $hour:$minute $ampm';
+  final local = dt.toLocal();
+  final hour = local.hour % 12 == 0 ? 12 : local.hour % 12;
+  final ampm = local.hour >= 12 ? 'PM' : 'AM';
+  final minute = local.minute.toString().padLeft(2, '0');
+  return '${local.day} ${months[local.month - 1]} ${local.year}, $hour:$minute $ampm';
+}
+
+// ← NAYA: date-group label helper -- "Today" / "Yesterday" / "21 Aug 2026",
+// same pattern already used on the Wallet Transaction History screen, for
+// consistency across the app.
+String _dateGroupLabel(DateTime dt) {
+  final local = dt.toLocal();
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  final yesterday = today.subtract(const Duration(days: 1));
+  final txDate = DateTime(local.year, local.month, local.day);
+  if (txDate == today) return 'Today';
+  if (txDate == yesterday) return 'Yesterday';
+  return '${formatShortDate(local)} ${local.year}';
+}
+
+Map<String, List<RechargeRecord>> _groupByDate(List<RechargeRecord> records) {
+  final map = <String, List<RechargeRecord>>{};
+  for (final r in records) {
+    final label = _dateGroupLabel(r.createdAt);
+    map.putIfAbsent(label, () => []).add(r);
+  }
+  return map;
 }
 
 // ---------------------------------------------------------------------------
@@ -239,6 +269,8 @@ class _RechargeHistoryScreenState extends State<RechargeHistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final grouped = _groupByDate(_records);
+
     return Scaffold(
       backgroundColor: AppColors.backgroundPrimary,
       appBar: AppBar(
@@ -256,17 +288,26 @@ class _RechargeHistoryScreenState extends State<RechargeHistoryScreen> {
       ),
       body: _records.isEmpty
           ? _buildEmptyState()
-          : ListView.separated(
+          // ← Date-grouped ("Today" / "Yesterday" / date) sections --
+          // matches the pattern already used on the Wallet Transaction
+          // History screen.
+          : ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-        itemCount: _records.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 10),
-        itemBuilder: (context, index) {
-          final r = _records[index];
-          return _RechargeHistoryTile(
-            record: r,
-            onTap: () => _showDetail(context, r),
-          );
-        },
+        children: grouped.entries.expand((entry) => [
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8, top: 4),
+            child: Text(entry.key,
+                style: AppTextStyles.labelSmall.copyWith(
+                    color: AppColors.textSecondary, fontWeight: FontWeight.w600)),
+          ),
+          ...entry.value.map((r) => Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: _RechargeHistoryTile(
+              record: r,
+              onTap: () => _showDetail(context, r),
+            ),
+          )),
+        ]).toList(),
       ),
     );
   }
@@ -333,11 +374,9 @@ class _RechargeHistoryTile extends StatelessWidget {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    formatShortDate(record.createdAt),
-                    style: AppTextStyles.bodySmall.copyWith(color: AppColors.textSecondary),
-                  ),
+                  // ← Date line hataya row se -- ab date group header
+                  // (Today/Yesterday) ke andar hai, isliye per-row repeat
+                  // karna redundant tha.
                 ],
               ),
             ),
@@ -410,16 +449,21 @@ class RechargeDetailSheet extends StatelessWidget {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.1),
+                  // ← Amber/gold tint (chosen over app-primary teal) --
+                  // literally represents the "gold" in gold coins, rather
+                  // than blending into the same teal used for every other
+                  // success/reward surface.
+                  color: const Color(0xFFBA7517).withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Row(
                   children: [
-                    const Text('🪙', style: TextStyle(fontSize: 16)),
+                    const Icon(Icons.monetization_on_rounded, size: 18, color: Color(0xFFBA7517)),
                     const SizedBox(width: 8),
                     Text(
                       '+${record.goldCoinsEarned!.toStringAsFixed(0)} gold coins earned',
-                      style: AppTextStyles.labelSmall.copyWith(color: AppColors.primary, fontWeight: FontWeight.w600),
+                      style: AppTextStyles.labelSmall.copyWith(
+                          color: const Color(0xFFBA7517), fontWeight: FontWeight.w600),
                     ),
                   ],
                 ),
@@ -463,14 +507,17 @@ class RechargeDetailSheet extends StatelessWidget {
           Center(
             child: TextButton(
               onPressed: () {
-                // TODO: wire to support/help flow
+                // ← Capture the router BEFORE popping -- the bottom sheet's
+                // own context unmounts right after pop(), so grabbing
+                // GoRouter.of(context) first and using that captured
+                // reference afterwards avoids navigating on a dead context.
+                final router = GoRouter.of(context);
+                Navigator.pop(context);
+                router.push('/settings/help-support');
               },
               child: Text(
                 'Get Help',
-                style: AppTextStyles.bodySmall.copyWith(
-                  color: AppColors.textSecondary,
-                  decoration: TextDecoration.underline,
-                ),
+                style: AppTextStyles.bodySmall.copyWith(color: AppColors.textSecondary),
               ),
             ),
           ),

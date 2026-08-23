@@ -431,23 +431,55 @@ class RechargeService(
             is WalletDebitOutcome.Success -> { /* proceed */ }
         }
 
-        val order = rechargeRepo.insertOrder(
-            userId = userId,
-            mobileNumber = req.mobileNumber,
-            operator = req.operator,
-            circle = req.circle,
-            planId = req.planId,
-            planAmount = planAmount,
-            planDetails = "{}",
-            paymentMode = req.paymentMode.name,
-            emiMonths = null,
-            emiAmount = null,
-            status = "INITIATED",
-            razorpayOrderId = null,
-            goldAutoInvest = false,
-            idempotencyKey = req.idempotencyKey,
-            planValidityDays = planValidityDays
-        )
+        // Wallet debit above already succeeded. If this insert fails for any
+        // reason (constraint violation, DB error, etc.), the wallet must be
+        // reversed here -- otherwise the user is left debited with no
+        // recharge_orders row at all, which reconcileStuckSplitOrders() and
+        // every other recovery job can never find (they all query
+        // recharge_orders). See Aug 21 incident: chk_payment_mode constraint
+        // rejected payment_mode='WALLET'/'SPLIT', wallet stayed debited with
+        // no order row, required manual DB reversal.
+        val order = try {
+            rechargeRepo.insertOrder(
+                userId = userId,
+                mobileNumber = req.mobileNumber,
+                operator = req.operator,
+                circle = req.circle,
+                planId = req.planId,
+                planAmount = planAmount,
+                planDetails = "{}",
+                paymentMode = req.paymentMode.name,
+                emiMonths = null,
+                emiAmount = null,
+                status = "INITIATED",
+                razorpayOrderId = null,
+                goldAutoInvest = false,
+                idempotencyKey = req.idempotencyKey,
+                planValidityDays = planValidityDays
+            )
+        } catch (e: Exception) {
+            log.error(
+                "WALLET-paid recharge: insertOrder FAILED after wallet debit -- reversing. userId={}, amount=₹{}, error={}",
+                userId, planAmount, e.message, e
+            )
+            val reversed = walletCreditPort.reverseDebit(
+                userId = userId,
+                walletType = "NBFC",
+                amountPaise = planAmount.multiply(BigDecimal(100)).toLong(),
+                referenceType = "RECHARGE",
+                referenceId = null,
+                description = "Reversal: recharge order could not be created (wallet-paid, ${req.mobileNumber})",
+                idempotencyKey = "recharge_wallet_insert_failure_reversal_${req.idempotencyKey}"
+            )
+            if (!reversed) {
+                log.error(
+                    "CRITICAL: WALLET-paid recharge wallet reversal FAILED after insertOrder failure -- " +
+                            "userId={}, amount=₹{}, idempotencyKey={} -- needs manual wallet credit.",
+                    userId, planAmount, req.idempotencyKey
+                )
+            }
+            return Result.failure(RechargeApiException(e.message ?: "Could not create recharge order"))
+        }
 
         log.info("Recharge order created (WALLET paid): orderId={}, amount=₹{}, userId={}", order.id, planAmount, userId)
 
@@ -610,25 +642,60 @@ class RechargeService(
             return Result.failure(RechargeApiException(e.message ?: "Razorpay order creation failed"))
         }
 
-        val order = rechargeRepo.insertOrder(
-            userId = userId,
-            mobileNumber = req.mobileNumber,
-            operator = req.operator,
-            circle = req.circle,
-            planId = req.planId,
-            planAmount = planAmount,
-            planDetails = "{}",
-            paymentMode = "SPLIT",
-            emiMonths = null,
-            emiAmount = null,
-            status = "INITIATED",
-            razorpayOrderId = razorpayOrderId,
-            goldAutoInvest = false,
-            idempotencyKey = req.idempotencyKey,
-            planValidityDays = planValidityDays,
-            walletAmount = walletAmount,      // NEW param -- see repository/migration notes
-            gatewayAmount = gatewayAmount      // NEW param -- see repository/migration notes
-        )
+        // Wallet debit AND Razorpay order are both live at this point. If
+        // this insert fails (constraint violation, DB error, etc.), the
+        // wallet must be reversed here -- otherwise the user is left debited
+        // with no recharge_orders row at all, which reconcileStuckSplitOrders()
+        // can never find (it only scans existing recharge_orders rows). The
+        // Razorpay order itself is left to expire unused -- Razorpay has no
+        // cancel-order API, and it's harmless since nothing references it.
+        // See Aug 21 incident: chk_payment_mode constraint rejected
+        // payment_mode='SPLIT', wallet stayed debited with no order row,
+        // required manual DB reversal.
+        val order = try {
+            rechargeRepo.insertOrder(
+                userId = userId,
+                mobileNumber = req.mobileNumber,
+                operator = req.operator,
+                circle = req.circle,
+                planId = req.planId,
+                planAmount = planAmount,
+                planDetails = "{}",
+                paymentMode = "SPLIT",
+                emiMonths = null,
+                emiAmount = null,
+                status = "INITIATED",
+                razorpayOrderId = razorpayOrderId,
+                goldAutoInvest = false,
+                idempotencyKey = req.idempotencyKey,
+                planValidityDays = planValidityDays,
+                walletAmount = walletAmount,      // NEW param -- see repository/migration notes
+                gatewayAmount = gatewayAmount      // NEW param -- see repository/migration notes
+            )
+        } catch (e: Exception) {
+            log.error(
+                "SPLIT recharge: insertOrder FAILED after wallet debit + Razorpay order creation -- reversing wallet. " +
+                        "userId={}, walletAmount=₹{}, razorpayOrderId={}, error={}",
+                userId, walletAmount, razorpayOrderId, e.message, e
+            )
+            val reversed = walletCreditPort.reverseDebit(
+                userId = userId,
+                walletType = "NBFC",
+                amountPaise = walletAmount.multiply(BigDecimal(100)).toLong(),
+                referenceType = "RECHARGE",
+                referenceId = null,
+                description = "Reversal: split recharge order could not be created (${req.mobileNumber})",
+                idempotencyKey = "recharge_split_insert_failure_reversal_${req.idempotencyKey}"
+            )
+            if (!reversed) {
+                log.error(
+                    "CRITICAL: SPLIT recharge wallet reversal FAILED after insertOrder failure -- " +
+                            "userId={}, amount=₹{}, idempotencyKey={} -- needs manual wallet credit.",
+                    userId, walletAmount, req.idempotencyKey
+                )
+            }
+            return Result.failure(RechargeApiException(e.message ?: "Could not create recharge order"))
+        }
 
         log.info(
             "SPLIT recharge order created: orderId={}, planAmount={}, walletPortion={}, gatewayPortion={}, razorpayOrderId={}",
@@ -970,7 +1037,8 @@ class RechargeService(
                 operator = order.operator,
                 planAmount = order.planAmount,
                 a1TopupStatus = order.a1topupStatus,
-                goldTxnId = order.goldTxnId
+                goldTxnId = order.goldTxnId,
+                createdAt = order.createdAt
             )
         )
     }
@@ -993,7 +1061,8 @@ class RechargeService(
                 operator = it.operator,
                 planAmount = it.planAmount,
                 a1TopupStatus = it.a1topupStatus,
-                goldTxnId = it.goldTxnId
+                goldTxnId = it.goldTxnId,
+                createdAt = it.createdAt 
             )
         }
     }

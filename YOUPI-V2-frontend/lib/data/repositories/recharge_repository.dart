@@ -176,12 +176,16 @@ class RechargeRepository {
   //
   // IMPORTANT LIMITATION: RechargeStatusResult (as returned today) doesn't
   // carry circle, validity text, paymentMethod, the Razorpay txn id,
-  // createdAt, failureReason, or goldCoinsEarned. Until the backend's
+  // failureReason, or goldCoinsEarned. Until the backend's
   // /v1/recharge/history response is enriched with those fields, this
   // mapper fills them with safe placeholders so the UI still renders
   // without crashing. Ping backend (Laksh/Bhupinder) to add these fields
   // to RechargeHistoryResponse when convenient -- then just delete the
   // placeholder lines below and map the real fields.
+  //
+  // createdAt is FIXED as of this pass -- backend's RechargeStatusResponse
+  // now includes it (see RechargeService.kt getOrderHistory/getOrderStatus),
+  // so it's mapped from the real value below instead of DateTime.now().
 
   /// Last [limit] recharges for the logged-in user across ALL numbers
   /// they've ever recharged (not just the number currently typed into the
@@ -229,7 +233,12 @@ class RechargeRepository {
       status: _mapStatus(r),
       failureReason: r.isFailed ? 'Recharge failed. Contact support if amount was deducted.' : null,
       goldCoinsEarned: null, // TODO: backend to add goldCoinsEarned to RechargeHistoryResponse
-      createdAt: DateTime.now(), // TODO: backend to add createdAt/timestamp to RechargeHistoryResponse
+      // ← FIXED: backend now sends createdAt (RechargeStatusResult already
+      // converts it to local time in fromJson). Falls back to DateTime.now()
+      // only in the unlikely case the backend field is still missing/null,
+      // so a stale deployed backend doesn't crash the app -- just shows
+      // today's date for that one entry until redeployed.
+      createdAt: r.createdAt ?? DateTime.now(),
     );
   }
 
@@ -284,6 +293,7 @@ class RechargeStatusResult {
   final double? planAmount;
   final String? a1TopupStatus;
   final String? goldTxnId;
+  final DateTime? createdAt; // ← NAYA -- backend ab bhejta hai
 
   RechargeStatusResult({
     required this.orderId,
@@ -293,6 +303,7 @@ class RechargeStatusResult {
     this.planAmount,
     this.a1TopupStatus,
     this.goldTxnId,
+    this.createdAt,
   });
 
   // Matches the backend's actual status enum (chk_recharge_status:
@@ -308,8 +319,14 @@ class RechargeStatusResult {
     mobileNumber: json['mobileNumber'] as String?,
     operator: json['operator'] as String?,
     planAmount: (json['planAmount'] as num?)?.toDouble(),
-    a1TopupStatus: json['a1TopupStatus'] as String?,
+    a1TopupStatus: json['a1topupStatus'] as String?,
     goldTxnId: json['goldTxnId'] as String?,
+    // ← .toLocal() yahi hai -- backend Instant (UTC) bhejta hai, isliye
+    // yahin convert karna zaroori hai taaki date-grouping (Today/
+    // Yesterday) IST calendar-day ke hisaab se sahi bane.
+    createdAt: json['createdAt'] != null
+        ? DateTime.tryParse(json['createdAt'] as String)?.toLocal()
+        : null,
   );
 }
 

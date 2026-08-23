@@ -23,6 +23,17 @@ class TransactionModel {
   bool get isDebit => type == 'debit';
   bool get isInvestment => type == 'investment';
 
+  // ← NAYA: backend split-recharge ka wallet/gateway breakdown alag fields
+  // mein nahi bhejta -- sab kuch ek free-text `description` (jo yaha
+  // `title` ban jaata hai) ke andar hota hai, jaise:
+  // "Split recharge 9867123027 (wallet portion ₹12.0 of ₹33)".
+  // Isko parse karke structured details nikalte hai -- list-row ko
+  // simplify karne aur detail bottom-sheet mein breakdown dikhane, dono
+  // ke liye use hota hai. Backend format badla to sirf yaha regex update
+  // karna padega.
+  SplitRechargeDetails? get splitRechargeDetails =>
+      SplitRechargeDetails.tryParse(title);
+
   /// Maps a backend ledger_entries row to this UI model.
   ///
   /// Backend fields:
@@ -109,4 +120,39 @@ double _toDouble(dynamic v) {
 DateTime _parseDate(dynamic v) {
   if (v == null) return DateTime.now();
   return DateTime.tryParse(v.toString())?.toLocal() ?? DateTime.now();
+}
+
+/// Parsed wallet/gateway breakdown for a split-recharge transaction.
+/// Only non-null when [TransactionModel.title] matches the backend's
+/// "Split recharge <mobile> (wallet portion ₹X of ₹Y)" description format.
+class SplitRechargeDetails {
+  final String mobileNumber;
+  final double walletPortion;
+  final double totalAmount;
+
+  const SplitRechargeDetails({
+    required this.mobileNumber,
+    required this.walletPortion,
+    required this.totalAmount,
+  });
+
+  double get gatewayPortion => totalAmount - walletPortion;
+
+  static final RegExp _pattern = RegExp(
+    r'split recharge\s+(\d+)\s*\(wallet portion\s*₹?([\d.]+)\s*of\s*₹?([\d.]+)\)',
+    caseSensitive: false,
+  );
+
+  static SplitRechargeDetails? tryParse(String text) {
+    final match = _pattern.firstMatch(text);
+    if (match == null) return null;
+    final wallet = double.tryParse(match.group(2) ?? '');
+    final total = double.tryParse(match.group(3) ?? '');
+    if (wallet == null || total == null) return null;
+    return SplitRechargeDetails(
+      mobileNumber: match.group(1) ?? '',
+      walletPortion: wallet,
+      totalAmount: total,
+    );
+  }
 }

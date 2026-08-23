@@ -372,6 +372,41 @@ class RechargeViewModel extends ChangeNotifier {
   bool _paymentInProgress = false;
   bool get paymentInProgress => _paymentInProgress;
 
+  // ← Backend ke jitne bhi "success" ke liye status string ho sakte hai
+  // unhe ek jagah normalize kiya hai. WALLET branch pehle SIRF
+  // 'RECHARGE_SUCCESS' se match karta tha -- agar backend kabhi
+  // 'SUCCESS' ya 'COMPLETED' ya lowercase bheje, to _rechargeSuccess
+  // silently false ban jaata tha aur UI pe na success screen aata tha
+  // na error -- bilkul kuch nahi hota tha. Ye set match ko robust
+  // banata hai.
+  static const Set<String> _walletSuccessStatuses = {
+    'RECHARGE_SUCCESS',
+    'SUCCESS',
+    'COMPLETED',
+    'RECHARGE_COMPLETED',
+  };
+
+  // ← NAYA: genuine failure ko "still processing" se alag pehchanna zaroori
+  // hai -- warna operator-decline jaisa clear failure bhi "confirm ho raha
+  // hai, thoda ruko" jaisa misleading message dikhata rahega.
+  static const Set<String> _walletFailureStatuses = {
+    'RECHARGE_FAILED',
+    'FAILED',
+    'REJECTED',
+    'CANCELLED',
+    'DECLINED',
+  };
+
+  bool _isWalletOrderSuccessful(String? status) {
+    if (status == null) return false;
+    return _walletSuccessStatuses.contains(status.toUpperCase());
+  }
+
+  bool _isWalletOrderFailed(String? status) {
+    if (status == null) return false;
+    return _walletFailureStatuses.contains(status.toUpperCase());
+  }
+
   Future<bool> payAndConfirm() async {
     if (_selectedPlan == null) return false;
 
@@ -420,7 +455,27 @@ class RechargeViewModel extends ChangeNotifier {
       // Backend already debited + attempted A1Topup delivery by the time
       // createOrder() returns (see RechargeService.createWalletPaidOrder()).
       if (_paymentMode == 'WALLET') {
-        _rechargeSuccess = order.status == 'RECHARGE_SUCCESS';
+        // TEMP debug -- confirms the exact status string backend sends
+        // for WALLET orders. Remove once verified in production logs.
+        debugPrint('[WALLET] order.status = "${order.status}" orderId=${order.orderId}');
+
+        if (_isWalletOrderSuccessful(order.status)) {
+          _rechargeSuccess = true;
+        } else if (_isWalletOrderFailed(order.status)) {
+          // ← Genuine failure -- e.g. operator declined the recharge after
+          // wallet was already debited. Don't say "still processing" here,
+          // that would mislead the user into thinking it just needs time.
+          _rechargeSuccess = false;
+          _stillProcessing = false;
+          _error = 'Your recharge failed. If your wallet was debited, the amount will be refunded automatically within 24-48 hours.';
+        } else {
+          // Status string we don't recognize yet -- genuinely unclear,
+          // not a confirmed failure. Treat as processing so the user
+          // gets pointed to My Recharges instead of a silent no-op.
+          _rechargeSuccess = false;
+          _stillProcessing = true;
+          _error = 'Your recharge is being confirmed. Check My Recharges in a few minutes for the final status.';
+        }
         loadRecentRecharges();
         return _rechargeSuccess;
       }
@@ -467,17 +522,32 @@ class RechargeViewModel extends ChangeNotifier {
 
       _paymentInProgress = true;
       notifyListeners();
-      final confirmed = await _pollOrderStatus(order.orderId);
-      _rechargeSuccess = confirmed;
-      if (!confirmed) {
-        _stillProcessing = true;
-        _error =
-        'Payment received but confirmation is taking longer than usual. '
-            'Check My Recharges in a few minutes for the final status.';
-        await StorageService.setPendingCoinAnimation(order.orderId, _selectedPlan!.price);
+      final outcome = await _pollOrderStatus(order.orderId);
+      switch (outcome) {
+        case _PollOutcome.success:
+          _rechargeSuccess = true;
+          _stillProcessing = false;
+          break;
+        case _PollOutcome.failed:
+          // ← Genuine failure after payment succeeded -- e.g. operator
+          // declined the recharge. Clear error, not a "processing" message,
+          // since that would wrongly suggest the user should just wait.
+          _rechargeSuccess = false;
+          _stillProcessing = false;
+          _error = 'Payment was received but the recharge failed. '
+              'Any amount deducted will be refunded within 3-5 business days.';
+          break;
+        case _PollOutcome.unknown:
+          _rechargeSuccess = false;
+          _stillProcessing = true;
+          _error =
+          'Payment received but confirmation is taking longer than usual. '
+              'Check My Recharges in a few minutes for the final status.';
+          await StorageService.setPendingCoinAnimation(order.orderId, _selectedPlan!.price);
+          break;
       }
       loadRecentRecharges();
-      return confirmed;
+      return _rechargeSuccess;
     } catch (e) {
       // ← wallet insufficient-balance case -- pull structured
       // details out so UI can show exact shortfall + "Add Money" CTA.
@@ -495,20 +565,27 @@ class RechargeViewModel extends ChangeNotifier {
     }
   }
 
-  Future<bool> _pollOrderStatus(String orderId) async {
+  // ← Tri-state instead of bool: polling ka "no" do alag matlab ho sakte
+  // hai -- backend ne explicitly FAILED bola (genuine failure), ya
+  // max attempts khatam ho gaye bina kisi clear jawab ke (genuinely
+  // unclear/still processing). Pehle dono ko same "stillProcessing"
+  // treat kiya jaata tha jo failure ke case mein misleading tha.
+  Future<_PollOutcome> _pollOrderStatus(String orderId) async {
     const maxAttempts = 25;
     const interval = Duration(seconds: 2);
     for (var attempt = 0; attempt < maxAttempts; attempt++) {
       await Future.delayed(interval);
       try {
         final status = await _repo.getOrderStatus(orderId);
-        if (status.isSuccess) return true;
-        if (status.isFailed) return false;
+        if (status.isSuccess) return _PollOutcome.success;
+        if (status.isFailed) return _PollOutcome.failed;
       } catch (_) {
         // transient network hiccup while polling -- don't abort early,
         // just try again next tick.
       }
     }
-    return false;
+    return _PollOutcome.unknown;
   }
 }
+
+enum _PollOutcome { success, failed, unknown }

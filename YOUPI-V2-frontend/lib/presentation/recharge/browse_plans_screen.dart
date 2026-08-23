@@ -204,6 +204,11 @@ class _PlansList extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       // ---- Price + Plan name row ----
+                      // ← Chevron-circle button hataya -- poora card already
+                      // tappable hai (YoupiCard.onTap upar), so a second
+                      // "go" affordance next to the name was redundant.
+                      // Name now gets the full remaining width instead of
+                      // being squeezed by that button.
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -216,20 +221,6 @@ class _PlansList extends StatelessWidget {
                               style: AppTextStyles.labelLarge,
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Container(
-                            width: 28,
-                            height: 28,
-                            decoration: const BoxDecoration(
-                              color: AppColors.primary,
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(
-                              Icons.chevron_right_rounded,
-                              size: 20,
-                              color: AppColors.backgroundPrimary,
                             ),
                           ),
                         ],

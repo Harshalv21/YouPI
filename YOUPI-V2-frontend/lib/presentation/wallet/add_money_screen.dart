@@ -34,9 +34,21 @@ class _AddMoneyScreenState extends State<AddMoneyScreen> {
 
   double? get _enteredAmount => double.tryParse(_amountController.text.trim());
 
-  void _selectQuickAmount(double amount) {
+  // ← CHANGED: ab ye REPLACE nahi karta, current amount mein ADD karta hai.
+  // ₹500 do baar tap kare to ₹1000 ban jaata hai, teesri baar ₹1500 -- taaki
+  // koi bhi combination jaldi bana sake (jaise ₹500 + ₹2000 = ₹2500) bina
+  // manually type kiye.
+  void _addQuickAmount(double amount) {
+    final current = _enteredAmount ?? 0;
     setState(() {
-      _amountController.text = amount.toStringAsFixed(0);
+      _amountController.text = (current + amount).toStringAsFixed(0);
+      _error = null;
+    });
+  }
+
+  void _clearAmount() {
+    setState(() {
+      _amountController.clear();
       _error = null;
     });
   }
@@ -142,73 +154,108 @@ class _AddMoneyScreenState extends State<AddMoneyScreen> {
     return Scaffold(
       backgroundColor: AppColors.backgroundPrimary,
       appBar: AppBar(title: const Text('Add Money'), backgroundColor: AppColors.backgroundPrimary),
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          return SingleChildScrollView(
-            padding: const EdgeInsets.all(AppDimensions.paddingPage),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                minHeight: constraints.maxHeight - (AppDimensions.paddingPage * 2),
+      // ← Removed the LayoutBuilder/IntrinsicHeight/Spacer combo -- that was
+      // forcing the column to stretch to full screen height, which is what
+      // created the big empty gap between the quick-amount chips and the
+      // button. Plain scrollable column now; the button sits right after
+      // the content instead of being pinned to the bottom of an
+      // artificially-stretched column.
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(AppDimensions.paddingPage),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('Enter Amount', style: AppTextStyles.displaySmall),
+            const SizedBox(height: 16),
+
+            // ← Amount now sits in a rounded card (matches the rest of the
+            // app's card language) instead of a bare TextField with a
+            // green underline.
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 20),
+              decoration: BoxDecoration(
+                color: AppColors.backgroundCard,
+                borderRadius: BorderRadius.circular(14),
               ),
-              child: IntrinsicHeight(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text('Enter Amount', style: AppTextStyles.displaySmall),
-                    const SizedBox(height: 24),
-                    TextField(
-                      controller: _amountController,
-                      enabled: !busy,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: false),
-                      style: AppTextStyles.amountLarge,
-                      textAlign: TextAlign.center,
-                      onChanged: (_) {
-                        if (_error != null) setState(() => _error = null);
-                      },
-                      decoration: InputDecoration(
-                        prefixText: '₹ ',
-                        hintText: '0',
-                        border: InputBorder.none,
-                        prefixStyle: AppTextStyles.amountLarge,
-                        hintStyle: AppTextStyles.amountLarge.copyWith(color: AppColors.textSecondary),
-                      ),
-                    ),
-                    const Divider(color: AppColors.primary, thickness: 2),
-                    const SizedBox(height: 20),
-                    Wrap(
-                      spacing: 8,
-                      children: _quickAmounts.map((a) => OutlinedButton(
-                        onPressed: busy ? null : () => _selectQuickAmount(a),
-                        style: OutlinedButton.styleFrom(
-                            foregroundColor: AppColors.primary,
-                            side: const BorderSide(color: AppColors.primary)),
-                        child: Text('₹${a.toStringAsFixed(0)}'),
-                      )).toList(),
-                    ),
-                    if (_error != null) ...[
-                      const SizedBox(height: 16),
-                      Text(_error!, style: AppTextStyles.bodySmall.copyWith(color: AppColors.error)),
-                    ],
-                    const Spacer(),
-                    if (_isPolling) ...[
-                      const Center(child: CircularProgressIndicator(color: AppColors.primary)),
-                      const SizedBox(height: 12),
-                      Center(
-                        child: Text('Confirming payment...', style: AppTextStyles.bodyMedium),
-                      ),
-                      const SizedBox(height: 20),
-                    ],
-                    YoupiButton(
-                      label: 'Add Money',
-                      isLoading: _isLoading,
-                      onPressed: busy ? null : _addMoney,
-                    ),
-                  ],
+              child: TextField(
+                controller: _amountController,
+                enabled: !busy,
+                keyboardType: const TextInputType.numberWithOptions(decimal: false),
+                style: AppTextStyles.amountLarge,
+                textAlign: TextAlign.center,
+                onChanged: (_) {
+                  if (_error != null) setState(() => _error = null);
+                },
+                decoration: InputDecoration(
+                  prefixText: '₹ ',
+                  hintText: '0',
+                  border: InputBorder.none,
+                  isCollapsed: true,
+                  prefixStyle: AppTextStyles.amountLarge.copyWith(color: AppColors.primary),
+                  hintStyle: AppTextStyles.amountLarge.copyWith(color: AppColors.textSecondary),
                 ),
               ),
             ),
-          );
-        },
+            const SizedBox(height: 20),
+
+            Text('Quick add', style: AppTextStyles.bodySmall.copyWith(color: AppColors.textSecondary)),
+            const SizedBox(height: 8),
+            // ← 2x2 grid instead of a full-width stacked list -- these are
+            // shortcuts, not navigation items, so a compact grid reads
+            // better and leaves room to scan all four at once.
+            GridView.count(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              crossAxisCount: 2,
+              mainAxisSpacing: 8,
+              crossAxisSpacing: 8,
+              childAspectRatio: 2.6,
+              children: _quickAmounts.map((a) => OutlinedButton(
+                onPressed: busy ? null : () => _addQuickAmount(a),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.primary,
+                  side: BorderSide(color: AppColors.primary.withOpacity(0.4)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                child: Text('+₹${a.toStringAsFixed(0)}',
+                    style: AppTextStyles.labelSmall.copyWith(
+                        color: AppColors.primary, fontWeight: FontWeight.w600)),
+              )).toList(),
+            ),
+
+            if (_enteredAmount != null && _enteredAmount! > 0) ...[
+              const SizedBox(height: 10),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: busy ? null : _clearAmount,
+                  child: Text('Clear',
+                      style: AppTextStyles.labelSmall.copyWith(color: AppColors.textSecondary)),
+                ),
+              ),
+            ],
+
+            if (_error != null) ...[
+              const SizedBox(height: 12),
+              Text(_error!, style: AppTextStyles.bodySmall.copyWith(color: AppColors.error)),
+            ],
+
+            const SizedBox(height: 24),
+            if (_isPolling) ...[
+              const Center(child: CircularProgressIndicator(color: AppColors.primary)),
+              const SizedBox(height: 12),
+              Center(
+                child: Text('Confirming payment...', style: AppTextStyles.bodyMedium),
+              ),
+              const SizedBox(height: 20),
+            ],
+            YoupiButton(
+              label: 'Add Money',
+              isLoading: _isLoading,
+              onPressed: busy ? null : _addMoney,
+            ),
+          ],
+        ),
       ),
     );
   }

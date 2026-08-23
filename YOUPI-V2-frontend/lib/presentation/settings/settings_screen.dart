@@ -30,6 +30,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
     });
   }
 
+  // ← Sign Out ab confirmation maangta hai -- pehle single tap se seedha
+  // session clear ho jaata tha, accidental tap ka risk tha.
+  Future<void> _confirmSignOut(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.backgroundCard,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Sign out?', style: AppTextStyles.headlineSmall),
+        content: Text(
+          'You will need to log in again to access your account.',
+          style: AppTextStyles.bodyMedium.copyWith(color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('Cancel', style: AppTextStyles.bodyMedium.copyWith(color: AppColors.textSecondary)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('Sign out',
+                style: AppTextStyles.bodyMedium.copyWith(color: AppColors.error, fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await StorageService.clearAll();
+      if (context.mounted) context.go('/onboarding/welcome');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final vm = context.watch<SettingsViewModel>();
@@ -69,52 +101,54 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ]),
           ),
           const SizedBox(height: 24),
+
+          // ── Grouped rows -- one card per section with divider-separated
+          // rows (native Settings-app look), instead of a separate rounded
+          // card per row which was a lot of stacked boxes for 2-3 items.
           Text('Account', style: AppTextStyles.labelMedium.copyWith(color: AppColors.textSecondary)),
           const SizedBox(height: 8),
-          ...[
-            _SettingsTile('Edit Profile', Icons.person_outline_rounded, () async {
+          _SettingsGroup(tiles: [
+            _SettingsTileData('Edit Profile', Icons.person_outline_rounded, () async {
               if (!await GuestGuard.requireAuth(context, actionLabel: 'edit your profile')) return;
               if (context.mounted) context.push('/settings/edit-profile');
             }),
-            _SettingsTile('Change MPIN', Icons.lock_outline_rounded, () async {
+            _SettingsTileData('Change MPIN', Icons.lock_outline_rounded, () async {
               if (!await GuestGuard.requireAuth(context, actionLabel: 'change your MPIN')) return;
               if (context.mounted) context.push('/settings/change-mpin');
             }),
-            _SettingsTile('Notifications', Icons.notifications_none_rounded, () => context.push('/settings/notifications')),
-          ],
+            _SettingsTileData('Notifications', Icons.notifications_none_rounded,
+                    () => context.push('/settings/notifications')),
+          ]),
+
           const SizedBox(height: 16),
           Text('KYC & Documents', style: AppTextStyles.labelMedium.copyWith(color: AppColors.textSecondary)),
           const SizedBox(height: 8),
-          ...[
-            _SettingsTile('PAN Details', Icons.badge_outlined, () async {
+          _SettingsGroup(tiles: [
+            _SettingsTileData('PAN Details', Icons.badge_outlined, () async {
               if (!await GuestGuard.requireAuth(context, actionLabel: 'view your PAN details')) return;
               if (context.mounted) context.push('/settings/pan-details');
             }),
-            _SettingsTile('Bank Account', Icons.account_balance_outlined, () async {
+            _SettingsTileData('Bank Account', Icons.account_balance_outlined, () async {
               if (!await GuestGuard.requireAuth(context, actionLabel: 'view your bank account')) return;
               if (context.mounted) context.push('/settings/bank-details');
             }),
-          ],
+          ]),
+
           const SizedBox(height: 16),
           Text('Support', style: AppTextStyles.labelMedium.copyWith(color: AppColors.textSecondary)),
-
-// Reuses the existing _SettingsTile widget and GuestGuard.requireAuth
-// pattern already used by Edit Profile / Change MPIN above it -- no new
-// imports needed, both are already imported in this file.
-          ...[
-            _SettingsTile('Help & Support', Icons.help_outline_rounded,
-        () => context.push('/settings/help-support')),
-            _SettingsTile('Privacy Policy', Icons.privacy_tip_outlined,
+          const SizedBox(height: 8),
+          _SettingsGroup(tiles: [
+            _SettingsTileData('Help & Support', Icons.help_outline_rounded,
+                    () => context.push('/settings/help-support')),
+            _SettingsTileData('Privacy Policy', Icons.privacy_tip_outlined,
                     () => context.push('/settings/privacy-policy')),
-            _SettingsTile('Terms of Service', Icons.description_outlined,
+            _SettingsTileData('Terms of Service', Icons.description_outlined,
                     () => context.push('/settings/terms-of-service')),
-          ],
+          ]),
+
           const SizedBox(height: 16),
           YoupiCard(
-            onTap: () async {
-              await StorageService.clearAll();
-              if (context.mounted) context.go('/onboarding/welcome');
-            },
+            onTap: () => _confirmSignOut(context),
             child: Row(children: [
               const Icon(Icons.logout_rounded, color: AppColors.error, size: 20),
               const SizedBox(width: 12),
@@ -130,40 +164,50 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 }
 
-void _showComingSoon(BuildContext context, String feature) {
-  showDialog(
-    context: context,
-    builder: (ctx) => AlertDialog(
-      backgroundColor: AppColors.backgroundCard,
-      title: Text(feature, style: AppTextStyles.headlineSmall),
-      content: Text(
-        '$feature will be available soon.',
-        style: AppTextStyles.bodyMedium.copyWith(color: AppColors.textSecondary),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(ctx).pop(),
-          child: Text('OK', style: AppTextStyles.tealLink),
-        ),
-      ],
-    ),
-  );
-}
+// ← _showComingSoon() removed -- it was dead code, defined but never
+// called from anywhere in this file (all tiles now route to real screens).
 
-class _SettingsTile extends StatelessWidget {
+class _SettingsTileData {
   final String label;
   final IconData icon;
   final VoidCallback onTap;
-  const _SettingsTile(this.label, this.icon, this.onTap);
-  @override Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 8),
-    child: YoupiCard(onTap: onTap, child: Row(children: [
-      Icon(icon, color: AppColors.textSecondary, size: 20),
-      const SizedBox(width: 12),
-      Expanded(child: Text(label, style: AppTextStyles.labelLarge)),
-      const Icon(Icons.chevron_right_rounded, color: AppColors.textSecondary),
-    ])),
-  );
+  const _SettingsTileData(this.label, this.icon, this.onTap);
+}
+
+// ── One rounded card per section, rows separated by a hairline divider --
+// replaces the old pattern of a separate rounded card per row.
+class _SettingsGroup extends StatelessWidget {
+  final List<_SettingsTileData> tiles;
+  const _SettingsGroup({required this.tiles});
+
+  @override
+  Widget build(BuildContext context) {
+    return YoupiCard(
+      padding: EdgeInsets.zero,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: Column(
+          children: [
+            for (var i = 0; i < tiles.length; i++) ...[
+              if (i > 0) Divider(height: 1, color: AppColors.divider),
+              InkWell(
+                onTap: tiles[i].onTap,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+                  child: Row(children: [
+                    Icon(tiles[i].icon, color: AppColors.textSecondary, size: 20),
+                    const SizedBox(width: 12),
+                    Expanded(child: Text(tiles[i].label, style: AppTextStyles.labelLarge)),
+                    const Icon(Icons.chevron_right_rounded, color: AppColors.textSecondary),
+                  ]),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 // ─────────── Edit Profile ───────────

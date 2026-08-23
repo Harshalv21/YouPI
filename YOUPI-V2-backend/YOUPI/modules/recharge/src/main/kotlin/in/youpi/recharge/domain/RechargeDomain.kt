@@ -142,7 +142,8 @@ data class RechargeStatusResponse(
     val operator: String,
     val planAmount: BigDecimal,
     val a1TopupStatus: String?,
-    val goldTxnId: UUID?
+    val goldTxnId: UUID?,
+    val createdAt: java.time.Instant
 )
 
 /**

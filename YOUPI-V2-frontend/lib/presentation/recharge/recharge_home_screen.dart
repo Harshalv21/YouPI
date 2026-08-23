@@ -136,16 +136,20 @@ class _RechargeHomeScreenState extends State<RechargeHomeScreen> {
 
               // ---------------- Recent Recharges strip (NEW) ----------------
               if (vm.isLoadingRecent)
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 20),
+                // ← Shimmer skeleton instead of a lone spinner -- matches
+                // the ShimmerList pattern already used for the full-screen
+                // plans loading state elsewhere, so the loading feel is
+                // consistent across the screen.
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 20),
                   child: SizedBox(
                     height: 84,
-                    child: Center(
-                      child: SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: 3,
+                      separatorBuilder: (_, __) => const SizedBox(width: 10),
+                      itemBuilder: (_, __) => const _RecentRechargeSkeleton(),
                     ),
                   ),
                 )
@@ -199,62 +203,70 @@ class _RechargeHomeScreenState extends State<RechargeHomeScreen> {
                           ),
                           child: Stack(
                             children: [
-                            Row(
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            children: [
-                              ContactAvatar(mobileNumber: r.mobileNumber, radius: 18),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: FutureBuilder<Contact?>(
-                                  future: ContactLookup.matchNumber(r.mobileNumber),
-                                  builder: (context, snapshot) {
-                                    final name = snapshot.data?.displayName;
-                                    final hasName = name != null && name.trim().isNotEmpty;
-                                    return Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Text(
-                                          hasName ? name : r.mobileNumber,
-                                          style: AppTextStyles.labelSmall,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                        if (hasName)
-                                          Text(
-                                            r.mobileNumber,
-                                            style: AppTextStyles.captionText.copyWith(color: AppColors.textSecondary),
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: [
+                                  ContactAvatar(mobileNumber: r.mobileNumber, radius: 18),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: FutureBuilder<Contact?>(
+                                      future: ContactLookup.matchNumber(r.mobileNumber),
+                                      builder: (context, snapshot) {
+                                        final name = snapshot.data?.displayName;
+                                        final hasName = name != null && name.trim().isNotEmpty;
+                                        return Padding(
+                                          // ← Reserve space on the right so
+                                          // the name/number text truncates
+                                          // BEFORE it reaches the close
+                                          // button instead of running under
+                                          // it -- that overlap was the
+                                          // "ganda" look.
+                                          padding: const EdgeInsets.only(right: 18),
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Text(
+                                                hasName ? name : r.mobileNumber,
+                                                style: AppTextStyles.labelSmall,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                              if (hasName)
+                                                Text(
+                                                  r.mobileNumber,
+                                                  style: AppTextStyles.captionText.copyWith(color: AppColors.textSecondary),
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                ),
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                '₹${r.amount.toStringAsFixed(0)}',
+                                                style: AppTextStyles.labelLarge.copyWith(color: AppColors.primary),
+                                              ),
+                                            ],
                                           ),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          '₹${r.amount.toStringAsFixed(0)}',
-                                          style: AppTextStyles.labelLarge.copyWith(color: AppColors.primary),
-                                        ),
-                                      ],
-                                    );
-                                  },
-                                ),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ],
-                            ),
                               Positioned(
-                                top: 2,
-                                right: 2,
+                                top: 0,
+                                right: 0,
                                 child: GestureDetector(
                                   behavior: HitTestBehavior.opaque,
                                   onTap: () => vm.hideRecentRecharge(r.id),
                                   child: Container(
-                                    width: 24,
-                                    height: 24,
+                                    width: 20,
+                                    height: 20,
                                     alignment: Alignment.center,
                                     decoration: BoxDecoration(
-                                      color: AppColors.backgroundPrimary,
+                                      color: AppColors.backgroundPrimary.withOpacity(0.7),
                                       shape: BoxShape.circle,
-                                      border: Border.all(color: AppColors.textSecondary.withOpacity(0.2)),
                                     ),
-                                    child: Icon(Icons.close, size: 12, color: AppColors.textSecondary),
+                                    child: Icon(Icons.close, size: 11, color: AppColors.textSecondary),
                                   ),
                                 ),
                               ),
@@ -339,50 +351,45 @@ class _RechargeHomeScreenState extends State<RechargeHomeScreen> {
                           ),
                         Padding(
                           padding: const EdgeInsets.all(14),
-                          child: Row(
+                          // ← Redesigned: name + price share one row (no more
+                          // duplicate chevron-circle -- the whole card is
+                          // already tappable via YoupiCard's onTap above).
+                          // The bullet-separated details line is now three
+                          // icon-tagged chips, easier to scan at a glance.
+                          child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(plan.name,
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(
+                                    child: Text(plan.name,
                                         style: AppTextStyles.labelLarge,
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      '${plan.dataPerDay}/day • ${plan.validityDays} Days • ${plan.callsInfo}',
-                                      style: AppTextStyles.bodySmall,
-                                    ),
-                                    if (plan.extras.isNotEmpty)
-                                      Text(plan.extras.first,
-                                          style: AppTextStyles.captionText.copyWith(color: AppColors.secondary)),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                children: [
+                                  ),
+                                  const SizedBox(width: 12),
                                   Text('₹${plan.price.toStringAsFixed(0)}',
                                       style: AppTextStyles.headlineSmall.copyWith(color: AppColors.primary)),
-                                  const SizedBox(height: 6),
-                                  Container(
-                                    width: 28,
-                                    height: 28,
-                                    decoration: const BoxDecoration(
-                                      color: AppColors.primary,
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: Icon(
-                                      Icons.chevron_right_rounded,
-                                      size: 20,
-                                      color: AppColors.backgroundPrimary,
-                                    ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  _PlanSpecChip(icon: Icons.sim_card_rounded, label: '${plan.dataPerDay}/day'),
+                                  const SizedBox(width: 14),
+                                  _PlanSpecChip(icon: Icons.calendar_month_rounded, label: '${plan.validityDays} days'),
+                                  const SizedBox(width: 14),
+                                  Flexible(
+                                    child: _PlanSpecChip(icon: Icons.call_rounded, label: plan.callsInfo),
                                   ),
                                 ],
                               ),
+                              if (plan.extras.isNotEmpty) ...[
+                                const SizedBox(height: 6),
+                                Text(plan.extras.first,
+                                    style: AppTextStyles.captionText.copyWith(color: AppColors.secondary)),
+                              ],
                             ],
                           ),
                         ),
@@ -615,6 +622,120 @@ Future<void> _openContactPicker(
     mobileCtrl.text = selected; // keep the inline field in sync
     vm.setMobile(selected);
     vm.loadRecentRecharges(); // NEW: refresh recent recharges when number changes via contact picker
+  }
+}
+
+// ── Small icon-tagged spec label used inside plan cards -- replaces the
+// old bullet-separated "6GB/day • 28 Days • Unlimited Calls" text line.
+class _PlanSpecChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  const _PlanSpecChip({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 14, color: AppColors.textSecondary),
+        const SizedBox(width: 4),
+        Flexible(
+          child: Text(
+            label,
+            style: AppTextStyles.bodySmall,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ── Pulsing skeleton placeholder for a Recent-Recharges chip, shown while
+// vm.isLoadingRecent is true. Matches the real chip's size/shape so the
+// layout doesn't jump once real data arrives.
+class _RecentRechargeSkeleton extends StatefulWidget {
+  const _RecentRechargeSkeleton();
+
+  @override
+  State<_RecentRechargeSkeleton> createState() => _RecentRechargeSkeletonState();
+}
+
+class _RecentRechargeSkeletonState extends State<_RecentRechargeSkeleton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _opacity;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat(reverse: true);
+    _opacity = Tween<double>(begin: 0.35, end: 0.85).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Widget _bar({double width = double.infinity, double height = 10}) {
+    return Container(
+      width: width,
+      height: height,
+      decoration: BoxDecoration(
+        color: AppColors.textSecondary.withOpacity(0.25),
+        borderRadius: BorderRadius.circular(4),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _opacity,
+      builder: (context, child) => Opacity(opacity: _opacity.value, child: child),
+      child: Container(
+        width: 170,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppColors.backgroundCard,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppColors.textSecondary.withOpacity(0.1)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: AppColors.textSecondary.withOpacity(0.2),
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _bar(width: 70),
+                  const SizedBox(height: 6),
+                  _bar(width: 45, height: 12),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

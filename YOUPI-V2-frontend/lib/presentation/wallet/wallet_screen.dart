@@ -6,25 +6,10 @@ import '../../core/constants/app_dimensions.dart';
 import '../../core/constants/app_text_styles.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../core/utils/guest_guard.dart';
-import '../../core/widgets/youpi_button.dart';
 import '../../core/widgets/youpi_card.dart';
 import '../../data/models/transaction_model.dart';
 import '../invest/invest_viewmodel.dart';
-
-// ─────────── Shared widgets ───────────
-class _InfoRow extends StatelessWidget {
-  final String label;
-  final String value;
-  final Color? valueColor;
-  const _InfoRow(this.label, this.value, {this.valueColor});
-  @override Widget build(BuildContext context) => Row(
-    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-    children: [
-      Text(label, style: AppTextStyles.bodyMedium),
-      Text(value, style: AppTextStyles.labelLarge.copyWith(color: valueColor)),
-    ],
-  );
-}
+import 'transaction_detail_sheet.dart';
 
 // ─────────── Wallet ───────────
 class WalletScreen extends StatefulWidget {
@@ -45,6 +30,7 @@ class _WalletScreenState extends State<WalletScreen> {
   @override
   Widget build(BuildContext context) {
     final vm = context.watch<WalletViewModel>();
+    final recentTx = vm.transactions.take(6).toList();
 
     return Scaffold(
       backgroundColor: AppColors.backgroundPrimary,
@@ -57,22 +43,47 @@ class _WalletScreenState extends State<WalletScreen> {
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(AppDimensions.paddingPage),
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            // ── Balance card -- single "Add money" action lives inside the
+            // card now. Wallet only ever funds recharges (no send/transfer/
+            // investment out of it), so a second quick-action button next
+            // to it would be a button with nothing to do -- dropped it.
             YoupiGlassCard(
-              child: Column(children: [
-                const Icon(Icons.account_balance_wallet_rounded, color: AppColors.primary, size: 36),
-                const SizedBox(height: 8),
-                Text(CurrencyFormatter.format(vm.balance), style: AppTextStyles.amountLarge),
-                Text('Available Balance', style: AppTextStyles.captionText),
-              ]),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text('Available balance', style: AppTextStyles.captionText),
+                  const SizedBox(height: 6),
+                  Text(CurrencyFormatter.format(vm.balance), style: AppTextStyles.amountLarge),
+                  const SizedBox(height: 16),
+                  InkWell(
+                    borderRadius: BorderRadius.circular(10),
+                    onTap: () async {
+                      if (!await GuestGuard.requireAuth(context, actionLabel: 'add money')) return;
+                      if (context.mounted) context.push('/wallet/add');
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: AppColors.primary.withOpacity(0.35)),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.add_rounded, color: AppColors.primary, size: 18),
+                          const SizedBox(width: 8),
+                          Text('Add money',
+                              style: AppTextStyles.labelSmall.copyWith(
+                                  color: AppColors.primary, fontWeight: FontWeight.w600)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 20),
-            Row(children: [
-              _WalletAction('Add Money', Icons.add_circle_rounded, () async {
-                if (!await GuestGuard.requireAuth(context, actionLabel: 'add money')) return;
-                if (context.mounted) context.push('/wallet/add');
-              }),
-            ]),
-            const SizedBox(height: 24),
             Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
               Text('Recent Transactions', style: AppTextStyles.headlineSmall),
               TextButton(
@@ -80,8 +91,8 @@ class _WalletScreenState extends State<WalletScreen> {
                 child: Text('View All', style: AppTextStyles.tealLink.copyWith(decoration: TextDecoration.none)),
               ),
             ]),
-            const SizedBox(height: 12),
-            if (vm.transactions.isEmpty)
+            const SizedBox(height: 4),
+            if (recentTx.isEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 24),
                 child: Center(
@@ -89,10 +100,15 @@ class _WalletScreenState extends State<WalletScreen> {
                 ),
               )
             else
-              ...vm.transactions.take(6).map((tx) => Padding(
-                padding: const EdgeInsets.only(bottom: 10),
+              // ← Flat list, no date headers -- this is just a compact
+              // preview (max 6 items), not the full history. Grouping by
+              // day here was making the home screen itself scroll like a
+              // history page; grouping now lives on the Transaction
+              // History screen instead, where it belongs.
+              ...recentTx.map((tx) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
                 child: _TransactionTile(tx),
-              )).toList(),
+              )),
           ]),
         ),
       ),
@@ -100,49 +116,56 @@ class _WalletScreenState extends State<WalletScreen> {
   }
 }
 
-class _WalletAction extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final VoidCallback onTap;
-  const _WalletAction(this.label, this.icon, this.onTap);
-  @override Widget build(BuildContext context) => Expanded(
-    child: YoupiCard(onTap: onTap, padding: const EdgeInsets.symmetric(vertical: 14),
-      child: Column(children: [
-        Icon(icon, color: AppColors.primary, size: 22),
-        const SizedBox(height: 4),
-        Text(label, style: AppTextStyles.labelSmall),
-      ]),
-    ),
-  );
+String _formatTime(DateTime dt) {
+  final hour12 = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+  final minute = dt.minute.toString().padLeft(2, '0');
+  final ampm = dt.hour >= 12 ? 'PM' : 'AM';
+  return '$hour12:$minute $ampm';
 }
 
 class _TransactionTile extends StatelessWidget {
   final TransactionModel tx;
   const _TransactionTile(this.tx);
-  @override Widget build(BuildContext context) => YoupiCard(
-    child: Row(children: [
-      Container(
-        width: 40, height: 40,
-        decoration: BoxDecoration(
-          color: tx.isCredit ? AppColors.success.withOpacity(0.1) : AppColors.backgroundSurface,
-          shape: BoxShape.circle,
+
+  @override
+  Widget build(BuildContext context) {
+    // ← Split-recharge ka title simplify hota hai (mobile number tak --
+    // "wallet portion ₹X of ₹Y" wala part hat jaata hai, wo detail sheet
+    // mein poora breakdown ke saath dikhta hai).
+    final split = tx.splitRechargeDetails;
+    final displayTitle = split != null ? 'Split Recharge ${split.mobileNumber}' : tx.title;
+
+    // ← Wallet se sirf recharge hoti hai (koi transfer/investment out of
+    // wallet nahi) -- to category icon simple hai: debit == recharge
+    // (phone icon), credit == money added (down-arrow). Amount ka
+    // red/green already semantic hai, icon bas usi color ko match karta
+    // hai taaki visually ek hi story dikhe.
+    final icon = tx.isCredit ? Icons.arrow_downward_rounded : Icons.smartphone_rounded;
+    final color = tx.isCredit ? AppColors.success : AppColors.error;
+
+    return YoupiCard(
+      onTap: () => showTransactionDetailSheet(context, tx),
+      child: Row(children: [
+        Container(
+          width: 38, height: 38,
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(icon, color: color, size: 17),
         ),
-        child: Icon(
-          tx.isCredit ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded,
-          color: tx.isCredit ? AppColors.success : AppColors.error,
-          size: 18,
+        const SizedBox(width: 12),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(displayTitle, style: AppTextStyles.labelLarge, maxLines: 1, overflow: TextOverflow.ellipsis),
+          const SizedBox(height: 1),
+          Text(_formatTime(tx.dateTime), style: AppTextStyles.captionText.copyWith(color: AppColors.textSecondary)),
+        ])),
+        Text(
+          '${tx.isCredit ? '+' : '-'}${CurrencyFormatter.format(tx.amount)}',
+          style: AppTextStyles.labelLarge.copyWith(
+              color: tx.isCredit ? AppColors.success : AppColors.error),
         ),
-      ),
-      const SizedBox(width: 12),
-      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(tx.title, style: AppTextStyles.labelLarge),
-        // Text(tx.category, style: AppTextStyles.bodySmall),
-      ])),
-      Text(
-        '${tx.isCredit ? '+' : '-'}${CurrencyFormatter.format(tx.amount)}',
-        style: AppTextStyles.labelLarge.copyWith(
-            color: tx.isCredit ? AppColors.success : AppColors.error),
-      ),
-    ]),
-  );
+      ]),
+    );
+  }
 }
