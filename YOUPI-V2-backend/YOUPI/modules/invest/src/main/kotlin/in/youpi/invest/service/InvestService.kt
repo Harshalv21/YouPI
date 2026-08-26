@@ -2,6 +2,7 @@ package `in`.youpi.invest.service
 
 import `in`.youpi.core.BaseException
 import `in`.youpi.core.ExternalServiceException
+import `in`.youpi.core.KycStatusPort
 import `in`.youpi.core.NotFoundException
 import `in`.youpi.core.Result
 import `in`.youpi.invest.augmont.*
@@ -176,7 +177,8 @@ class InvestService(
     private val goldFdOrderRepo: GoldFdOrderRepository,
     private val augmontUserRepo: AugmontUserMappingRepository,
     private val augmontClient: AugmontClient,
-    private val redisTemplate: ReactiveStringRedisTemplate
+    private val redisTemplate: ReactiveStringRedisTemplate,
+    private val kycStatusPort: KycStatusPort
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -218,9 +220,19 @@ class InvestService(
                 return Result.failure(GoldRateStaledException())
             }
 
-            val goldBuy = data.goldBuy
+            // FIX: Augmont's actual response nests the rate figures one level
+            // deeper than we originally assumed -- result.data.rates.gBuy,
+            // not result.data.goldBuy. Confirmed against Augmont's own API
+            // docs (gold-silver-rates endpoint, Response tab) on 2026-08-25.
+            val rates = data.rates
+            if (rates == null) {
+                log.warn("Augmont: result.data present but rates was null. Full data = {}", data)
+                return Result.failure(GoldRateStaledException())
+            }
+
+            val goldBuy = rates.gBuy
             if (goldBuy == null) {
-                log.warn("Augmont: result.data present but goldBuy was null. Full data = {}", data)
+                log.warn("Augmont: rates present but gBuy was null. Full rates = {}", rates)
                 return Result.failure(GoldRateStaledException())
             }
             val blockId = data.blockId ?: ""
@@ -228,11 +240,11 @@ class InvestService(
             // Cache rates in Redis hash
             val rateMap = mapOf(
                 "goldBuy" to goldBuy.toPlainString(),
-                "goldSell" to (data.goldSell ?: BigDecimal.ZERO).toPlainString(),
-                "silverBuy" to (data.silverBuy ?: BigDecimal.ZERO).toPlainString(),
-                "silverSell" to (data.silverSell ?: BigDecimal.ZERO).toPlainString(),
+                "goldSell" to (rates.gSell ?: BigDecimal.ZERO).toPlainString(),
+                "silverBuy" to (rates.sBuy ?: BigDecimal.ZERO).toPlainString(),
+                "silverSell" to (rates.sSell ?: BigDecimal.ZERO).toPlainString(),
                 "blockId" to blockId,
-                "gst" to (data.gst ?: BigDecimal.ZERO).toPlainString()
+                "gst" to (rates.gBuyGst ?: BigDecimal.ZERO).toPlainString()
             )
             ops.putAll(RATES_CACHE_KEY, rateMap).awaitSingle()
             redisTemplate.expire(RATES_CACHE_KEY, RATES_TTL).awaitSingle()
@@ -241,9 +253,9 @@ class InvestService(
 
             Result.success(GoldPriceResponse(
                 goldBuyRate = goldBuy,
-                goldSellRate = data.goldSell ?: BigDecimal.ZERO,
-                silverBuyRate = data.silverBuy ?: BigDecimal.ZERO,
-                silverSellRate = data.silverSell ?: BigDecimal.ZERO,
+                goldSellRate = rates.gSell ?: BigDecimal.ZERO,
+                silverBuyRate = rates.sBuy ?: BigDecimal.ZERO,
+                silverSellRate = rates.sSell ?: BigDecimal.ZERO,
                 blockId = blockId,
                 cachedAt = Instant.now()
             ))
@@ -342,13 +354,28 @@ class InvestService(
             return Result.success(GoldBuyResponse(existing.id!!, existing.augmontTxnId, existing.amountInr, existing.grams, existing.status))
         }
 
+        // KYC gate — Augmont mandates KYC for purchases above ₹1000. This is
+        // the server-side enforcement; the frontend's KycGuard is UX only
+        // and must not be relied on alone (same reasoning as the PAN/Bank
+        // gate proposed for buyGold/sellGold in the 21 Aug session notes).
+        if (amountInr > BigDecimal("1000") && !kycStatusPort.isVerified(userId)) {
+            return Result.failure(GoldProviderException("KYC verification required for purchases above ₹1000"))
+        }
+
         // Get rates with blockId
         val ratesResult = getLiveRates()
         if (ratesResult.isFailure) return Result.failure(GoldRateStaledException())
         val rates = ratesResult.getOrNull()!!
 
         val buyRate = if (metalType == "silver") rates.silverBuyRate else rates.goldBuyRate
-        val grams = amountInr.divide(buyRate, 6, java.math.RoundingMode.FLOOR)
+        // Local pre-estimate only -- overwritten by Augmont's actual response
+        // (buyData?.quantity) below in the success path. Matches Augmont's
+        // own buy pseudo-code: the amount entered is GST-inclusive, so the
+        // quantity must divide by rate*(1+taxRate), not rate alone -- kept
+        // consistent here so the PENDING record and the rare quantity-missing
+        // fallback are both accurate, not just the confirmed-success path.
+        val taxRate = BigDecimal("0.03")
+        val grams = amountInr.divide(buyRate.multiply(BigDecimal.ONE.add(taxRate)), 6, java.math.RoundingMode.FLOOR)
 
         // Get Augmont user
         val augmontUniqueId = getAugmontUniqueId(userId)

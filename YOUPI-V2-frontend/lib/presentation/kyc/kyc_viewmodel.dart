@@ -16,6 +16,7 @@ class KycViewModel extends ChangeNotifier {
   File? _selfiePhoto;
   String? _selfieError;
   int _aadhaarCountdown = 24;
+  String? _digioRequestId;
 
   // ── PAN (now backend-verified via Eko, not just regex) ──
   bool _panVerified = false;
@@ -146,10 +147,14 @@ class KycViewModel extends ChangeNotifier {
   Future<void> sendAadhaarOtp() async {
     _isLoading = true;
     notifyListeners();
-    await Future.delayed(const Duration(milliseconds: 1000));
-    _aadhaarOtpSent = true;
+    try {
+      _digioRequestId = await _userRepo.initiateAadhaarOtp(_aadhaar);
+      _aadhaarOtpSent = true;
+      _startCountdown();
+    } catch (e) {
+      // optional: kisi error field mein dikha sakte ho
+    }
     _isLoading = false;
-    _startCountdown();
     notifyListeners();
   }
 
@@ -169,12 +174,22 @@ class KycViewModel extends ChangeNotifier {
   // TODO: still a stub (Aadhaar/Digio integration unchanged, out of scope
   // for the Eko PAN + bank account work).
   Future<bool> verifyAadhaar(String otp) async {
+    if (_digioRequestId == null) return false;
     _isLoading = true;
     notifyListeners();
-    await Future.delayed(const Duration(milliseconds: 1200));
+    bool ok = false;
+    try {
+      ok = await _userRepo.verifyAadhaarOtp(
+        aadhaarNumber: _aadhaar,
+        otp: otp,
+        digioRequestId: _digioRequestId!,
+      );
+    } catch (e) {
+      ok = false;
+    }
     _isLoading = false;
     notifyListeners();
-    return otp.length == 6;
+    return ok;
   }
 
   // BUG FIX: this used to just flip `_selfieCapture = true` with no actual

@@ -27,8 +27,21 @@ class InvestViewModel extends ChangeNotifier {
   double get fdRate => _fdRate;
   bool get isGoldBuy => _isGoldBuy;
   bool get transactionSuccess => _transactionSuccess;
-  double get gramsForBuyAmount =>
-      _buyAmount / (_isGoldBuy ? _gold.pricePerGram : _gold.sellRatePerGram);
+
+  double get gramsForBuyAmount {
+    if (_isGoldBuy) {
+      // Augmont's buy pseudo-code: the entered amount is GST-inclusive,
+      // but the rate we quote (pricePerGram) is GST-exclusive. Real
+      // quantity = amount / (rate * 1.03), not amount / rate -- see
+      // Augmont's pseudo-code doc, "Buy Logic" section (taxRate = 3%).
+      const taxRate = 0.03;
+      return _buyAmount / (_gold.pricePerGram * (1 + taxRate));
+    }
+    // Sell: Augmont's sell pseudo-code has no tax adjustment --
+    // amount = quantity * lockPrice directly.
+    return _buyAmount / _gold.sellRatePerGram;
+  }
+
   double get fdMaturity => FdModel.calculateMaturity(_fdAmount, _fdRate, _fdMonths);
   double get interestEarned => fdMaturity - _fdAmount;
 

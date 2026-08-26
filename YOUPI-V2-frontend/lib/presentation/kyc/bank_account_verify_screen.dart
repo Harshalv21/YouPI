@@ -20,7 +20,18 @@ class BankAccountVerifyScreen extends StatelessWidget {
     final ctx = context;
     return Scaffold(
       backgroundColor: AppColors.backgroundPrimary,
-      appBar: AppBar(backgroundColor: AppColors.backgroundPrimary),
+      appBar: AppBar( backgroundColor: AppColors.backgroundPrimary,
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: TextButton(
+              onPressed: () => ctx.go('/dashboard/home'),
+              child: Text('Skip',
+                  style: AppTextStyles.bodyMedium.copyWith(color: AppColors.textSecondary)),
+            ),
+          ),
+        ],
+      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(AppDimensions.paddingPage),
         child: Column(
@@ -102,17 +113,7 @@ class BankAccountVerifyScreen extends StatelessWidget {
               }
                   : null,
             ),
-            const SizedBox(height: 12),
-            Center(
-              child: TextButton(
-                onPressed: () async {
-                  final ok = await vm.completeKyc();
-                  if (ok && ctx.mounted) ctx.go('/kyc/success');
-                },
-                child: Text('Skip for now',
-                    style: AppTextStyles.bodySmall.copyWith(color: AppColors.textSecondary)),
-              ),
-            ),
+
           ],
         ),
       ),

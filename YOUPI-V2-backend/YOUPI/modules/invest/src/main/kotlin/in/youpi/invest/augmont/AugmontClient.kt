@@ -91,7 +91,7 @@ class AugmontClient(
 
     companion object {
         private const val REDIS_TOKEN_KEY = "augmont:merchant:token"
-        private val TOKEN_TTL = Duration.ofHours(23)
+        private val TOKEN_TTL = Duration.ofDays(28) // Augmont token valid 30 days; 28 din safe margin
     }
 
     // ── Auth ──
@@ -124,7 +124,7 @@ class AugmontClient(
             .retrieve()
             .awaitBody<AugmontLoginResponse>()
 
-        val token = response.result?.accessToken
+        val token = response.result?.data?.accessToken
             ?: throw ExternalServiceException("Augmont", "Login failed: ${response.message}")
 
         redisTemplate.opsForValue().set(REDIS_TOKEN_KEY, token, TOKEN_TTL).awaitSingle()

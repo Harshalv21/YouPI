@@ -19,14 +19,20 @@ data class AugmontLoginRequest(
 data class AugmontLoginResponse(
     val statusCode: Int?,
     val message: String?,
-    val result: AugmontAuthResult?
+    val result: AugmontLoginResult?
+)
+
+@JsonIgnoreProperties(ignoreUnknown = true)
+data class AugmontLoginResult(
+    val data: AugmontAuthResult?
 )
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class AugmontAuthResult(
-    @JsonProperty("access_token") val accessToken: String,
-    @JsonProperty("token_type") val tokenType: String?,
-    @JsonProperty("merchant") val merchant: AugmontMerchantInfo?
+    val merchantId: Long?,
+    val accessToken: String,
+    val tokenType: String?,
+    val expiresAt: String?
 )
 
 @JsonIgnoreProperties(ignoreUnknown = true)
@@ -52,18 +58,18 @@ data class AugmontRatesResult(
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class AugmontRatesData(
-    val blockId: String?,
-    val goldBuy: BigDecimal?,
-    val goldSell: BigDecimal?,
-    val silverBuy: BigDecimal?,
-    val silverSell: BigDecimal?,
-    @JsonProperty("gold_24k") val gold24k: BigDecimal?,
-    @JsonProperty("gold_22k") val gold22k: BigDecimal?,
-    val gst: BigDecimal?,
-    val goldBuyGst: BigDecimal?,
-    val silverBuyGst: BigDecimal?,
-    val validUpTo: String?,
-    val validitySeconds: Int?
+    val rates: AugmontRates?,
+    val blockId: String?
+)
+
+@JsonIgnoreProperties(ignoreUnknown = true)
+data class AugmontRates(
+    val gBuy: BigDecimal?,
+    val gSell: BigDecimal?,
+    val sBuy: BigDecimal?,
+    val sSell: BigDecimal?,
+    val gBuyGst: BigDecimal?,
+    val sBuyGst: BigDecimal?
 )
 
 // ── Buy ──

@@ -128,7 +128,7 @@ youpi:
     loan-enabled: false
     bnpl-enabled: false
     smart-saver-enabled: false
-    kyc-enabled: false
+    kyc-enabled: true
 
   razorpay:
     key-id: ${RAZORPAY_KEY_ID:}
@@ -156,10 +156,11 @@ youpi:
     password: ${AUGMONT_PASSWORD:}
 
   eko:
-    base-url: ${EKO_BASE_URL:https://api.eko.in/ekoicici/v3}
+    base-url: ${EKO_BASE_URL:https://api.eko.in:25002/ekoicici/v3}
     developer-key: ${EKO_DEVELOPER_KEY:}
     initiator-id: ${EKO_INITIATOR_ID:}
     authenticator-key: ${EKO_AUTHENTICATOR_KEY:}
+    mock-enabled: ${EKO_MOCK_ENABLED:false}
 
   digio:
     api-key: ${DIGIO_API_KEY:}

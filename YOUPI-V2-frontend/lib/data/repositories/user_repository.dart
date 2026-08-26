@@ -5,6 +5,8 @@
 //   GET  /v1/user/profile          -> profile
 //   PUT  /v1/user/profile          -> update name/email/dob
 //   GET  /v1/user/kyc/status       -> KYC status
+//   POST /v1/user/kyc/aadhaar/otp    -> Aadhaar OTP send (mocked Digio)
+//   POST /v1/user/kyc/aadhaar/verify -> Aadhaar OTP verify (mocked Digio)
 //   POST /v1/user/kyc/pan/verify   -> PAN verification (via Eko)
 //   POST /v1/user/kyc/bank/verify  -> Bank account verification (via Eko)
 
@@ -122,6 +124,41 @@ class UserRepository {
       throw ApiService.toException(e);
     }
 
+  }
+
+  /// Sends Aadhaar OTP via backend (mocked Digio under the hood for now --
+  /// always succeeds server-side, but the call is real and creates the
+  /// kyc_records row via getOrCreateKyc() so downstream PAN/Bank verify
+  /// can find it). Returns the digioRequestId needed for the verify call.
+  Future<String> initiateAadhaarOtp(String aadhaarNumber) async {
+    try {
+      final res = await _dio.post('/v1/user/kyc/aadhaar/otp', data: {
+        'aadhaarNumber': aadhaarNumber,
+      });
+      final data = ApiService.unwrap(res);
+      return (data as Map)['digioRequestId'].toString();
+    } on DioException catch (e) {
+      throw ApiService.toException(e);
+    }
+  }
+
+  /// Verifies the Aadhaar OTP via backend -- moves kycStatus to AADHAAR_DONE.
+  Future<bool> verifyAadhaarOtp({
+    required String aadhaarNumber,
+    required String otp,
+    required String digioRequestId,
+  }) async {
+    try {
+      final res = await _dio.post('/v1/user/kyc/aadhaar/verify', data: {
+        'aadhaarNumber': aadhaarNumber,
+        'otp': otp,
+        'digioRequestId': digioRequestId,
+      });
+      ApiService.unwrap(res);
+      return true;
+    } on DioException catch (e) {
+      throw ApiService.toException(e);
+    }
   }
 
   /// Verifies a PAN number via the backend (Eko fetch-pan under the hood).

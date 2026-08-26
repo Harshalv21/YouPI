@@ -7,13 +7,17 @@ import `in`.youpi.core.Result
 import `in`.youpi.core.ValidationException
 import `in`.youpi.security.EncryptionService
 import `in`.youpi.user.domain.*
+import `in`.youpi.user.eko.EkoBankVerifyResult
 import `in`.youpi.user.eko.EkoClient
+import `in`.youpi.user.eko.EkoPanVerifyResult
 import `in`.youpi.user.repository.KycRecordEntity
 import `in`.youpi.user.repository.KycRecordRepository
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
 import java.time.Instant
 import java.util.UUID
+import `in`.youpi.core.KycStatusPort
 
 /**
  * User profile management and KYC flow orchestration.
@@ -26,8 +30,16 @@ class UserService(
     private val userRepo: UserRepository,
     private val kycRepo: KycRecordRepository,
     private val encryptionService: EncryptionService,
-    private val ekoClient: EkoClient // ← NEW: replaces Karza (PAN) stub, also does bank verification
-) {
+    private val ekoClient: EkoClient, // ← NEW: replaces Karza (PAN) stub, also does bank verification
+    // NEW: temporary testing switch -- Eko's PAN Verification service_code 4
+    // is confirmed NOT activated on our account yet (plan not purchased, see
+    // 21 Aug session changelog). Until that's live, this lets us mock a
+    // successful PAN/bank response instead of every real attempt failing at
+    // the vendor. Same pattern as youpi.recharge.mock-enabled. MUST be false
+    // (the default) once Eko activation is confirmed -- do not leave this on
+    // in production past that point.
+    @Value("\${youpi.eko.mock-enabled:false}") private val ekoMockEnabled: Boolean
+) : KycStatusPort {
 
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -159,11 +171,21 @@ class UserService(
             return Result.failure(KycStepOutOfOrderException(kyc.kycStatus, "PAN_VERIFY"))
         }
 
-        val ekoResult = try {
-            ekoClient.verifyPan(panNumber)
-        } catch (e: Exception) {
-            log.error("Eko PAN verification failed for user {}: {}", userId, e.message)
-            return Result.failure(KycVerificationFailedException("PAN verification service unavailable: ${e.message}"))
+        val ekoResult = if (ekoMockEnabled) {
+            log.warn("EKO MOCK MODE: skipping real Eko fetch-pan call for user {} -- returning mocked success. Set youpi.eko.mock-enabled=false once Eko PAN Verification is activated.", userId)
+            EkoPanVerifyResult(
+                success = true,
+                nameOnPan = "MOCK TEST USER",
+                upstreamRrn = "MOCK-${UUID.randomUUID()}",
+                rawResponse = "{\"mock\":true}"
+            )
+        } else {
+            try {
+                ekoClient.verifyPan(panNumber)
+            } catch (e: Exception) {
+                log.error("Eko PAN verification failed for user {}: {}", userId, e.message)
+                return Result.failure(KycVerificationFailedException("PAN verification service unavailable: ${e.message}"))
+            }
         }
 
         if (!ekoResult.success) {
@@ -200,11 +222,23 @@ class UserService(
         val kyc = kycRepo.findByUserId(userId)
             ?: return Result.failure(KycVerificationFailedException("KYC record not found"))
 
-        val ekoResult = try {
-            ekoClient.verifyBankAccount(req.accountNumber, req.ifsc)
-        } catch (e: Exception) {
-            log.error("Eko bank account verification failed for user {}: {}", userId, e.message)
-            return Result.failure(KycVerificationFailedException("Bank verification service unavailable: ${e.message}"))
+        val ekoResult = if (ekoMockEnabled) {
+            log.warn("EKO MOCK MODE: skipping real Eko bank-account/sync call for user {} -- returning mocked success. Set youpi.eko.mock-enabled=false once Eko Bank Account Verification is activated.", userId)
+            EkoBankVerifyResult(
+                success = true,
+                accountHolderName = "MOCK TEST USER",
+                bankName = "MOCK BANK",
+                branch = "MOCK BRANCH",
+                utr = "MOCK-${UUID.randomUUID()}",
+                rawResponse = "{\"mock\":true}"
+            )
+        } else {
+            try {
+                ekoClient.verifyBankAccount(req.accountNumber, req.ifsc)
+            } catch (e: Exception) {
+                log.error("Eko bank account verification failed for user {}: {}", userId, e.message)
+                return Result.failure(KycVerificationFailedException("Bank verification service unavailable: ${e.message}"))
+            }
         }
 
         if (!ekoResult.success) {
@@ -268,6 +302,19 @@ class UserService(
         }
 
         return Result.success(toKycStatusResponse(userId, updated))
+    }
+    // ── NEW: Eko Service Activation (temporary diagnostic) ──
+    // Calls Eko's "Activate Service for User" API directly. Remove this
+    // once Eko PAN/Bank Verification activation is confirmed done.
+    suspend fun activateEkoService(serviceCode: Int): String {
+        return ekoClient.activateService(serviceCode)
+    }
+
+    // ── KycStatusPort implementation (used by InvestService via shared:core,
+    // avoids a circular Gradle dependency between invest and user modules) ──
+    override suspend fun isVerified(userId: UUID): Boolean {
+        val kyc = kycRepo.findByUserId(userId)
+        return kyc != null && kyc.panVerified && kyc.bankVerified
     }
 
     // ── Helpers ──

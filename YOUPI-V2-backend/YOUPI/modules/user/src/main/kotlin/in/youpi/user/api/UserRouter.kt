@@ -95,6 +95,7 @@ class UserRouter(private val userService: UserService) {
             POST("/kyc/pan/verify") { handlePanVerify(it) }
             POST("/kyc/selfie") { handleSelfieUpload(it) }
             POST("/kyc/bank/verify") { handleBankVerify(it) }
+            GET("/kyc/eko-activate") { handleEkoActivate(it) }
         }
     }
 
@@ -170,7 +171,12 @@ class UserRouter(private val userService: UserService) {
             is Result.Failure -> throw result.error
         }
     }
-
+    private suspend fun handleEkoActivate(request: ServerRequest): ServerResponse {
+        val serviceCode = request.queryParam("serviceCode").orElse("4").toInt()
+        val result = userService.activateEkoService(serviceCode)
+        return ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
+            .bodyValueAndAwait(ApiResponse.ok(result))
+    }
     private suspend fun handleSelfieUpload(request: ServerRequest): ServerResponse {
         val userId = request.currentUserId()
         val body = request.awaitValidatedBody<SelfieUploadRequest>()

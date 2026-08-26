@@ -35,104 +35,132 @@ class _AadhaarVerifyScreenState extends State<AadhaarVerifyScreen> {
     // intro -> aadhaar -> pan -> success instead of being recreated per screen.
     final vm = context.watch<KycViewModel>();
     final ctx = context;
-    return Scaffold(
-      backgroundColor: AppColors.backgroundPrimary,
-      appBar: AppBar(backgroundColor: AppColors.backgroundPrimary),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(AppDimensions.paddingPage),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            LinearProgressIndicator(value: 2 / 4, backgroundColor: AppColors.divider,
-                valueColor: const AlwaysStoppedAnimation(AppColors.primary)),
-            const SizedBox(height: 8),
-            Text('Step 2 of 4', style: AppTextStyles.labelMedium),
-            const SizedBox(height: 24),
-            Text(AppStrings.aadhaarTitle, style: AppTextStyles.displaySmall),
-            Text(AppStrings.aadhaarSubtitle,
+    // BUG FIX (back button exits app): same root cause as kyc_intro_screen.dart
+    // -- if this screen is ever the top of the nav stack with nothing left to
+    // pop (e.g. a later screen in this flow did a context.go() that wiped the
+    // stack, or a deep link landed here directly), Android's back button would
+    // close the app instead of navigating. PopScope intercepts that case and
+    // sends the user to the dashboard instead of letting the OS kill the app.
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        if (Navigator.of(context).canPop()) {
+          Navigator.of(context).pop();
+        } else {
+          context.go('/dashboard/home');
+        }
+      },
+      child: Scaffold(
+        backgroundColor: AppColors.backgroundPrimary,
+        appBar: AppBar(backgroundColor: AppColors.backgroundPrimary,
+            actions: [
+            Padding(
+            padding: const EdgeInsets.only(right: 8),
+        child: TextButton(
+            onPressed: () { if (ctx.mounted) ctx.push('/kyc/pan'); },
+            child: Text('Skip',
                 style: AppTextStyles.bodyMedium.copyWith(color: AppColors.textSecondary)),
-            const SizedBox(height: 24),
-            YoupiInput(
-              label: 'Aadhaar Number',
-              hint: 'XXXX-XXXX-XXXX',
-              keyboardType: TextInputType.number,
-              maxLength: 12,
-              onChanged: vm.setAadhaar,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+        ),
             ),
-            const SizedBox(height: 20),
-            if (!vm.aadhaarOtpSent)
-              YoupiButton(
-                label: AppStrings.getAadhaarOtp,
-                isLoading: vm.isLoading,
-                onPressed: vm.sendAadhaarOtp,
-              )
-            else ...[
-              Text(
-                  'OTP sent to: ×××××${vm.aadhaar.length >= 4 ? vm.aadhaar.substring(vm.aadhaar.length - 4) : ''}',
-                  style: AppTextStyles.bodySmall.copyWith(color: AppColors.primary)),
-              const SizedBox(height: 16),
-              OtpInputField(
-                key: ValueKey(_resendGeneration),
-                onChanged: (v) { _otp = v; },
-                onCompleted: (v) { _otp = v; },
-              ),
-              const SizedBox(height: 12),
-              Center(
-                child: vm.aadhaarCountdown > 0
-                    ? Text('Resend OTP in 0:${vm.aadhaarCountdown.toString().padLeft(2, '0')}',
-                    style: AppTextStyles.bodySmall)
-                    : TextButton(
-                  onPressed: () {
-                    setState(() {
-                      _otp = '';
-                      _resendGeneration++;
-                    });
-                    vm.sendAadhaarOtp();
-                  },
-                  child: Text('RESEND OTP', style: AppTextStyles.tealLink),
-                ),
+            ],
+        ),
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.all(AppDimensions.paddingPage),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              LinearProgressIndicator(value: 2 / 4, backgroundColor: AppColors.divider,
+                  valueColor: const AlwaysStoppedAnimation(AppColors.primary)),
+              const SizedBox(height: 8),
+              Text('Step 2 of 4', style: AppTextStyles.labelMedium),
+              const SizedBox(height: 24),
+              Text(AppStrings.aadhaarTitle, style: AppTextStyles.displaySmall),
+              Text(AppStrings.aadhaarSubtitle,
+                  style: AppTextStyles.bodyMedium.copyWith(color: AppColors.textSecondary)),
+              const SizedBox(height: 24),
+              YoupiInput(
+                label: 'Aadhaar Number',
+                hint: 'XXXX-XXXX-XXXX',
+                keyboardType: TextInputType.number,
+                maxLength: 12,
+                onChanged: vm.setAadhaar,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
               ),
               const SizedBox(height: 20),
-              YoupiButton(
-                label: 'Verify Aadhaar',
-                isLoading: vm.isLoading,
-                onPressed: () async {
-                  final ok = await vm.verifyAadhaar(_otp);
-                  if (ok && ctx.mounted) ctx.push('/kyc/pan');
-                },
-              ),
-            ],
-            const SizedBox(height: 16),
-            // Why Aadhaar expandable
-            ExpansionTile(
-              tilePadding: EdgeInsets.zero,
-              title: Text('Why Aadhaar?', style: AppTextStyles.labelLarge.copyWith(color: AppColors.primary)),
-              iconColor: AppColors.primary,
-              collapsedIconColor: AppColors.textSecondary,
-              children: [
+              if (!vm.aadhaarOtpSent)
+                YoupiButton(
+                  label: AppStrings.getAadhaarOtp,
+                  isLoading: vm.isLoading,
+                  onPressed: vm.sendAadhaarOtp,
+                )
+              else ...[
                 Text(
-                  'Aadhaar is India\'s national ID issued by UIDAI. We use it to verify your identity securely and comply with RBI KYC guidelines.',
-                  style: AppTextStyles.bodySmall,
+                    'OTP sent to: ×××××${vm.aadhaar.length >= 4 ? vm.aadhaar.substring(vm.aadhaar.length - 4) : ''}',
+                    style: AppTextStyles.bodySmall.copyWith(color: AppColors.primary)),
+                const SizedBox(height: 16),
+                OtpInputField(
+                  key: ValueKey(_resendGeneration),
+                  onChanged: (v) { _otp = v; },
+                  onCompleted: (v) { _otp = v; },
+                ),
+                const SizedBox(height: 12),
+                Center(
+                  child: vm.aadhaarCountdown > 0
+                      ? Text('Resend OTP in 0:${vm.aadhaarCountdown.toString().padLeft(2, '0')}',
+                      style: AppTextStyles.bodySmall)
+                      : TextButton(
+                    onPressed: () {
+                      setState(() {
+                        _otp = '';
+                        _resendGeneration++;
+                      });
+                      vm.sendAadhaarOtp();
+                    },
+                    child: Text('RESEND OTP', style: AppTextStyles.tealLink),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                YoupiButton(
+                  label: 'Verify Aadhaar',
+                  isLoading: vm.isLoading,
+                  onPressed: () async {
+                    final ok = await vm.verifyAadhaar(_otp);
+                    if (ok && ctx.mounted) ctx.push('/kyc/pan');
+                  },
                 ),
               ],
-            ),
-            const SizedBox(height: 12),
-            // Social proof
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: AppColors.primary.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
+              const SizedBox(height: 16),
+              // Why Aadhaar expandable
+              ExpansionTile(
+                tilePadding: EdgeInsets.zero,
+                title: Text('Why Aadhaar?', style: AppTextStyles.labelLarge.copyWith(color: AppColors.primary)),
+                iconColor: AppColors.primary,
+                collapsedIconColor: AppColors.textSecondary,
+                children: [
+                  Text(
+                    'Aadhaar is India\'s national ID issued by UIDAI. We use it to verify your identity securely and comply with RBI KYC guidelines.',
+                    style: AppTextStyles.bodySmall,
+                  ),
+                ],
               ),
-              child: Text('+2k JOINED RECENTLY',
-                  style: AppTextStyles.labelMedium.copyWith(color: AppColors.primary),
-                  textAlign: TextAlign.center),
-            ),
-            const SizedBox(height: 12),
-            Text(AppStrings.aadhaarFooter,
-                style: AppTextStyles.captionText, textAlign: TextAlign.center),
-          ],
+              const SizedBox(height: 12),
+              // Social proof
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text('+2k JOINED RECENTLY',
+                    style: AppTextStyles.labelMedium.copyWith(color: AppColors.primary),
+                    textAlign: TextAlign.center),
+              ),
+              const SizedBox(height: 12),
+              Text(AppStrings.aadhaarFooter,
+                  style: AppTextStyles.captionText, textAlign: TextAlign.center),
+            ],
+          ),
         ),
       ),
     );
