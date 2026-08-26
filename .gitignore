@@ -43,3 +43,10 @@ local.properties
 
 # Accidental backup zips
 *.zip
+*.txt
+!README.txt
+*.exe
+*_error.json
+*_log.json
+all_logs.json
+augmont_check*.json
