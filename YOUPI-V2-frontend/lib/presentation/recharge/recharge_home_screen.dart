@@ -31,7 +31,7 @@ const Color _smartSavePurple = Color(0xFF9C7CFF);
 // TEMPORARY -- SmartSave eligibility gate UI disabled for now (feature
 // and code kept intact, just not rendered). Set back to true when ready
 // to show this section again.
-const bool _smartSaveGateVisible = false;
+const bool _smartSaveGateVisible = true;
 
 class RechargeHomeScreen extends StatefulWidget {
   const RechargeHomeScreen({super.key});
