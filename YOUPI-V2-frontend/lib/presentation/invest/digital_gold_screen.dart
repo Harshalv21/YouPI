@@ -273,7 +273,7 @@ class _DigitalGoldScreenState extends State<DigitalGoldScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: List.generate(4, (i) {
-                    final label = isBuy ? CurrencyFormatter.format(_buyChips[i]) : _sellChipLabels[i];
+                    final label = isBuy ? '₹${_buyChips[i].toStringAsFixed(0)}' : _sellChipLabels[i];
                     return GestureDetector(
                       onTap: () => vm.setBuyAmount(
                         isBuy ? _buyChips[i] : (vm.gold.balanceValue * _sellChipFractions[i]).clamp(100, sellMax),
@@ -375,13 +375,13 @@ class _RateCard extends StatelessWidget {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(20),
         color: AppColors.backgroundPrimary,
-        border: Border.all(color: color.withOpacity(0.28)),
+        border: Border.all(color: color.withOpacity(0.21)),
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [color.withOpacity(0.09), AppColors.backgroundPrimary],
+          colors: [color.withOpacity(0.04), AppColors.backgroundPrimary],
         ),
-        boxShadow: [BoxShadow(color: color.withOpacity(0.12), blurRadius: 24, spreadRadius: -14)],
+        boxShadow: [BoxShadow(color: color.withOpacity(0.10), blurRadius: 24, spreadRadius: -14)],
       ),
       child: Column(children: [
         Row(mainAxisAlignment: MainAxisAlignment.center, children: [

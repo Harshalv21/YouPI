@@ -30,6 +30,13 @@ class AppColors {
   static const Color primaryGlow = Color(0x3000D4A1);
   static const Color cardBorder = Color(0xFF1E2530);
 
+  // Glass card tint -- deep desaturated green for hero cards. Deliberately
+  // NOT `primary` (bright mint), which washes out to a glowing tint over
+  // black instead of the intended blackish-green.
+  
+  static const Color glassTintTop = Color(0xFF10302A);
+  static const Color glassTintMid = Color(0xFF0C1712);
+
   // Virtual Card gradient
   static const Color cardGradientStart = Color(0xFF1A1A2E);
   static const Color cardGradientEnd = Color(0xFF16213E);

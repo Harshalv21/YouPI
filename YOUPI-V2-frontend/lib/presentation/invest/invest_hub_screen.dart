@@ -322,21 +322,25 @@ class _GlassCard extends StatelessWidget {
   final Widget child;
   const _GlassCard({required this.child});
 
-  @override
+    @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(20),
-        color: AppColors.backgroundPrimary,
-        border: Border.all(color: AppColors.primary.withOpacity(0.28)),
-        gradient: LinearGradient(
+        border: Border.all(color: AppColors.primary.withOpacity(0.22)),
+        gradient: const LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [AppColors.primary.withOpacity(0.07), AppColors.backgroundPrimary],
+          stops: [0.0, 0.55, 1.0],
+          colors: [
+            AppColors.glassTintTop,
+            AppColors.glassTintMid,
+            AppColors.backgroundPrimary,
+          ],
         ),
         boxShadow: [
-          BoxShadow(color: AppColors.primary.withOpacity(0.12), blurRadius: 24, spreadRadius: -14),
+          BoxShadow(color: AppColors.primary.withOpacity(0.08), blurRadius: 24, spreadRadius: -14),
         ],
       ),
       child: child,

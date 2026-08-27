@@ -1186,7 +1186,7 @@ class RechargeService(
                 if (reversed) {
                     rechargeRepo.updateAfterConfirm(
                         id = order.id!!,
-                        status = "EXPIRED",
+                        status = "REFUNDED",
                         razorpayPaymentId = order.razorpayPaymentId,
                         a1topupStatus = "NOT_ATTEMPTED",
                         a1topupRawResponse = toSafeJson("{\"reason\":\"split_checkout_abandoned\",\"razorpayStatus\":\"${rzOrder.status}\"}"),
@@ -1194,7 +1194,7 @@ class RechargeService(
                         goldTxnId = null,
                         failureReason = "Gateway checkout not completed within ${SPLIT_ABANDON_THRESHOLD_MINUTES} min; wallet portion auto-released"
                     )
-                    log.info("SPLIT reconciliation: orderId={} expired, wallet portion ₹{} released", order.id, walletPortion)
+                    log.info("SPLIT reconciliation: orderId={} refunded (abandoned checkout), wallet portion ₹{} released", order.id, walletPortion)
                 } else {
                     log.error(
                         "CRITICAL: SPLIT reconciliation wallet release FAILED for orderId={}, amount=₹{} -- needs manual credit",
