@@ -29,6 +29,9 @@ import '../presentation/invest/invest_hub_screen.dart';
 import '../presentation/invest/digital_gold_screen.dart';
 import '../presentation/invest/fd_calculator_screen.dart';
 import '../presentation/invest/portfolio_screen.dart';
+import '../presentation/goals/goals_screen.dart';
+import '../presentation/goals/create_goal_screen.dart';
+import '../presentation/goals/goal_detail_screen.dart';
 import '../presentation/bnpl/bnpl_hub_screen.dart';
 import '../presentation/bnpl/bnpl_apply_step1_screen.dart';
 import '../presentation/bnpl/bnpl_apply_step2_screen.dart';
@@ -147,6 +150,12 @@ class AppRouter {
       GoRoute(path: '/invest/gold', builder: (c, s) => const DigitalGoldScreen()),
       GoRoute(path: '/invest/fd', builder: (c, s) => const FdCalculatorScreen()),
       GoRoute(path: '/invest/portfolio', builder: (c, s) => const PortfolioScreen()),
+      GoRoute(path: '/invest/goals', builder: (c, s) => const GoalsScreen()),
+      GoRoute(path: '/invest/goals/create', builder: (c, s) => const CreateGoalScreen()),
+      // Must come after the '/create' route above -- go_router matches
+      // routes in list order, and ':goalId' would otherwise swallow the
+      // literal 'create' segment as if it were an id.
+      GoRoute(path: '/invest/goals/:goalId', builder: (c, s) => GoalDetailScreen(goalId: s.pathParameters['goalId']!)),
       GoRoute(path: '/bnpl/apply/step1', builder: (c, s) => const BnplApplyStep1Screen()),
       GoRoute(path: '/bnpl/apply/step2', builder: (c, s) => const BnplApplyStep2Screen()),
       GoRoute(path: '/bnpl/apply/step3', builder: (c, s) => const BnplApplyStep3Screen()),

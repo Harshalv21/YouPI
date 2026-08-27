@@ -8,6 +8,7 @@ import 'presentation/splash/splash_viewmodel.dart';
 import 'presentation/dashboard/home_viewmodel.dart';
 import 'presentation/recharge/recharge_viewmodel.dart';
 import 'presentation/invest/invest_viewmodel.dart';
+import 'presentation/goals/goals_viewmodel.dart';
 import 'package:youpi/presentation/settings/settings_viewmodel.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'core/services/push_notification_service.dart';
@@ -38,6 +39,7 @@ class YoupiApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => HomeViewModel()),
         ChangeNotifierProvider(create: (_) => RechargeViewModel()),
         ChangeNotifierProvider(create: (_) => InvestViewModel()),
+        ChangeNotifierProvider(create: (_) => GoalsViewModel()),
         ChangeNotifierProvider(create: (_) => WalletViewModel()),
         ChangeNotifierProvider(create: (_) => SettingsViewModel()),
       ],
