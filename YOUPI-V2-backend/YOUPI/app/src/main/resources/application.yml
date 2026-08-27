@@ -154,6 +154,7 @@ youpi:
     base-url: ${AUGMONT_BASE_URL:https://uat-api.merchant.augmont.com/api}
     email: ${AUGMONT_EMAIL:}
     password: ${AUGMONT_PASSWORD:}
+    webhook-secret: ${AUGMONT_WEBHOOK_SECRET:}
 
   eko:
     base-url: ${EKO_BASE_URL:https://api.eko.in:25002/ekoicici/v3}

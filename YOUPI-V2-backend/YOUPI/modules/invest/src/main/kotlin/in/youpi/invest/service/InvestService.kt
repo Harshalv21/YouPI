@@ -59,6 +59,7 @@ data class GoldTransactionEntity(
 
 interface GoldTransactionRepository : CoroutineCrudRepository<GoldTransactionEntity, UUID> {
     suspend fun findByIdempotencyKey(idempotencyKey: String): GoldTransactionEntity?
+    suspend fun findByAugmontTxnId(augmontTxnId: String): GoldTransactionEntity?
 
     @Query("SELECT * FROM gold_transactions WHERE user_id = :userId ORDER BY created_at DESC LIMIT :limit")
     suspend fun findByUserId(userId: UUID, limit: Int = 20): List<GoldTransactionEntity>
