@@ -135,8 +135,14 @@ class _InvestHubScreenState extends State<InvestHubScreen> {
                       ),
                     ]),
                     const SizedBox(height: 18),
-                    Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                      Expanded(child: Text(CurrencyFormatter.format(vm.gold.pricePerGram), style: AppTextStyles.amountLarge)),
+                    Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(
+                        CurrencyFormatter.format(vm.gold.pricePerGram),
+                        style: AppTextStyles.amountLarge,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 6),
                       Row(children: [
                         Icon(
                           vm.gold.isPriceUp ? Icons.arrow_drop_up_rounded : Icons.arrow_drop_down_rounded,

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../core/constants/app_colors.dart';
@@ -26,6 +27,16 @@ class _AddMoneyScreenState extends State<AddMoneyScreen> {
 
   static const _quickAmounts = [500.0, 1000.0, 2000.0, 5000.0];
 
+  // ← Business rules for amount bounds -- adjust these two to match your
+  // actual product limits (e.g. Razorpay per-transaction cap, wallet cap).
+  static const double _minAmount = 1;
+  static const double _maxAmount = 100000;
+
+  // ← Max digits allowed in the field. 6 digits caps entry at 999999, well
+  // above _maxAmount, so the length limiter never fights the amount-range
+  // check -- it just stops absurdly long strings before they're even typed.
+  static const int _maxDigits = 6;
+
   @override
   void dispose() {
     _amountController.dispose();
@@ -40,8 +51,11 @@ class _AddMoneyScreenState extends State<AddMoneyScreen> {
   // manually type kiye.
   void _addQuickAmount(double amount) {
     final current = _enteredAmount ?? 0;
+    final next = current + amount;
     setState(() {
-      _amountController.text = (current + amount).toStringAsFixed(0);
+      // Clamp so quick-add buttons can't push the field past the max either.
+      final clamped = next > _maxAmount ? _maxAmount : next;
+      _amountController.text = clamped.toStringAsFixed(0);
       _error = null;
     });
   }
@@ -55,8 +69,12 @@ class _AddMoneyScreenState extends State<AddMoneyScreen> {
 
   Future<void> _addMoney() async {
     final amount = _enteredAmount;
-    if (amount == null || amount <= 0) {
-      setState(() => _error = 'Please enter a valid amount.');
+    if (amount == null || amount < _minAmount) {
+      setState(() => _error = 'Please enter a valid amount (minimum ₹${_minAmount.toStringAsFixed(0)}).');
+      return;
+    }
+    if (amount > _maxAmount) {
+      setState(() => _error = 'Amount exceeds the maximum limit of ₹${_maxAmount.toStringAsFixed(0)}.');
       return;
     }
 
@@ -183,6 +201,13 @@ class _AddMoneyScreenState extends State<AddMoneyScreen> {
                 keyboardType: const TextInputType.numberWithOptions(decimal: false),
                 style: AppTextStyles.amountLarge,
                 textAlign: TextAlign.center,
+                // ← NEW: blocks non-digit input, caps total length, and
+                // rejects leading zeros ("0000..." can no longer be typed).
+                inputFormatters: [
+                  FilteringTextInputFormatter.digitsOnly,
+                  LengthLimitingTextInputFormatter(_maxDigits),
+                  _NoLeadingZeroFormatter(),
+                ],
                 onChanged: (_) {
                   if (_error != null) setState(() => _error = null);
                 },
@@ -258,5 +283,20 @@ class _AddMoneyScreenState extends State<AddMoneyScreen> {
         ),
       ),
     );
+  }
+}
+
+// ← NEW: prevents amounts like "0", "00", "0500" from ever appearing in the
+// field. A single "0" is still allowed transiently (so the hint/placeholder
+// flow feels normal while the user is mid-type / has cleared the field),
+// but a second character after a leading zero is rejected outright.
+class _NoLeadingZeroFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+      TextEditingValue oldValue, TextEditingValue newValue) {
+    if (newValue.text.length > 1 && newValue.text.startsWith('0')) {
+      return oldValue;
+    }
+    return newValue;
   }
 }
