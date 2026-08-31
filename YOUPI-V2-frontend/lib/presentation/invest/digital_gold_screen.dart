@@ -8,6 +8,7 @@ import '../../core/constants/app_text_styles.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../core/widgets/youpi_button.dart';
 import '../../core/widgets/youpi_card.dart';
+import '../../core/widgets/augmont_badge.dart';
 import '../dashboard/home_viewmodel.dart';
 import 'invest_viewmodel.dart';
 
@@ -138,6 +139,15 @@ class _DigitalGoldScreenState extends State<DigitalGoldScreen> {
                       Expanded(child: Text(vm.error!, style: AppTextStyles.bodySmall.copyWith(color: AppColors.error))),
                     ]),
                   ),
+
+                // Augmont marketing checklist: "Powered by Augmont" must
+                // appear on the page where customers are purchasing
+                // Digital Gold.
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: AugmontBadge(),
+                ),
+                const SizedBox(height: 14),
 
                 // ── Rate card ─────────────────────────────────────────
                 _RateCard(
@@ -330,6 +340,31 @@ class _DigitalGoldScreenState extends State<DigitalGoldScreen> {
                   ),
 
                 const SizedBox(height: 20),
+                // Augmont marketing checklist: About Us, FAQs, and T&C
+                // must be reachable from this purchase page.
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    TextButton(
+                      onPressed: () => ctx.push('/invest/gold/about-augmont'),
+                      child: Text('About Augmont',
+                          style: AppTextStyles.tealLink.copyWith(fontSize: 12)),
+                    ),
+                    Text('·', style: AppTextStyles.bodySmall.copyWith(color: AppColors.textSecondary)),
+                    TextButton(
+                      onPressed: () => ctx.push('/invest/gold/faqs'),
+                      child: Text('FAQs', style: AppTextStyles.tealLink.copyWith(fontSize: 12)),
+                    ),
+                    Text('·', style: AppTextStyles.bodySmall.copyWith(color: AppColors.textSecondary)),
+                    TextButton(
+                      onPressed: () => ctx.push('/invest/gold/terms'),
+                      child: Text('Terms & Conditions',
+                          style: AppTextStyles.tealLink.copyWith(fontSize: 12)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
                 YoupiButton(
                   label: '${isBuy ? 'Buy' : 'Sell'} gold for ${CurrencyFormatter.format(vm.buyAmount)}',
                   isLoading: vm.isLoading,

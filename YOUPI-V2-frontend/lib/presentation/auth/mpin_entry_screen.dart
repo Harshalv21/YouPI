@@ -1,17 +1,26 @@
 // TODO Implement this library.
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:local_auth/local_auth.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/constants/app_dimensions.dart';
 import '../../core/constants/app_text_styles.dart';
 import '../../core/services/storage_service.dart';
+import '../../core/services/app_lock_gate.dart';
 
 /// App-open lock screen. Shown on every launch when the user is logged in
 /// and has an MPIN set. Verifies against the locally stored MPIN hash.
 ///
+/// Two modes, chosen once at open based on the user's saved preference:
+/// - Biometric ON  -> `_LockMode.biometric`: fingerprint-first screen with
+///   an explicit "Verify using passcode" fallback and a close button to
+///   exit the app. Never silently drops into the PIN pad on its own.
+/// - Biometric OFF -> `_LockMode.pin`: straight to the MPIN pad, no
+///   fingerprint UI shown at all.
+///
 /// On success → /dashboard/home.
-/// After 5 wrong attempts → temporarily blocks input.
+/// After 5 wrong MPIN attempts → temporarily blocks input.
 class MpinEntryScreen extends StatefulWidget {
   const MpinEntryScreen({super.key});
 
@@ -19,11 +28,14 @@ class MpinEntryScreen extends StatefulWidget {
   State<MpinEntryScreen> createState() => _MpinEntryScreenState();
 }
 
+enum _LockMode { loading, biometric, pin }
+
 class _MpinEntryScreenState extends State<MpinEntryScreen> {
   static const int _maxAttempts = 5;
 
   final LocalAuthentication _localAuth = LocalAuthentication();
 
+  _LockMode _mode = _LockMode.loading;
   String _mpin = '';
   int _attempts = 0;
   bool _isLocked = false;
@@ -32,8 +44,31 @@ class _MpinEntryScreenState extends State<MpinEntryScreen> {
   @override
   void initState() {
     super.initState();
-    // If biometric is enabled, offer it right away.
-    WidgetsBinding.instance.addPostFrameCallback((_) => _tryBiometric());
+    _init();
+  }
+
+  Future<void> _init() async {
+    final enabled = await StorageService.isBiometricEnabled();
+    if (!mounted) return;
+    if (enabled) {
+      setState(() => _mode = _LockMode.biometric);
+      // Offer the native prompt right away once the biometric screen is
+      // showing -- user can also retap the fingerprint icon to retry.
+      WidgetsBinding.instance.addPostFrameCallback((_) => _tryBiometric());
+    } else {
+      // Biometric off -> passcode only. No fingerprint UI, no auto prompt.
+      setState(() => _mode = _LockMode.pin);
+    }
+  }
+
+  void _switchToPasscode() {
+    setState(() => _mode = _LockMode.pin);
+  }
+
+  void _exitApp() {
+    // Lock screen has no "back" destination inside the app -- closing it
+    // should close the app, same as GPay/PhonePe's X on their lock screen.
+    SystemNavigator.pop();
   }
 
   Future<void> _tryBiometric() async {
@@ -48,28 +83,41 @@ class _MpinEntryScreenState extends State<MpinEntryScreen> {
         debugPrint('Biometric: device reports canCheckBiometrics == false');
         return;
       }
-      final ok = await _localAuth.authenticate(
-        localizedReason: 'Unlock YOUPI',
-        options: const AuthenticationOptions(
-          biometricOnly: true,
-          stickyAuth: true,
-        ),
-      );
+      // Tell AppLockGate a native biometric sheet is about to take over
+      // the screen. On Android that transition itself fires a
+      // paused -> resumed pair, which -- without this flag -- AppLockGate
+      // would read as "user backgrounded the app and came back", pushing
+      // ANOTHER mpin-entry screen on top and reopening biometric again.
+      // That loop is exactly the "MPIN -> reenter MPIN -> fingerprint"
+      // behaviour that was previously reported.
+      AppLockGate.authPromptInProgress = true;
+      bool ok = false;
+      try {
+        ok = await _localAuth.authenticate(
+          localizedReason: 'Unlock YOUPI',
+          options: const AuthenticationOptions(
+            biometricOnly: true,
+            stickyAuth: true,
+          ),
+        );
+      } finally {
+        AppLockGate.authPromptInProgress = false;
+      }
       debugPrint('Biometric: authenticate() returned $ok');
       if (ok && mounted) {
         context.go('/dashboard/home');
       }
+      // Failed/cancelled -> stay on the biometric screen. User explicitly
+      // taps "Verify using passcode" to switch, we never auto-switch.
     } catch (e) {
+      AppLockGate.authPromptInProgress = false;
       // BUG FIX: this was previously `catch (_) {}` -- completely silent,
       // including the most likely real cause (missing native Android
       // setup: MainActivity must extend FlutterFragmentActivity, and
       // AndroidManifest.xml needs the USE_BIOMETRIC permission). If that
-      // native config is wrong, local_auth throws here on every attempt
-      // and this screen just quietly falls back to the MPIN pad forever,
-      // which is exactly what "fingerprint not working" looks like from
-      // the outside. Logging it is the only way to actually diagnose it.
+      // native config is wrong, local_auth throws here on every attempt.
+      // Logging it is the only way to actually diagnose it.
       debugPrint('Biometric: authenticate() threw -- $e');
-      // Biometric failed/cancelled → user can still enter MPIN.
     }
   }
 
@@ -132,6 +180,99 @@ class _MpinEntryScreenState extends State<MpinEntryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Lock screen has nothing to pop back to (splash/onboarding sit below
+    // it in the stack, but going "back" into those doesn't make sense
+    // here). System back button and the X button both do the exact same
+    // thing: exit to the background via SystemNavigator.pop(), same as
+    // pressing Home -- the app stays alive and shows up in the Recents
+    // switcher, it just isn't force-closed or killed.
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        _exitApp();
+      },
+      child: _buildBody(),
+    );
+  }
+
+  Widget _buildBody() {
+    switch (_mode) {
+      case _LockMode.loading:
+        return const Scaffold(
+          backgroundColor: AppColors.backgroundPrimary,
+          body: SizedBox.shrink(),
+        );
+      case _LockMode.biometric:
+        return _buildBiometricScreen();
+      case _LockMode.pin:
+        return _buildPinScreen();
+    }
+  }
+
+  // ── Biometric screen (shown only when biometric is enabled) ──
+
+  Widget _buildBiometricScreen() {
+    return Scaffold(
+      backgroundColor: AppColors.backgroundPrimary,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(AppDimensions.paddingPage),
+          child: Column(
+            children: [
+              Align(
+                alignment: Alignment.topLeft,
+                child: IconButton(
+                  onPressed: _exitApp,
+                  tooltip: 'Exit app',
+                  icon: const Icon(Icons.close_rounded, color: AppColors.textPrimary),
+                ),
+              ),
+              const Spacer(),
+              Text('Verify with fingerprint',
+                  style: AppTextStyles.displaySmall,
+                  textAlign: TextAlign.center),
+              const SizedBox(height: 8),
+              Text('Use your fingerprint to unlock YouPI',
+                  style: AppTextStyles.bodyMedium
+                      .copyWith(color: AppColors.textSecondary),
+                  textAlign: TextAlign.center),
+              const SizedBox(height: 20),
+              OutlinedButton(
+                onPressed: _switchToPasscode,
+                style: OutlinedButton.styleFrom(
+                  shape: const StadiumBorder(),
+                  side: const BorderSide(color: AppColors.divider),
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                ),
+                child: Text('Verify using passcode', style: AppTextStyles.bodyMedium),
+              ),
+              const Spacer(),
+              GestureDetector(
+                onTap: _tryBiometric,
+                child: Container(
+                  width: 88,
+                  height: 88,
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: AppColors.primary),
+                  ),
+                  child: const Icon(Icons.fingerprint_rounded,
+                      color: AppColors.primary, size: 44),
+                ),
+              ),
+              const Spacer(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Passcode (MPIN) screen ──
+
+  Widget _buildPinScreen() {
     return Scaffold(
       backgroundColor: AppColors.backgroundPrimary,
       // BUG FIX: this screen used to be Padding(child: Column(...with a
@@ -214,7 +355,7 @@ class _MpinEntryScreenState extends State<MpinEntryScreen> {
                         ['1', '2', '3'],
                         ['4', '5', '6'],
                         ['7', '8', '9'],
-                        ['⌾', '0', '⌫']
+                        ['', '0', '⌫']
                       ])
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
@@ -223,8 +364,12 @@ class _MpinEntryScreenState extends State<MpinEntryScreen> {
                               onTap: () {
                                 if (d == '⌫') {
                                   _onDelete();
-                                } else if (d == '⌾') {
-                                  _tryBiometric();
+                                } else if (d.isEmpty) {
+                                  // No-op placeholder key -- fingerprint
+                                  // key removed from this pad: biometric
+                                  // now only appears on its own screen
+                                  // (_buildBiometricScreen), never mixed
+                                  // into the passcode pad.
                                 } else {
                                   _onDigit(d);
                                 }
@@ -234,11 +379,11 @@ class _MpinEntryScreenState extends State<MpinEntryScreen> {
                                 height: 72,
                                 margin: const EdgeInsets.all(6),
                                 decoration: BoxDecoration(
-                                  color: d == '⌾'
+                                  color: d.isEmpty
                                       ? Colors.transparent
                                       : AppColors.backgroundCard,
                                   borderRadius: BorderRadius.circular(12),
-                                  border: d == '⌾'
+                                  border: d.isEmpty
                                       ? null
                                       : Border.all(color: AppColors.divider),
                                 ),
@@ -246,9 +391,6 @@ class _MpinEntryScreenState extends State<MpinEntryScreen> {
                                   child: d == '⌫'
                                       ? const Icon(Icons.backspace_rounded,
                                       color: AppColors.textSecondary, size: 20)
-                                      : d == '⌾'
-                                      ? const Icon(Icons.fingerprint_rounded,
-                                      color: AppColors.primary, size: 26)
                                       : Text(d,
                                       style: AppTextStyles.headlineLarge),
                                 ),

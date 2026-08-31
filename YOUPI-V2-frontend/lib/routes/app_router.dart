@@ -29,6 +29,9 @@ import '../presentation/invest/invest_hub_screen.dart';
 import '../presentation/invest/digital_gold_screen.dart';
 import '../presentation/invest/fd_calculator_screen.dart';
 import '../presentation/invest/portfolio_screen.dart';
+import '../presentation/invest/augmont_about_screen.dart';
+import '../presentation/invest/augmont_faq_screen.dart';
+import '../presentation/invest/augmont_terms_screen.dart';
 import '../presentation/goals/goals_screen.dart';
 import '../presentation/goals/create_goal_screen.dart';
 import '../presentation/goals/goal_detail_screen.dart';
@@ -148,6 +151,11 @@ class AppRouter {
       GoRoute(path: '/plans/emi-select', builder: (c, s) => const EmiSelectionScreen()),
       GoRoute(path: '/plans/success', builder: (c, s) => const RechargeSuccessScreen()),
       GoRoute(path: '/invest/gold', builder: (c, s) => const DigitalGoldScreen()),
+      // Augmont marketing checklist requirement: About Us, FAQs, and T&C
+      // reachable from the digital gold purchase page.
+      GoRoute(path: '/invest/gold/about-augmont', builder: (c, s) => const AugmontAboutScreen()),
+      GoRoute(path: '/invest/gold/faqs', builder: (c, s) => const AugmontFaqScreen()),
+      GoRoute(path: '/invest/gold/terms', builder: (c, s) => const AugmontTermsScreen()),
       GoRoute(path: '/invest/fd', builder: (c, s) => const FdCalculatorScreen()),
       GoRoute(path: '/invest/portfolio', builder: (c, s) => const PortfolioScreen()),
       GoRoute(path: '/invest/goals', builder: (c, s) => const GoalsScreen()),

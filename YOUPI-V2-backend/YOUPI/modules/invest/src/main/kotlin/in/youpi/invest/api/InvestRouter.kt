@@ -26,6 +26,7 @@ import `in`.youpi.invest.api.request.SellGoldRequest
 import `in`.youpi.invest.api.request.CreateAugmontUserRequest
 
 import java.math.BigDecimal
+import java.util.UUID
 
 @Configuration
 class InvestRouter(private val investService: InvestService) {
@@ -100,6 +101,11 @@ class InvestRouter(private val investService: InvestService) {
                 description = "Returns the user's gold buy/sell transaction history.",
                 tags = ["Gold"],
                 responses = [SwaggerApiResponse(responseCode = "200", description = "Transaction list")])),
+        RouterOperation(path = "/v1/gold/transactions/{id}/invoice", method = [RequestMethod.GET],
+            operation = Operation(operationId = "getBuyInvoice", summary = "Download gold BUY invoice",
+                description = "Returns a downloadable PDF tax invoice for a completed gold BUY transaction.",
+                tags = ["Gold"],
+                responses = [SwaggerApiResponse(responseCode = "200", description = "PDF invoice")])),
         RouterOperation(path = "/v1/gold/kyc", method = [RequestMethod.GET],
             operation = Operation(operationId = "getKycStatus", summary = "Get Augmont KYC status",
                 description = "Returns the user's KYC verification status on Augmont.",
@@ -152,6 +158,7 @@ class InvestRouter(private val investService: InvestService) {
             GET("/gold/history") { handlePriceHistory(it) }
             GET("/gold/products") { handleProducts(it) }
             GET("/gold/transactions") { handleTransactions(it) }
+            GET("/gold/transactions/{id}/invoice") { handleBuyInvoice(it) }
             GET("/gold/kyc") { handleKycStatus(it) }
             POST("/gold/user") { handleCreateAugmontUser(it) }
 
@@ -248,6 +255,16 @@ class InvestRouter(private val investService: InvestService) {
             .bodyValueAndAwait(ApiResponse.ok(txns))
     }
 
+    private suspend fun handleBuyInvoice(request: ServerRequest): ServerResponse {
+        val userId = request.currentUserId()
+        val txnId = UUID.fromString(request.pathVariable("id"))
+        val pdfBytes = investService.getBuyInvoice(userId, txnId)
+        return ServerResponse.ok()
+            .contentType(MediaType.APPLICATION_PDF)
+            .header("Content-Disposition", "attachment; filename=\"youpi-invoice-$txnId.pdf\"")
+            .bodyValueAndAwait(pdfBytes)
+    }
+
     private suspend fun handleKycStatus(request: ServerRequest): ServerResponse {
         val userId = request.currentUserId()
         val kyc = investService.getKycStatus(userId)
@@ -301,12 +318,12 @@ class InvestRouter(private val investService: InvestService) {
     }
 
     private suspend fun handleFdDetail(request: ServerRequest): ServerResponse {
-    val userId = request.currentUserId()
-    val fdId = request.pathVariable("id")
-    val detail = investService.getGoldFdDetail(userId, fdId)
-    return ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
-        .bodyValueAndAwait(ApiResponse.ok(detail))
-}
+        val userId = request.currentUserId()
+        val fdId = request.pathVariable("id")
+        val detail = investService.getGoldFdDetail(userId, fdId)
+        return ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
+            .bodyValueAndAwait(ApiResponse.ok(detail))
+    }
 
     private suspend fun handleFdClose(request: ServerRequest): ServerResponse {
         val userId = request.currentUserId()

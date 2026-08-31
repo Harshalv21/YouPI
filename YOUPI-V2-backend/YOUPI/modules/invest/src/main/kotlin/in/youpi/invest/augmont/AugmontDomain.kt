@@ -111,7 +111,8 @@ data class AugmontBuyData(
     val userName: String?,
     val transactionStatus: String?,
     val goldBalance: BigDecimal?,
-    val silverBalance: BigDecimal?
+    val silverBalance: BigDecimal?,
+    @JsonProperty("invoiceNumber") val invoiceNumber: String? = null
 )
 
 // ── Buy Info ──

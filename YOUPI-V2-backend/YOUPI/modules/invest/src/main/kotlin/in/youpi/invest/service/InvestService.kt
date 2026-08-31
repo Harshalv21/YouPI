@@ -5,7 +5,9 @@ import `in`.youpi.core.ExternalServiceException
 import `in`.youpi.core.KycStatusPort
 import `in`.youpi.core.NotFoundException
 import `in`.youpi.core.Result
+import `in`.youpi.core.ValidationException
 import `in`.youpi.invest.augmont.*
+import `in`.youpi.invest.invoice.InvoiceService
 import org.slf4j.LoggerFactory
 import org.springframework.data.annotation.Id
 import org.springframework.data.r2dbc.repository.Query
@@ -48,6 +50,7 @@ data class GoldTransactionEntity(
     val ratePerGram: BigDecimal,
     val providerTxnId: String? = null,
     val augmontTxnId: String? = null,
+    val augmontInvoiceNumber: String? = null,
     val blockId: String? = null,
     val metalType: String = "GOLD",
     val status: String = "PENDING",
@@ -179,7 +182,8 @@ class InvestService(
     private val augmontUserRepo: AugmontUserMappingRepository,
     private val augmontClient: AugmontClient,
     private val redisTemplate: ReactiveStringRedisTemplate,
-    private val kycStatusPort: KycStatusPort
+    private val kycStatusPort: KycStatusPort,
+    private val invoiceService: InvoiceService
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -415,6 +419,7 @@ class InvestService(
             // Update transaction with Augmont response
             goldTxnRepo.save(txn.copy(
                 augmontTxnId = augmontTxnId,
+                augmontInvoiceNumber = buyData?.invoiceNumber,
                 grams = actualGrams,
                 status = status
             ))
@@ -666,6 +671,26 @@ class InvestService(
 
     suspend fun getTransactions(userId: UUID, limit: Int = 20): List<GoldTransactionEntity> =
         goldTxnRepo.findByUserId(userId, limit)
+
+    // ── Invoice (Gold BUY) ──
+
+    suspend fun getBuyInvoice(userId: UUID, txnId: UUID): ByteArray {
+        val txn = goldTxnRepo.findById(txnId)
+            ?: throw NotFoundException("Transaction", txnId.toString())
+
+        // Ownership check -- 404, not 403, so we don't leak that a txn id
+        // exists for a different user.
+        if (txn.userId != userId) {
+            throw NotFoundException("Transaction", txnId.toString())
+        }
+
+        if (txn.txnType != "BUY" || txn.status != "SUCCESS") {
+            throw ValidationException("txnId", "Invoice is only available for successful gold purchases")
+        }
+
+        val customerName = augmontUserRepo.findByUserId(userId)?.augmontUserName ?: "YouPI Customer"
+        return invoiceService.generateBuyInvoice(txn, customerName)
+    }
 
     // ── Fixed Deposits (legacy bank FDs) ──
 

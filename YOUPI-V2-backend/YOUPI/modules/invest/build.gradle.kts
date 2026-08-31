@@ -11,6 +11,7 @@ dependencies {
     implementation(libs.spring.boot.starter.webflux)
     implementation(libs.spring.boot.starter.data.r2dbc)
     implementation(libs.spring.boot.starter.data.redis.reactive)
+    implementation(libs.pdfbox) // Apache PDFBox -- gold BUY invoice PDF generation
 
     testImplementation(project(":shared:testkit"))
     testImplementation(libs.spring.boot.starter.test)

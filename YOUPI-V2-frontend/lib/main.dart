@@ -12,6 +12,7 @@ import 'presentation/goals/goals_viewmodel.dart';
 import 'package:youpi/presentation/settings/settings_viewmodel.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'core/services/push_notification_service.dart';
+import 'core/services/app_lock_gate.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -43,11 +44,13 @@ class YoupiApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => WalletViewModel()),
         ChangeNotifierProvider(create: (_) => SettingsViewModel()),
       ],
-      child: MaterialApp.router(
-        title: 'YouPI',
-        debugShowCheckedModeBanner: false,
-        theme: AppTheme.darkTheme,
-        routerConfig: AppRouter.router,
+      child: AppLockGate(
+        child: MaterialApp.router(
+          title: 'YouPI',
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.darkTheme,
+          routerConfig: AppRouter.router,
+        ),
       ),
     );
   }

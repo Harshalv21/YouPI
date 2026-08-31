@@ -23,6 +23,7 @@ mockk = "1.13.10"
 kotest = "5.8.1"
 wiremock = "3.5.4"
 springdoc = "2.5.0"
+pdfbox = "2.0.31"
 
 [libraries]
 # ── Spring Boot ──
@@ -74,6 +75,9 @@ logstash-logback-encoder = { module = "net.logstash.logback:logstash-logback-enc
 
 # ── SpringDoc OpenAPI (Swagger UI) ──
 springdoc-openapi-webflux-ui = { module = "org.springdoc:springdoc-openapi-starter-webflux-ui", version.ref = "springdoc" }
+
+# ── PDF generation (invoice) ──
+pdfbox = { module = "org.apache.pdfbox:pdfbox", version.ref = "pdfbox" }
 
 # ── Testing ──
 testcontainers-bom = { module = "org.testcontainers:testcontainers-bom", version.ref = "testcontainers" }

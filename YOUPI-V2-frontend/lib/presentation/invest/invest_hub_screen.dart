@@ -7,6 +7,7 @@ import '../../core/constants/app_dimensions.dart';
 import '../../core/constants/app_text_styles.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../core/widgets/youpi_card.dart';
+import '../../core/widgets/augmont_badge.dart';
 import 'invest_viewmodel.dart';
 
 class InvestHubScreen extends StatefulWidget {
@@ -196,6 +197,14 @@ class _InvestHubScreenState extends State<InvestHubScreen> {
                     ]),
                   ]),
                 ),
+                const SizedBox(height: 10),
+                // Augmont marketing checklist: partner branding must
+                // clearly show Augmont's name and logo on this page too,
+                // since Buy/Sell are actionable directly from here.
+                const Align(
+                  alignment: Alignment.centerRight,
+                  child: AugmontBadge(),
+                ),
 
                 const SizedBox(height: 24),
                 if (!vm.isLoading) ...[
@@ -328,7 +337,7 @@ class _GlassCard extends StatelessWidget {
   final Widget child;
   const _GlassCard({required this.child});
 
-    @override
+  @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(18),
