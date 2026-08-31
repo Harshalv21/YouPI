@@ -30,6 +30,13 @@ class FirebaseAuthFilter(
         "/v1/config/features",
         "/webhooks/",
         "/api/webhooks/",
+        // Augmont's webhook route is nested under /v1 (AugmontWebhookRouter
+        // registers it as "/v1/webhooks/augmont", unlike Razorpay's flat
+        // "/webhooks/razorpay") -- must be skipped separately, or Augmont's
+        // static-secret auth header gets rejected here first (expects
+        // "Bearer ...") before it ever reaches the webhook's own check.
+        "/v1/webhooks/",
+        "/api/v1/webhooks/",
         // Admin panel (youpi_admin_panel.html) uses its own separate auth
         // scheme (AdminJwtService-issued tokens, verified inline by
         // AdminPanelRouter's requireAdmin()) -- NOT the Firebase/MPIN
