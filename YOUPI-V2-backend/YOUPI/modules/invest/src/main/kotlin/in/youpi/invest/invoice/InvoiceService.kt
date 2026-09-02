@@ -108,6 +108,17 @@ class InvoiceService {
                 // attributed elsewhere on this invoice (footer, "sourced and
                 // fulfilled by") where it isn't paired with security wording.
                 row("Vaulting Partner:", "SG Vaulted & Insured")
+                // Both added against Augmont's own sample tax invoice
+                // (GNP042735607) -- a real GST tax invoice needs HSN and
+                // Place of Supply, and our generated one was missing both.
+                // 711419 is gold's HSN code, matching Augmont's own invoice.
+                row("HSN Code:", "711419")
+                // NOTE: hardcoded to match Augmont's own sample invoice
+                // (GNP042735607) exactly -- their Buy API response doesn't
+                // currently return a place-of-supply/vault-city field
+                // (checked AugmontBuyData in AugmontDomain.kt), so this
+                // can't be made dynamic yet. Revisit if that ever changes.
+                row("Place of Supply:", "Delivered at Sequel's Vault, Mumbai, Maharashtra")
 
                 y -= 15f
                 cs.moveTo(margin, y)
@@ -138,7 +149,7 @@ class InvoiceService {
                 cs.newLineAtOffset(margin, y)
                 cs.showText("24K Digital Gold")
                 cs.newLineAtOffset(280f, 0f)
-                cs.showText("${txn.grams.setScale(4, RoundingMode.HALF_EVEN)} g")
+                cs.showText("${txn.grams.setScale(4, RoundingMode.DOWN)} g")
                 cs.newLineAtOffset(90f, 0f)
                 cs.showText("Rs. ${txn.ratePerGram.setScale(2, RoundingMode.HALF_EVEN)}")
                 cs.newLineAtOffset(90f, 0f)
@@ -180,6 +191,18 @@ class InvoiceService {
                 y -= 20f
 
                 // ── Footer ──
+                cs.beginText()
+                cs.setFont(PDType1Font.HELVETICA_OBLIQUE, 8f)
+                cs.newLineAtOffset(margin, y)
+                cs.showText("The gold grams shown are calculated by dividing the amount paid (net of GST) by")
+                cs.endText()
+                y -= 10f
+                cs.beginText()
+                cs.setFont(PDType1Font.HELVETICA_OBLIQUE, 8f)
+                cs.newLineAtOffset(margin, y)
+                cs.showText("the gold rate, rounded DOWN to 4 decimal places -- per Augmont's own disclosed method.")
+                cs.endText()
+                y -= 14f
                 cs.beginText()
                 cs.setFont(PDType1Font.HELVETICA_OBLIQUE, 8f)
                 cs.newLineAtOffset(margin, y)

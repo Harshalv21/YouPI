@@ -1,0 +1,237 @@
+-- Backs the Augmont About/FAQs/Terms content shown in the app (see
+-- GoldContentEntity/GoldContentRepository in InvestService.kt and the
+-- GET /v1/gold/content/{key} endpoint in InvestRouter.kt). Was
+-- previously hardcoded as const Dart strings in the app -- moving it
+-- here means a copy fix or FAQ update reaches already-installed apps
+-- immediately, with no app store release needed.
+--
+-- 'faqs' content is a JSON array of {"question":..., "answer":...}
+-- objects; 'about' and 'terms' are plain text. Seeded here with the
+-- same content that was previously bundled in the app (Augmont's own
+-- "About Us" and "Terms and Conditions" docs, and a curated FAQ list),
+-- so this migration is a pure lift-and-shift, not new content.
+
+CREATE TABLE gold_content (
+    key VARCHAR(32) PRIMARY KEY,
+    content TEXT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+INSERT INTO gold_content (key, content) VALUES
+('about', 'ABOUT US
+
+Augmont was incorporated in 2013 with the vision to provide a seamless, integrated offering to business and retail customers for anything related to gold. The idea was to leverage the power of technology combined with the strength of gold as an investment as well as a consumer good. Innovation is the bedrock of growth for Augmont. Whether it''s innovation in processes, product design, or distribution, Augmont has been delivering more and efficiently to its customers.
+
+AUGMONT GOLD FOR ALL
+
+Augmont "GOLD FOR ALL" is a revolutionary Goldtech ecosystem to make Gold accessible, affordable, useful, and manageable for all phases of a customer’s life. It is the one-stop destination for gold and silver. Augmont has derived its name from the combination of the words Au and Ag, the chemical symbols for ''Gold'' and ''Silver'' respectively. The word “Augment” means to increase or to make something greater by adding to it.
+
+Augmont Gold For All, products aims to touch every aspect of a customer’s life. Gold should be seen as a life-enabling companion for life. To this Augmont’s constant effort is to make bigger and more revolutionary contributions in the value chain of precious metal. Augmont’s unique DNA makes it our responsibility to revolutionize the entire gold ecosystem and help people transform their dreams into reality via easy access to gold.
+
+It is a ‘Phygital’ business model through which we sell various gold products like Gold Loan, Digi Gold, EMI Gold, Sell Old Gold, and many more through our deeply entrenched jeweller franchise network, doorstep delivery, and our digital platform (web and app).
+
+With Augmont Gold For All, we have simplified gold and the process across its lifecycle. Our gold tech ecosystem is aimed to make gold a life enabler for our consumers as well as for our jeweller partners.
+
+VISION
+
+Glittering a billion lives through the power of Gold
+
+MISSION
+
+To make Gold a life enabler for all our stakeholders
+
+LEADING PIONEERS IN GOLD IN INDIA
+
+Among India’s most reputed refinery & bullion companies with deep inroads in the close-knit jeweller community
+
+Ability to financially hedge with the most efficient and effective price discovery
+
+Physically deliver across exchanges, ETFs, and other channels
+
+Capable of distributing bullion from 0.1 grams coins to 1 kg bars across India
+
+More flexible and adaptive to changes in government policies
+
+Operates at lower costs than international refineries with the same level of efficiency, if not better
+
+Scale of Operations - Among the largest
+
+Leading Gold Refinery in India with annual sales surpassing US$ 3 bn
+
+Leading creator and redeemer of gold exchange-traded fund (ETF) units in India on all gold ETF schemes
+
+Leading delivery provider of gold on commodity exchanges in India
+
+
+ACCREDITATIONS AND ACCOMPLISHMENTS
+
+Augmont’s prices are used as the most common reference prices across India
+
+The refinery is accredited by BIS and NABL
+
+Awarded as the best platform and leading refinery year on year since 2009
+
+"India Good Delivery” member for NSE and MCX
+
+THE TRAILBLAZERS
+
+Augmont has created an extremely strong brand name in the retail space and as well among the jewellers (fraternity). The brand is the preferred partner among the retail and merchants due to the inevitable ecosystem developed that covers the entire value chain.
+
+Augmont has been at the forefront of innovation.
+
+SPOT – World’s largest and India’s first physical gold/silver/platinum platform since 2008
+
+Bullion ++ - Borrowing & Lending of Gold
+
+Bullion India – India’s pioneer digital gold platform (rebranded as Augmont Digi-gold)
+
+OCDs- India’s first Optionally Convertible Debentures for commodities markets
+
+Bullion Futures - Instrumental in successfully devising delivery based contracts for gold & silver on commodity exchanges
+
+ETFs - World’s first Gold ETF was conceptualized by Augmont as Paper Gold in 2002 and was filed with SEBI.
+
+EMI Jewellery - World''s largest investible jewelry product, in tamper-proof packaging. We are the pioneers in making Gold accessible to all.
+
+Augmont’s innovations have helped the jewellers in addressing the defaults and frauds of bullion brokers. Transparent pricing has saved 100s of crores of Rupees for jewellers/end consumers while buying gold.'),
+('terms', 'Augmont Terms & Conditions
+
+These “Terms” and “Conditions of Use” (“Terms/Augmont Terms and Conditions”) constitute an electronic record within the meaning of the applicable laws. This electronic record is generated by a computer system and does not require any physical or digital signatures. These Terms shall be in addition to and not in derogation to any other terms as stipulated from time to time. By using this facility on the YouPI Platform, You are agreeing to and accept these Terms.
+A. Gold Accumulation Plan Terms and Conditions
+Please read these Terms carefully.
+
+In these Terms, references to “You/you/Your”, or “Customer” shall mean the counterparty who transacts using the YouPI Platform/Platform, being a natural person, buying Gold/Silver, redeeming Gold/Silver in the form of redeemable products, selling back Gold/Silver to Augmont. “Platform” shall mean, and include, the platforms (website, mobile apps, others) of YouPI that the Customer accesses for the transactions, including all contents, services and technology offered through the Platform. “Service Providers” mean independent third party service providers, and references to the “Seller”, “Augmont”, “we/We”, “us” and “our” shall mean Augmont Goldtech Private Limited. “Customer’s Gold Accumulation Plan Account”/ (“GAP account”)” shall mean gold accumulation plan account of the individual Customer identified through his/her YouPI account based in the registered mobile number present in records of YouPI. “Transfer” refers to a facility to transfer Gold/Silver from a GAP account to another Customer’s GAP account.
+
+Augmont or YouPI may revise these Terms from time to time and at any time. Such changes shall be effective when posted on the Platform and shall be deemed to be notified to the Customer. If you do not agree to be bound by these Terms and Conditions of Access and Use, as modified from time to time, you should leave the Platform immediately.
+
+Augmont/YouPI shall be entitled to collect and store relevant information and documents provided by the Customer. Further, as and when required by Augmont / YouPI based on the government regulations, the Customer will be required to provide additional documents for fulfilling the KYC requirements. You authorize Augmont and YouPI to make such enquiries as they may feel necessary to satisfy themselves about the validity of Your identity. You undertake to update us and YouPI in case of change of Your existing information or verification documents provided by You.
+
+You agree to provide true, accurate, current and complete information about yourself as prompted by the Platform and maintain and promptly update to keep it true, accurate, current and complete. If You have reasons to believe that there is an error in the information furnished to Augmont /YouPI You shall immediately advice the Augmont / YouPI_____in writing and forthwith provide correct / updated information.
+
+If you provide any information that is untrue, inaccurate, not current or incomplete, or Augmont/YouPI has reasonable grounds to suspect that such information is untrue, inaccurate, not current or incomplete, Augmont/YouPI has the right to suspend or terminate your account/GAP account and refuse any and all current or future use of the Platform (or any portion thereof) without any liability to you. You hereby undertake to indemnify and keep indemnified YouPI against any and all losses, claims, liabilities costs etc. which arise out of or relating to Your failure to identify Yourself and validate Your account/GAP account promptly and / or due to incorrect KYC documents / information.
+
+You can offer to buy Gold/Silver worth Rs. 1.00 (Rupee One Only) and above incremental value thereof at the live purchase price of Gold/Silver of 99.9% purity displayed on the Platform.
+
+Payment will be accepted only through Your YouPI wallet or other payment options made available on the Platform. At the time of purchase / redemption / sale-back / transfer of Gold/Silver, the relevant taxes will be chargeable as applicable as per the Government regulations.
+
+At the time of redemption, the Customer can select redeemable product for redemption from catalogue of redeemable products. These redeemable products will be hosted on the Platform. The list of redeemable products may be altered, changed and amended by Augmont from time to time at its sole discretion.
+
+At the time of redemption in physical deliverable product form, the Customer will pay additional making and delivery charges and applicable taxes on the same. The redeemable product selected from the catalogue for delivery shall be subject to availability of stock with Augmont.
+
+For each confirmed purchase of Gold/Silver by the Customer, Augmont will transfer the metal to the vaulting agencies and it will be held there, under the supervision of an independent trustee, till (a)) sell-back by the Customer, (b) redemption by the Customer.
+
+The Customer will have the option of redeeming and asking for physical delivery of the full or part of the accumulated gold/silver holding, in the form of redeemable products made available on the Platform from time to time. The residual fractional gold/silver remaining, upon redemption / Transfer by You of the entire gold/silver holding, can be sold back by You to us at the live sell-back price of gold/silver of 99.9% purity and the corresponding amount against the residual fractional gold/silver sold by You will be credited in Your YouPI wallet instantly.
+
+You need to pay the applicable making and delivery charges from Your YouPI wallet or other payment instruments made available on the Platform in order to redeem the redeemable product of Your choice.
+
+Once the redemption has been initiated by You and payment received then Your gold/silver grams will be debited accordingly from Your GAP account.
+
+Augmont may also, from time to time in future, offer/permit the Customer to sell-back its gold/silver in fraction to Augmont at prevailing live sell-back price of gold/silver of 99.9% purity, during the offer period as may be announced / permitted by Augmont. The money against the fractional gold/silver sold by a Customer would be credited to the Customer.
+
+Live purchase price of Gold/silver will be displayed on the Platform and is subject to change from time to time. At the time You make request for redemption / sell-back, the value of Gold/Silver or quantity of Gold/Silver to be redeemed / sold back will be displayed based on live sell-back price of Gold/Silver. The live purchase price of Gold/Silver and live sell-back price of Gold/Silver may vary and also may be different from that available in the open market and/or in any other retail outlet. Your offer may be rejected irrespective of whether an item has been earmarked/wish listed by a Customer. In such an event if You still wish to offer to purchase Gold/Silver or sell-back residual fractional Gold/Silver, You may make another offer at the changed price. Augmont/YouPI disclaims any and all claims and/or liabilities arising from such non acceptance of offer or revision in prices.
+
+While availing any of the payment method/s available on the Platform, Augmont/YouPI will not be responsible or assume any liability, whatsoever in respect of any loss or damage arising directly or indirectly to the Customer due to:
+
+Lack of authorization for any transaction/s,
+
+Exceeding the preset limit mutually agreed by and between the Customer and relevant banks of the Customer,
+
+Any payment issues arising out of the transaction,
+
+Illegitimacy of the payment methods (credit/debit card frauds etc.) being used by a Customer;
+
+Temporarily discontinuation of invitation to offer; and / or
+
+Decline of transaction for any reason(s) whatsoever.
+
+Augmont may, at its discretion, prescribe maximum individual/cumulative limits for Customers to accumulate gold/silver or transfer Gold/Silver through this scheme from time to time, and reserves the right to refuse to accept order exceeding such limit.
+
+At any point of time on any day Augmont may temporarily discontinue the invitation to offer for any reason whatsoever.
+
+Augmont will, at its discretion, close down GAP account of Customers, if (a) they are inactive accounts,(for six months) (b) if Augmont decides to discontinue the scheme. In such an event, Customers will be required to redeem and / or sell-back their gold/silver holdings. In the event the Customer chooses not to respond, then Augmont reserves the right to repurchase the gold/silver holding of the Customer, at the then prevalent live sell-back price.
+
+Any Gold/Silver lying in vault, and business deposit is non transferrable unless specifically allowed by Augmont. However, in case of death or insanity, Augmont shall transfer such Gold/Silver, and advance balance to Your legal heir(s) after the required due diligence and Your legal heir(s) shall be regarded as the registered user thereafter.
+
+The Customer will not be entitled to redeem the Gold/Silver if the zip code of delivery address is outside serviceable areas. At time of redemption the Customer will be required to provide full delivery address.
+
+All redeemable products selected for delivery by Customer for redemption, shall be delivered within India as per instructions of the Customer through our/YouPI’s logistics partner. All deliveries where applicable shall be made on a best efforts basis, and while Augmont will endeavor to deliver the products on the dates intimated, Augmont/YouPI disclaims any claims or liabilities arising from any delay in this regard.
+
+The logistics partner will make a maximum of three attempts to deliver Your order. After three attempts gold/silver will be delivered back to Augmont and Customer will need to put the fresh request for the redemption.
+
+Augmont/YouPI shall not be liable / responsible, in any manner whatsoever, for any loss / liability arising out of or relating to any technical failure / issue in Platform and / or acts / omission not attributable to Augmont/YouPI.
+
+Notwithstanding anything contrary contained herein, the service, the interface and API work, and their respective information, pricing and data, and availability are subject at any time and from time to time to human, mechanical, typographic, or other errors, oversights, mistakes, limitations, delays, service interruptions, including, without limitation, as may be due in whole or in part to, related to or arising out of (i) computer hardware and software, telecommunication and operating systems, databases, or business processes and procedures, other problems inherent in, or which may be associated with, the use of the internet and electronic communications including, without limitation, force majeure event , government / regulatory actions, orders, notifications etc. and / or and acts and omissions of third parties etc. affecting or impacting the service, the interface or the API work, its information and data, or such communications. Customer acknowledges and agrees that Augmont/YouPI is not responsible or liable whatsoever for delays, failures, or other loss due to, caused by or resulting from any such problems, in whole or in part. If your GAP account is over credited or wrongfully credited / debited, then Augmont/YouPI has right to reverse / cancel without notice or require cancellation / reversal of such transaction at its sole discretion and debit / credit the gold/silver to / from your GAP account, as the case may be. Augmont/YouPI shall not be liable for any wrong transfer of Gold/silver by you to another GAP account (including but not limited to transfer to a different user / customer etc.) and the gold/silver grams shall not be reversed to you in case of an erroneous transfer and / or in case the transferee has already transacted the Gold/silver transferred.
+
+Upon Augmont confirming the purchase, redemption, sale-back of Gold/silver in his / her GAP account by Customer, the order / request of Customer to purchase / redemption / sale-back / transfer, as the case may be, shall be binding on the Customer and cannot be cancelled.
+
+The Customer shall inform immediately, in any case no later than [30] days of the transaction, of any irregularities or discrepancies that may exist in his/her GAP account, failing which it shall be deemed that there is no error or discrepancies in the GAP account. All records maintained by Augmont/YouPI, in electronic or documentary form of the instructions of the Customer and such other details (including, but not limited to payments made or received) pursuant to the Terms, shall as against the Customer, be deemed to be conclusive evidence of such instructions.
+
+The Customer understands and acknowledges that any purchase, redemption, sale-back or transfer from / to GAP account will be on instructions received by the Customer, and the Customer will not violate any applicable laws or regulations for the time being in force in or outside India. The Customer shall be responsible for complying with applicable laws in respect of purchase, redemption, sale-back to and from the GAP account including but not limited to the Prevention of Money Laundering Act, 2002, the Prohibitions of Benami Property Transactions Act, 1998, Income Tax Act, 1961 etc including amendment thereof. Customer also agrees and undertakes that he /she will not open any account/GAP account in the name of any minor. Augmont/YouPI will not be liable in any manner in this regard.
+
+The Customer feedbacks pertaining to products shall be deemed to be non-confidential and non-compensatory in nature. Augmont/YouPI reserves the right, at its sole discretion to use such information for its internal purposes.
+
+In the event of termination / expiry of Augmont’s arrangement with YouPI or otherwise at any point of time, Augmont and/or YouPI may notify You to sell back Your Gold/silver balance to Augmont or migrate Your GAP account to an alternative platform and continue with GAP account on such alternative platform (as decided by Augmont/YouPI).
+
+These Terms shall be governed by and interpreted and construed in accordance with the laws of India. The courts in Mumbai shall have exclusive jurisdiction in respect of any matters arising therefrom.
+
+In the event any dispute arises out of or in connection with the Terms herein, including the validity hereof, the parties hereto shall endeavor to settle such dispute amicably in the first instance. The attempt to bring about an amicable settlement shall be treated as having failed as soon as one of the parties hereto, after reasonable attempts, which shall continue for not less than 15 (Fifteen) calendar days, gives a notice to this effect, to the other party in writing.
+
+Waiver: Any failure or delay by YouPI/Augmont to enforce or exercise any provision of these Terms, or any related right, shall not constitute a waiver by YouPI/Augmont of that provision or right. The exercise of one or more of a YouPI/Augmont’s rights hereunder shall not be a waiver of, or preclude the exercise of, any rights or remedies available to Augmont/YouPI under these Terms or in law or at equity. Any waiver of any provision shall only be effective if made in writing and executed by a duly authorized officer of Augmont/YouPI.
+
+Force Majeure: If performance under these Terms by YouPI/Augmont is prevented, restricted, delayed or interfered with by reason of labor disputes, strikes, acts of God, floods, lightning, severe weather, shortages of materials, rationing, inducement of any virus, Trojan or other disruptive mechanisms, any event of hacking or illegal usage of the Platform, utility or communication failures, earthquakes, war, revolution, acts of terrorism, civil commotion, acts of public enemies, blockade, embargo or any law, order, proclamation, regulation, ordinance, demand or requirement having legal effect of any government or any judicial authority or representative of any such government, or any other act whatsoever, whether similar or dissimilar to those referred to in this clause, which are beyond the reasonable control of the YouPI/Augmont and could not have been prevented by reasonable precautions then the Augmont/YouPI shall in to be excused and discharged from such performance to the extent of and during the period of such force majeure event, and such non-performance shall, in no manner whosoever, amount to a breach by the YouPI/Augmont of its obligations herein.
+
+Absence of relationship: You represent and warrant to YouPI/Augmont that You have sufficient experience and knowledge to make informed decisions to purchase/ redeem/ sale-back Gold or Silver/Redeemable Products. You acknowledge that You are making all of Your own decisions in connection with purchases or redemption or sale-back and that You have not relied on any information made available by YouPI/Augmont, and that YouPI/Augmont is not making any recommendation with respect to such purchases/redemption/sale-back/ of Gold/Silver redeemable products. No relationship other than seller-purchaser, including, without limitation, any agent-principal relationship, any advisor-advisee relationship, any employee-employer relationship, any franchisee-franchisor relationship, any joint venture relationship or any YouPIship relationship, exists between You and Augmont. Further, these Terms do not constitute any agent-principal relationship, any advisor-advisee relationship, any employee-employer relationship, any franchisee-franchisor relationship, any joint venture relationship or any YouPIship relationship between You and YouPI.
+
+Electronic Order Risks: Order entry systems have been designed to provide an efficient and dependable method for entering orders. Commercial internet service providers are not 100% reliable and a failure by one or more of these providers may affect internet-based order entry. You acknowledge that the order entry system is an electronic mechanical system and as such may be subject to failure beyond the control of YouPI/Augmont. Therefore, YouPI/Augmont shall not be responsible for errors, negligence, inability to execute orders, delays in transmission, delivery or execution of order due to breakdown or failure of transmission or communication facilities, or to any other cause beyond YouPI/Augmont’s control or anticipation. You acknowledge that pricing or typographical errors may occur and that therefore, in the event that a product is listed at an incorrect price or with incorrect information due to an error in pricing or product information, YouPI/Augmont reserves the right, at our sole discretion, to refuse or cancel or reject any orders placed for the products. Furthermore, Augmont/YouPI reserves the right to deny refuse or cancel or reject any orders placed in case of market volatility and/ or unusual circumstances or conditions. This includes, without limitation, unexpected unavailability of product/Gold or Silver.
+
+Customer responsibility for taxes, tariffs and duties: You acknowledge that You are solely responsible for all taxes, tariffs and duties that may be incurred as a result of purchase/redemption/ of Gold or Silver/redeemable products. YouPI/Augmont will only collect taxes, tariffs and duties on transactions to the extent explicitly required by law. It is Your responsibility to be aware and properly address any taxes, tariffs and duties to which You may be subject by any local, state and/ or federal governments. If You have any questions about taxes, tariffs and duties, You should consult a tax or other professional about Your unique circumstances. YouPI/Augmont does not represent to provide advice or recommendations about Your specific taxes, tariffs and duties and any statements made by us are only for the purpose of raising issues for You to discuss with Your tax or other professional.
+
+Indemnification: Customer hereby agrees to indemnify and keep YouPI indemnified from and against all actions, claims, demands, proceedings, losses, damages, personal injury, costs, charges and expenses, directly or indirectly, whatsoever (‘Losses’) which YouPI or its employees, agents, workers or representative may at any time incur, sustain, suffer or be put to as a consequence of or by reason of or arising out of:
+
+the usage of the Platform by the Customer;
+
+by reason of Augmont ‘s acting in good faith and taking or refusing to take or omitting to take action on the Customer’s instructions, and in particular arising directly or indirectly out of the negligence, mistake or misconduct of the Customer;
+
+breach or noncompliance of the Terms and relating to the GAP account; and/or
+
+fraud or dishonesty relating to any transaction by the Customer. Without prejudice to the foregoing, YouPI shall be under no liability whatsoever to the Customer in respect of any loss or damage arising directly or indirectly out of: (i) Effecting transaction based on instructions received from Customers, (ii) The instruction of a Customer to transfer Gold/Silver from his / her GAP to another GAP, (iii) The exercise by Augmont of its right to terminate / exercise the facility/services provided on the Platform, (iv) Any injury to the credit, character and reputation of the Customer due to use of facility/ services on the Platform, (v) Any misstatement, misrepresentation, error or omission in any details disclosed by YouPI if it receives any process, summons, order, injunction, execution distrait, levy lien, information or notice which YouPI in good faith believes/ calls into question the Customer’s ability, or the ability of someone purporting to be authorized by the Customer, to make the transfer.
+
+Augmont/YouPI may, at its option and without liability to the Customer or such other person, decline to allow the Customer to obtain any portion of his gold/silver product, or may handover such gold/silver product over to an appropriate authority and take any other steps required by applicable law.
+
+Disclaimers and limits of liability: YouPI does not make any representations, recommendations, projections, warranties or guarantees of any kind, either expressed or implied, as to the performance of the Gold/Silver /Redeemable Products with respect to future prices or any return on investment. YouPI will not be liable to any Customer (including but not limited to Transferee) for any losses caused by or relating to transfer/deposit of Gold/Silver to GAP account of any other Customer. YouPI explicitly urges to all its Customers to inspect the package with the gold/silver product (“Package”) for any damage or tampering before receiving or signing for receipt. Any complaint / issue with respect to the quantity, make, quality etc., of the product/gold/silver product delivered to a Customer(s) must be raised by the Customer(s) within a period of 7 days from the date of delivery. YouPI/Augmont will not be liable for any loss or damage caused if the Customer accepts Package in spite of it being damaged or tampered. If You find any tampering, do not accept Package and return the same. The duty to verify the Package for any damages or tampering is of the Customer and if the Customer accepts the Package and later comes to know of any damage or tampering, YouPI/Augmont shall not be liable for any loss or damage to Customer. If such loss is later reported and approved by logistics partner and insurance company, the limit of liability shall be restricted to the amount paid by the logistic partner for such loss or damage in transit as per their terms and conditions and the same shall be binding upon the Customer.
+
+You acknowledge that YouPI will not be liable to You or any other person for indirect, consequential, special, incidental, punitive, or exemplary damages, including, without limitation, lost profits, lost savings and lost revenues (collectively, the “excluded damages”), whether or not characterized in negligence, tort, contract, or other theory of liability. In no event will YouPI or any of its directors, employees total liability to You for all damages, losses, liabilities and causes of action under these Terms and the facility/ services provided by YouPI collectively exceed total amount paid by You, if any, for access to that particular products or services. The foregoing limitation of liability shall apply to the fullest extent permitted by law in the applicable jurisdiction.
+
+You expressly agree that use of the Platform is at your sole risk. While we/YouPI will take all reasonable precautions to ensure uninterrupted and error-free operations, your access and use of the Platform is at your sole risk. The service is provided on an “as is” and “as available” basis. We/YouPI and our licensors, suppliers, vendors, parent, holding, subsidiary and related companies, affiliates, officers, agents and employees expressly disclaim all warranties of any kind, whether express or implied, including, but not limited to the implied warranties of merchantability, fitness for a particular purpose and non-infringement. In no event shall Augmont/YouPI be liable for any direct, indirect, incidental, special, punitive, consequential damages, or any damages whatsoever, including, but not limited to, damages for loss of profits, goodwill, use, data, or other intangible losses resulting from:
+
+The use or the inability to use our services or access content,
+
+The cost of procurement of substitute goods and services resulting from transactions entered into through or from the Platform,
+
+The unauthorized access to or alterations of your transmissions or data,
+
+Statements or conduct of any third party on the service, or
+
+Any other matter relating to any service or product offered, delivered or agreed to be delivered, even if Augmont/_______ has been advised of the possibility of damages.
+
+You declare that You are an individual not having registration and neither required to take registration under Central Goods and Service Tax Act 2017, State Goods and Service Tax Act 2017, Integrated Goods and Service Tax Act 2017 and Union Territory Goods and Service Tax Act 2017.
+
+You declare that gold/silver You are selling was previously owned by You for personal use.
+
+You declare that You are not an unregistered dealer of gold and silver or any other precious metal ornament or any related product.
+
+If there has been any misrepresentation by You, You would be solely responsible for all types the tax, interest and penalty due to the government at any given point of time.
+
+Except where noted otherwise, the prices displayed for products on the Platform represents the value of the respective product. For certain transactions, you shall bear fees and charges in addition to payment for prices displayed on the Platform. Such additional fees and charges shall be as are stated on the Platform. Please pay attention to the details of your transactions because your total price for a transaction may include taxes, fees and shipping costs, which you are responsible for paying.
+
+Gold/Silver Transfer:
+
+Upon transfer of Gold/Silver from a Customer, if recipient Customer already has an existing Gold Accumulation Plan Account (GAP) with Augmont , Gold/Silver will be credited in such account, otherwise a new GAP account will be created for such recipient Customer. Such GAP account would be created in recipient Customer name as per recipient Customer details available with YouPI. Transfer is subject to profile completion. Upon successful creation of account of recipient Customer, the transferred Gold/Silver shall be credited to such account. GAP accounts are offered, created, operated, and maintained by Augmont.
+
+Refunds:
+Any refunds due by Augmont to the user for non-availability of articles shall be credited to the registered user’s Bank Account.
+
+“Authorisation to Collect Consideration
+
+By clicking “I Agree” and undertaking any Digigold transaction through your platform, facilitated through Augmont Goldtech Private Limited (“AGTPL”), I (“Customer”) expressly authorise you to collect and receive the purchase consideration payable to AGTPL at the time of purchase and/or to collect, receive and/or facilitate disbursement of the sell-back consideration from AGTPL payable to me at the time of sell-back, strictly in accordance with the applicable operational arrangement between AGTPL and you.” '),
+('faqs', '[{"question": "What is Digital Gold?", "answer": "Digital Gold lets you buy physical bullion (gold/silver bars) for as low as Re. 1 with fully online access. You can request delivery of the gold/silver you''ve purchased as coins, bars, or jewellery to your doorstep, and sell it back at any time.", "category": "Buying Gold"}, {"question": "What is the purity of the gold?", "answer": "Augmont offers 24K 999 (99.9% pure) gold, through its online platform, along with 24K 999 silver.", "category": "Buying Gold"}, {"question": "Why buy Digital Gold via Augmont?", "answer": "Simple, mobile-number-only account opening. No brokerage, storage, or insurance charges. Wholesale market pricing. You can sell back to Augmont at low spreads, and request doorstep delivery anytime.", "category": "Buying Gold"}, {"question": "How does Augmont ensure a fair price?", "answer": "Buy and Sell prices are quoted directly from wholesale spot market prices, so the benefit of wholesale pricing is passed on to you.", "category": "Buying Gold"}, {"question": "Is GST included in the price shown?", "answer": "Prices shown are exclusive of GST and other applicable taxes. GST is added at the final checkout step.", "category": "Buying Gold"}, {"question": "Why is there a difference between Buy and Sell price?", "answer": "The spread reflects price volatility, supply, and market conditions. GST applies on the buy price but not the sell price, and other charges (payment gateway, trustee, etc.) also contribute to the difference.", "category": "Buying Gold"}, {"question": "What is the minimum order quantity?", "answer": "You can buy gold or silver for as low as Re. 1, up to four decimal grams.", "category": "Buying Gold"}, {"question": "How are the grams I own calculated?", "answer": "The grams you own are calculated by dividing the amount paid (net of GST) by the gold rate, rounded DOWN to 4 decimal places -- e.g. .00054 g rounds down to .0005 g. This is Augmont''s own disclosed method, printed on every tax invoice.", "category": "Buying Gold"}, {"question": "What happens when I sell my gold/silver?", "answer": "Sale proceeds are credited to your confirmed bank account, typically within one to two working days.", "category": "Selling Gold"}, {"question": "Can an order be cancelled?", "answer": "No -- once an order is successfully placed, it cannot be cancelled.", "category": "Selling Gold"}, {"question": "How does refund work?", "answer": "If money is deducted from your account for a Digital Gold order that didn''t go through successfully, it''s not lost -- it either never actually leaves your bank/wallet (a failed payment is not captured), or it''s automatically reversed back to your original payment method.", "category": "Payments"}, {"question": "When will my refund be processed?", "answer": "Most payment-gateway-level reversals complete within 5-7 working days, depending on your bank. You''ll see the amount back in your original payment method -- no separate refund request is usually needed for a failed transaction.", "category": "Payments"}, {"question": "What happens if payment fails?", "answer": "If your payment fails before it''s captured, no gold order is created and no amount is deducted. If your bank shows a deduction for a failed payment, that amount is auto-reversed by your bank or payment gateway.", "category": "Payments"}, {"question": "What happens if my gold purchase fails?", "answer": "If payment was captured but the gold purchase itself couldn''t be completed on Augmont''s side, the amount is reversed back to your original payment method or credited to your YouPI wallet.", "category": "Payments"}, {"question": "Do I need to complete KYC?", "answer": "Yes -- KYC is a statutory requirement for buying on the Augmont platform. You may be prompted for PAN details once your buying crosses a certain threshold.", "category": "Orders"}, {"question": "Where is the physical gold/silver stored?", "answer": "It''s stored securely in Sequel''s vault -- the same vaulting service used by several banks and Gold-ETF Asset Management Companies in India -- and is covered by insurance.", "category": "Orders"}, {"question": "Who is the Independent Trustee?", "answer": "Valgo Finsec Services Private Limited (formerly Valmet Securities Services Private Limited), part of the Sequel group, acts as the Independent Trustee with first and exclusive charge over the bullion you purchase, protecting your interests.", "category": "Orders"}, {"question": "Can I request physical delivery?", "answer": "Yes -- you can request delivery of your gold/silver as coins, bars, or jewellery to your doorstep, by choosing from the available catalogue and paying a nominal making and delivery fee. Delivery typically takes up to 10 working days.", "category": "Orders"}, {"question": "Who do I contact for queries?", "answer": "Write to support@augmont.com, or call/WhatsApp +91 9090906867. Customer service hours: 10:00 am - 7:00 pm, Monday to Saturday (excluding public holidays).", "category": "Orders"}, {"question": "What if there''s a dispute with my order?", "answer": "Once your gold or silver is delivered, Augmont''s responsibility for that order ceases. Any disputes are subject to Mumbai jurisdiction, per the terms printed on every Augmont tax invoice.", "category": "Orders"}]');

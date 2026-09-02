@@ -135,16 +135,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ]),
 
           const SizedBox(height: 16),
-          Text('Support', style: AppTextStyles.labelMedium.copyWith(color: AppColors.textSecondary)),
-          const SizedBox(height: 8),
-          _SettingsGroup(tiles: [
-            _SettingsTileData('Help & Support', Icons.help_outline_rounded,
-                    () => context.push('/settings/help-support')),
-            _SettingsTileData('Privacy Policy', Icons.privacy_tip_outlined,
-                    () => context.push('/settings/privacy-policy')),
-            _SettingsTileData('Terms of Service', Icons.description_outlined,
-                    () => context.push('/settings/terms-of-service')),
-          ]),
+          YoupiCard(
+            onTap: () => context.push('/settings/help-legal'),
+            child: Row(children: [
+              const Icon(Icons.help_center_outlined, color: AppColors.primary, size: 20),
+              const SizedBox(width: 12),
+              Expanded(child: Text('Help & Legal', style: AppTextStyles.labelLarge)),
+              const Icon(Icons.chevron_right_rounded, color: AppColors.textSecondary, size: 20),
+            ]),
+          ),
 
           const SizedBox(height: 16),
           YoupiCard(

@@ -12,17 +12,33 @@ import '../../core/services/app_lock_gate.dart';
 /// App-open lock screen. Shown on every launch when the user is logged in
 /// and has an MPIN set. Verifies against the locally stored MPIN hash.
 ///
-/// Two modes, chosen once at open based on the user's saved preference:
+/// Reached two different ways, which need two different "success" actions:
+/// - Cold start (splash `context.go`s here, replacing the whole stack --
+///   there is nothing underneath to return to) -> success navigates to
+///   /dashboard/home.
+/// - App-resume (AppLockGate `push`es this ON TOP of whatever screen the
+///   user was already on -- e.g. the Invest page) -> success should just
+///   POP this screen, revealing that same underlying screen again. Using
+///   go('/dashboard/home') here was the bug: it reset the whole stack and
+///   dropped the user back on Dashboard no matter which page they were on
+///   when the app got backgrounded.
+///
+/// [isResumeUnlock] is how the two are told apart -- AppLockGate passes
+/// `extra: true` when it pushes this screen; splash's cold-start route
+/// doesn't pass anything, so it defaults to false.
+///
+/// Two lock-UI modes, chosen once at open based on the user's saved
+/// preference:
 /// - Biometric ON  -> `_LockMode.biometric`: fingerprint-first screen with
 ///   an explicit "Verify using passcode" fallback and a close button to
 ///   exit the app. Never silently drops into the PIN pad on its own.
 /// - Biometric OFF -> `_LockMode.pin`: straight to the MPIN pad, no
 ///   fingerprint UI shown at all.
 ///
-/// On success → /dashboard/home.
 /// After 5 wrong MPIN attempts → temporarily blocks input.
 class MpinEntryScreen extends StatefulWidget {
-  const MpinEntryScreen({super.key});
+  final bool isResumeUnlock;
+  const MpinEntryScreen({super.key, this.isResumeUnlock = false});
 
   @override
   State<MpinEntryScreen> createState() => _MpinEntryScreenState();
@@ -71,6 +87,18 @@ class _MpinEntryScreenState extends State<MpinEntryScreen> {
     SystemNavigator.pop();
   }
 
+  void _onUnlockSuccess() {
+    if (widget.isResumeUnlock) {
+      // Pushed on top of whatever screen the user was already on (e.g.
+      // Invest) -- pop back to reveal it, instead of resetting the whole
+      // stack to Dashboard.
+      context.pop();
+    } else {
+      // Cold start via splash -- there's nothing underneath to pop to.
+      context.go('/dashboard/home');
+    }
+  }
+
   Future<void> _tryBiometric() async {
     final enabled = await StorageService.isBiometricEnabled();
     if (!enabled) {
@@ -105,7 +133,7 @@ class _MpinEntryScreenState extends State<MpinEntryScreen> {
       }
       debugPrint('Biometric: authenticate() returned $ok');
       if (ok && mounted) {
-        context.go('/dashboard/home');
+        _onUnlockSuccess();
       }
       // Failed/cancelled -> stay on the biometric screen. User explicitly
       // taps "Verify using passcode" to switch, we never auto-switch.
@@ -141,7 +169,7 @@ class _MpinEntryScreenState extends State<MpinEntryScreen> {
     final ok = await StorageService.verifyMpin(_mpin);
 
     if (ok) {
-      if (mounted) context.go('/dashboard/home');
+      if (mounted) _onUnlockSuccess();
       return;
     }
 

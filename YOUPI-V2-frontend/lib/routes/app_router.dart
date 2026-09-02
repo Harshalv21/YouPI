@@ -54,6 +54,8 @@ import '../presentation/wallet/transaction_history_screen.dart';
 import '../presentation/settings/settings_screen.dart';
 import '../presentation/settings/privacy_policy_screen.dart';
 import '../presentation/settings/terms_of_service_screen.dart';
+import '../presentation/settings/refund_policy_screen.dart';
+import '../presentation/settings/help_legal_hub_screen.dart';
 import '../presentation/settings/help_support_screen.dart';
 import '../presentation/settings/pan_details_screen.dart';
 import '../presentation/settings/bank_details_screen.dart';
@@ -120,7 +122,7 @@ class AppRouter {
           return OtpVerifyScreen(mobile: extra as String? ?? '');
         },
       ),
-      GoRoute(path: '/auth/mpin-entry', builder: (c, s) => const MpinEntryScreen()),
+      GoRoute(path: '/auth/mpin-entry', builder: (c, s) => MpinEntryScreen(isResumeUnlock: s.extra == true)),
       GoRoute(
         path: '/auth/login-mpin',
         builder: (c, s) => LoginMpinScreen(mobile: s.extra as String?),
@@ -184,6 +186,8 @@ class AppRouter {
       GoRoute(path: '/settings/pan-details', builder: (c, s) => const PanDetailsScreen()),
       GoRoute(path: '/settings/bank-details', builder: (c, s) => const BankDetailsScreen()),
       GoRoute(path: '/settings/privacy-policy', builder: (c, s) => const PrivacyPolicyScreen()),
+      GoRoute(path: '/settings/refund-policy', builder: (c, s) => const RefundPolicyScreen()),
+      GoRoute(path: '/settings/help-legal', builder: (c, s) => const HelpLegalHubScreen()),
       GoRoute(path: '/settings/terms-of-service', builder: (c, s) => const TermsOfServiceScreen()),
       GoRoute(path: '/settings/help-support', builder: (c, s) => const HelpSupportScreen()),
       ShellRoute(

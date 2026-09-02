@@ -49,7 +49,18 @@ class _AppLockGateState extends State<AppLockGate> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+    // BUG FIX: was arming on `paused` OR `inactive`. `inactive` fires for
+    // many transient things where the app never actually leaves the
+    // foreground -- taking a screenshot (the system screenshot/share
+    // overlay briefly steals focus), pulling down the notification
+    // shade, an incoming call banner, a permission dialog, the app
+    // switcher preview, etc. Arming on `inactive` meant any of those
+    // re-triggered the lock screen the moment the app came back to
+    // `resumed` -- which is exactly the "screenshot -> asks for MPIN
+    // again" behaviour being reported. `paused` is the reliable signal
+    // for "the app is actually no longer visible" (user genuinely
+    // switched away or went to Home) -- only that should arm the lock.
+    if (state == AppLifecycleState.paused) {
       if (!AppLockGate.authPromptInProgress) _wasBackgrounded = true;
       return;
     }
@@ -72,7 +83,7 @@ class _AppLockGateState extends State<AppLockGate> with WidgetsBindingObserver {
     // still mid-registration/mid-KYC) -- don't stack another lock screen.
     if (_skipPrefixes.any((p) => currentPath.startsWith(p))) return;
 
-    AppRouter.router.push('/auth/mpin-entry');
+    AppRouter.router.push('/auth/mpin-entry', extra: true);
   }
 
   @override
