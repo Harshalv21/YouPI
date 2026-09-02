@@ -30,6 +30,14 @@ class A1TopupClient(
     @Value("\${youpi.a1topup.status-url}") private val statusUrl: String,
     @Value("\${youpi.a1topup.username:}") private val username: String,
     @Value("\${youpi.a1topup.password:}") private val password: String,
+    // A1Topup's docs don't say what circlecode should be for DTH -- circle
+    // is a mobile-telecom concept and DTH subscriptions don't have one.
+    // Rather than guessing (their docs also incorrectly imply circlecode
+    // is optional -- see the mobile circlecode comment below, where it
+    // turned out to be required), this is left unconfigured until
+    // confirmed with A1Topup support. rechargeDth() refuses to fire with
+    // it blank -- see the check there.
+    @Value("\${youpi.a1topup.dth-circle-code:}") private val dthCircleCode: String,
     @Value("\${youpi.proxy.enabled:true}") private val proxyEnabled: Boolean,
     @Value("\${youpi.proxy.host:10.160.0.2}") private val proxyHost: String,
     @Value("\${youpi.proxy.port:3128}") private val proxyPort: Int,
@@ -71,7 +79,9 @@ class A1TopupClient(
     // (see checkStatus below) and don't want any base-URL prefixing to
     // interfere with that. Same connector settings (timeouts, proxy) as
     // the main client -- Status API goes through the same whitelisted
-    // proxy IP as the recharge API, so it needs the same routing.
+    // proxy IP as the recharge API, so it needs the same routing. Shared
+    // by mobile AND DTH status checks -- the Status API is the same
+    // endpoint for every recharge category, keyed only by orderid.
     private val statusWebClient: WebClient = WebClient.builder()
         .clientConnector(
             ReactorClientHttpConnector(
@@ -106,6 +116,24 @@ class A1TopupClient(
             "IDEA" to "I",
             "BSNL" to "BT",
             "VI" to "VI"
+        )
+
+        // Straight from A1Topup's "Operator Code" table in their API docs
+        // (DTH service rows). Tata Sky rebranded to Tata Play but A1Topup's
+        // docs still list it as "TATASKY DTH TV" -- both names are mapped
+        // to the same TTV code here so either label works upstream without
+        // caring about the rebrand.
+        private val CONFIRMED_DTH_OPERATOR_CODES = mapOf(
+            "AIRTEL DIGITAL TV" to "ATV",
+            "SUN DIRECT" to "STV",
+            "SUNDIRECT" to "STV",
+            "TATA PLAY" to "TTV",
+            "TATA SKY" to "TTV",
+            "TATASKY" to "TTV",
+            "VIDEOCON D2H" to "VTV",
+            "VIDEOCON" to "VTV",
+            "DISH TV" to "DTV",
+            "DISHTV" to "DTV"
         )
 
         private val CONFIRMED_CIRCLE_CODES = mapOf(
@@ -160,6 +188,73 @@ class A1TopupClient(
                         "(their docs incorrectly mark it optional). Check CONFIRMED_CIRCLE_CODES."
             )
 
+        return doRecharge(
+            operatorCode = operatorCode,
+            circleCode = circleCode,
+            number = mobileNumber,
+            amount = amount,
+            orderId = orderId,
+            logNumber = maskMobile(mobileNumber)
+        )
+    }
+
+    /**
+     * DTH recharge -- same underlying A1Topup Recharge API as
+     * rechargeMobile() (their docs list Mobile/DTH/Postpaid/Utility as one
+     * shared API, differentiated only by operatorcode), just with a
+     * subscriber/VC number in place of a mobile number.
+     *
+     * NOTE: circlecode for DTH is NOT yet confirmed with A1Topup -- circle
+     * is a mobile-telecom concept and their docs don't say what to send
+     * for non-mobile categories. This throws until
+     * youpi.a1topup.dth-circle-code is set, so we don't fire live DTH
+     * recharges against a guessed value. Confirm with A1Topup support
+     * (or a UAT test call) before wiring up the DTH flow end-to-end.
+     */
+    suspend fun rechargeDth(
+        subscriberNumber: String,
+        operator: String,
+        amount: java.math.BigDecimal,
+        orderId: String
+    ): A1TopupRechargeResult {
+        val operatorCode = CONFIRMED_DTH_OPERATOR_CODES[operator.uppercase()]
+            ?: throw ExternalServiceException(
+                "A1Topup",
+                "No confirmed A1Topup DTH operator code for '$operator' -- only Airtel Digital TV/Sun Direct/" +
+                        "Tata Play (Tata Sky)/Videocon d2h/Dish TV are mapped."
+            )
+
+        if (dthCircleCode.isBlank()) {
+            throw ExternalServiceException(
+                "A1Topup",
+                "youpi.a1topup.dth-circle-code is not configured -- confirm the correct circlecode value " +
+                        "for DTH recharges with A1Topup support before enabling live DTH recharges."
+            )
+        }
+
+        return doRecharge(
+            operatorCode = operatorCode,
+            circleCode = dthCircleCode,
+            number = subscriberNumber,
+            amount = amount,
+            orderId = orderId,
+            logNumber = subscriberNumber // subscriber/VC numbers aren't mobile numbers -- maskMobile() doesn't apply
+        )
+    }
+
+    /**
+     * Shared by rechargeMobile() and rechargeDth() -- both hit the exact
+     * same A1Topup endpoint with the exact same query shape, differing
+     * only in which operatorcode/circlecode/number they resolved upstream.
+     */
+    private suspend fun doRecharge(
+        operatorCode: String,
+        circleCode: String,
+        number: String,
+        amount: java.math.BigDecimal,
+        orderId: String,
+        logNumber: String
+    ): A1TopupRechargeResult {
         if (username.isBlank() || password.isBlank()) {
             throw ExternalServiceException("A1Topup", "A1Topup username/password not configured")
         }
@@ -177,7 +272,7 @@ class A1TopupClient(
         // sent, not just what A1Topup sent back.
         log.info(
             "A1Topup: sending recharge request for orderId={}: operatorCode={}, circleCode={}, number={}, amount={}",
-            orderId, operatorCode, circleCode, mobileNumber, amount.toBigInteger()
+            orderId, operatorCode, circleCode, number, amount.toBigInteger()
         )
 
         val rawResponse = try {
@@ -188,7 +283,7 @@ class A1TopupClient(
                         .queryParam("pwd", password)
                         .queryParam("circlecode", circleCode)
                         .queryParam("operatorcode", operatorCode)
-                        .queryParam("number", mobileNumber)
+                        .queryParam("number", number)
                         .queryParam("amount", amount.toBigInteger().toString())
                         .queryParam("orderid", orderId)
                         .queryParam("format", "json")
@@ -197,7 +292,7 @@ class A1TopupClient(
                 .retrieve()
                 .awaitBody<String>()
         } catch (e: Exception) {
-            log.error("A1Topup: recharge call failed for orderId={}, mobile={}", orderId, maskMobile(mobileNumber), e)
+            log.error("A1Topup: recharge call failed for orderId={}, number={}", orderId, logNumber, e)
             throw ExternalServiceException("A1Topup", "Recharge request failed: ${e.message}", e)
         }
 
@@ -209,10 +304,11 @@ class A1TopupClient(
     /**
      * Follows up on a `Pending` recharge via A1Topup's Status/Enquiry API
      * (business.a1topup.com/recharge/status). Returns the same result shape
-     * as rechargeMobile() -- Success/Failure/Pending are parsed identically,
-     * since the Status API's response format matches the Recharge API's
-     * (per A1Topup's docs: same txid/status/opid/number/amount/orderid
-     * shape, just format=json).
+     * as rechargeMobile()/rechargeDth() -- Success/Failure/Pending are
+     * parsed identically, since the Status API's response format matches
+     * the Recharge API's (per A1Topup's docs: same txid/status/opid/number/
+     * amount/orderid shape, just format=json) and is shared across every
+     * recharge category, keyed only by orderid.
      *
      * Called from RechargeService's reconciliation job for orders still
      * sitting in PENDING_VERIFICATION -- NOT called inline during the

@@ -20,6 +20,13 @@ class GoldRewardService(
         //   - emi_selection_screen.dart's `if (plan.price >= 249)` check
         // If any of these three drift apart, the animation, the "eligible"
         // log line, and the actual DB credit will disagree with each other.
+        //
+        // NOTE: this is the MOBILE recharge minimum only. DTH recharge has
+        // NO minimum-eligibility rule (business decision) -- see
+        // minimumEligibleAmount param below, which DTH callers override to
+        // BigDecimal.ZERO. Do not change this constant's value to "fix"
+        // DTH eligibility -- that would incorrectly also change mobile's
+        // long-standing ₹249 threshold.
         val MIN_RECHARGE_FOR_REWARD: BigDecimal = BigDecimal("249")
         val REWARD_PERCENTAGE: BigDecimal = BigDecimal("0.01")
 
@@ -33,19 +40,63 @@ class GoldRewardService(
         // now expressed as a coin count instead of always "+1 coin" per
         // recharge regardless of amount.
         val COIN_VALUE_RUPEES: BigDecimal = BigDecimal("0.10")
+
+        // ← NEW: pure calculation, no DB reads/writes/ledger inserts --
+        // mirrors creditRewardForRecharge()'s exact eligibility gate and
+        // rounding so a caller can know/display what WAS (or will be)
+        // credited without re-deriving the math or touching the ledger.
+        // Same minimumEligibleAmount contract as creditRewardForRecharge():
+        // MOBILE callers omit it (defaults to ₹249), DTH callers pass
+        // ZERO. Returns null when not eligible -- callers treat null as
+        // "no reward, so no reward-linked push either".
+        data class RewardPreview(val earnedCoins: Int, val earnedValueRupees: BigDecimal)
+
+        fun previewReward(
+            rechargeAmount: BigDecimal,
+            minimumEligibleAmount: BigDecimal = MIN_RECHARGE_FOR_REWARD
+        ): RewardPreview? {
+            if (rechargeAmount < minimumEligibleAmount) return null
+
+            val earnedValueRupees = rechargeAmount
+                .multiply(REWARD_PERCENTAGE)
+                .setScale(2, RoundingMode.HALF_UP)
+
+            val earnedCoins = earnedValueRupees
+                .divide(COIN_VALUE_RUPEES, 0, RoundingMode.HALF_UP)
+                .toInt()
+                .coerceAtLeast(0)
+
+            return RewardPreview(earnedCoins, earnedValueRupees)
+        }
     }
 
     /**
-     * Called ONLY from RechargeService.handleWebhookCaptured() — userId comes
-     * from the recharge order record (server-side, not client-supplied).
+     * Called from RechargeService (mobile recharge -- handleWebhookCaptured()
+     * via deliverAndResolve(), and resolveA1TopupOutcome() for reconciled
+     * orders) AND from DthRechargeService (DTH recharge).
+     *
+     * ← NEW: minimumEligibleAmount param, default = MIN_RECHARGE_FOR_REWARD
+     * (₹249). Every existing call site (mobile) doesn't pass this param,
+     * so its behavior is EXACTLY unchanged from before this change. DTH
+     * callers explicitly pass BigDecimal.ZERO -- DTH has no
+     * minimum-eligibility business rule, every successful DTH recharge
+     * earns 1% regardless of amount.
+     *
+     * The ledger/idempotency mechanism below (insertIfNotExists, keyed on
+     * rechargeTxnId) is completely untouched -- only the eligibility gate
+     * above it is now caller-configurable. This keeps the single reward
+     * ledger and single dedup mechanism centralized here rather than
+     * duplicated per recharge type, per the requirement to not create a
+     * separate DTH reward path.
      */
     @Transactional
     suspend fun creditRewardForRecharge(
         userId: UUID,
         rechargeTxnId: String,
-        rechargeAmount: BigDecimal
+        rechargeAmount: BigDecimal,
+        minimumEligibleAmount: BigDecimal = MIN_RECHARGE_FOR_REWARD
     ) {
-        if (rechargeAmount < MIN_RECHARGE_FOR_REWARD) return
+        if (rechargeAmount < minimumEligibleAmount) return
 
         val rewardValueRupees = rechargeAmount
             .multiply(REWARD_PERCENTAGE)

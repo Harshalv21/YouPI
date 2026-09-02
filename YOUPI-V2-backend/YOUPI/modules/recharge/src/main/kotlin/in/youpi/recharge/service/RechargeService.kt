@@ -82,18 +82,7 @@ class RechargeService(
         private val GOLD_ELIGIBLE_PLAN_AMOUNT = BigDecimal("249")
         private val MIN_DELIVERABLE_AMOUNT = BigDecimal("29")
         private val IST = ZoneId.of("Asia/Kolkata")
-
-        // NEW -- Razorpay's practical minimum chargeable amount. If the
-        // gateway-portion of a SPLIT payment would be smaller than this,
-        // reject the split upfront rather than let Razorpay order creation
-        // fail downstream (after we've already debited the wallet).
         private val MIN_GATEWAY_CHARGE_AMOUNT = BigDecimal("1.00")
-
-        // NEW -- how long a SPLIT order can sit in INITIATED (wallet
-        // debited, gateway checkout not yet completed) before the
-        // reconciliation job treats it as abandoned and releases the
-        // wallet hold. Generous enough to not race a slow-but-genuine
-        // checkout, short enough that money doesn't stay "stuck" for long.
         private val SPLIT_ABANDON_THRESHOLD_MINUTES = 30L
     }
 
@@ -277,8 +266,8 @@ class RechargeService(
         }
     }
 
-    // ── Order Creation ── -- NOW routes to THREE modes: WALLET (full),
-    // SPLIT (wallet + gateway, NEW), or gateway-only (Razorpay, existing).
+    // ── Order Creation ── -- routes to THREE modes: WALLET (full),
+    // SPLIT (wallet + gateway), or gateway-only (Razorpay).
     suspend fun createOrder(userId: UUID, req: CreateRechargeRequest): Result<RechargeOrderResponse, RechargeException> {
         if (req.paymentMode == PaymentMode.WALLET) {
             return createWalletPaidOrder(userId, req)
@@ -431,14 +420,6 @@ class RechargeService(
             is WalletDebitOutcome.Success -> { /* proceed */ }
         }
 
-        // Wallet debit above already succeeded. If this insert fails for any
-        // reason (constraint violation, DB error, etc.), the wallet must be
-        // reversed here -- otherwise the user is left debited with no
-        // recharge_orders row at all, which reconcileStuckSplitOrders() and
-        // every other recovery job can never find (they all query
-        // recharge_orders). See Aug 21 incident: chk_payment_mode constraint
-        // rejected payment_mode='WALLET'/'SPLIT', wallet stayed debited with
-        // no order row, required manual DB reversal.
         val order = try {
             rechargeRepo.insertOrder(
                 userId = userId,
@@ -498,29 +479,7 @@ class RechargeService(
         )
     }
 
-    // ── SPLIT-Paid Recharge (NEW) ──
-    //
-    // User pays PART of the plan amount from Wallet and the REMAINDER via
-    // Razorpay (UPI/card/etc). Order of operations is deliberate:
-    //
-    //   1. Debit the wallet portion FIRST (same-DB, atomic, instantly
-    //      reversible via walletCreditPort.reverseDebit() -- the exact
-    //      mechanism deliverAndResolve() already uses for WALLET-mode
-    //      refunds). This is a same-request operation with no external
-    //      dependency, so it's safe to do first and cheap to undo.
-    //   2. THEN create the Razorpay order for the remaining amount only.
-    //      If this external call fails, the wallet debit from step 1 is
-    //      immediately reversed inline, in the SAME request -- the user
-    //      just sees a clean failure, no stuck state, no orphaned Razorpay
-    //      order.
-    //   3. The Flutter Razorpay checkout SDK must open for `gatewayAmount`
-    //      (NOT the full plan amount) -- see RechargeOrderResponse fields.
-    //
-    // What this does NOT solve by itself: if the wallet debit succeeds,
-    // the Razorpay order is created, but the USER ABANDONS the checkout
-    // (closes the app, no webhook ever fires) -- wallet money would stay
-    // debited with no resolution. That case is handled separately by
-    // reconcileStuckSplitOrders() below (scheduled job).
+    // ── SPLIT-Paid Recharge ── -- UNCHANGED
     private suspend fun createSplitPaymentOrder(userId: UUID, req: CreateRechargeRequest): Result<RechargeOrderResponse, RechargeException> {
         val existing = rechargeRepo.findByIdempotencyKey(req.idempotencyKey)
         if (existing != null) {
@@ -547,10 +506,6 @@ class RechargeService(
         val planValidityDays = verifiedPlan.validity.toIntOrNull()
             ?: return Result.failure(RechargeApiException("Invalid plan validity in catalog"))
 
-        // walletAmount is the user's CONSENTED wallet-portion, chosen and
-        // confirmed on the split-payment consent screen client-side. It is
-        // still re-validated server-side against the live wallet balance
-        // inside debitForService() below -- never trust this number alone.
         val walletAmount = req.walletAmount
             ?: return Result.failure(RechargeApiException("walletAmount is required for SPLIT payment mode"))
 
@@ -569,7 +524,6 @@ class RechargeService(
             ))
         }
 
-        // STEP 1: debit wallet portion first.
         val debitOutcome = walletDebitPort.debitForService(
             userId = userId,
             walletType = "NBFC",
@@ -595,7 +549,6 @@ class RechargeService(
             is WalletDebitOutcome.Success -> { /* proceed to Razorpay */ }
         }
 
-        // STEP 2: create Razorpay order for the REMAINDER only.
         val amountPaise = gatewayAmount.multiply(BigDecimal(100)).toLong()
         val razorpayOrderId = try {
             razorpayClient.createOrder(
@@ -629,9 +582,6 @@ class RechargeService(
             }
 
             if (!reversed) {
-                // This is the one bad outcome of this design -- flag loudly
-                // for manual ops follow-up, same severity as the existing
-                // "WALLET REVERSAL FAILED" cases elsewhere in this file.
                 log.error(
                     "CRITICAL: SPLIT recharge wallet reversal FAILED after Razorpay order-creation failure -- " +
                             "userId={}, amount=₹{}, idempotencyKey={} -- needs manual wallet credit.",
@@ -642,16 +592,6 @@ class RechargeService(
             return Result.failure(RechargeApiException(e.message ?: "Razorpay order creation failed"))
         }
 
-        // Wallet debit AND Razorpay order are both live at this point. If
-        // this insert fails (constraint violation, DB error, etc.), the
-        // wallet must be reversed here -- otherwise the user is left debited
-        // with no recharge_orders row at all, which reconcileStuckSplitOrders()
-        // can never find (it only scans existing recharge_orders rows). The
-        // Razorpay order itself is left to expire unused -- Razorpay has no
-        // cancel-order API, and it's harmless since nothing references it.
-        // See Aug 21 incident: chk_payment_mode constraint rejected
-        // payment_mode='SPLIT', wallet stayed debited with no order row,
-        // required manual DB reversal.
         val order = try {
             rechargeRepo.insertOrder(
                 userId = userId,
@@ -669,8 +609,8 @@ class RechargeService(
                 goldAutoInvest = false,
                 idempotencyKey = req.idempotencyKey,
                 planValidityDays = planValidityDays,
-                walletAmount = walletAmount,      // NEW param -- see repository/migration notes
-                gatewayAmount = gatewayAmount      // NEW param -- see repository/migration notes
+                walletAmount = walletAmount,
+                gatewayAmount = gatewayAmount
             )
         } catch (e: Exception) {
             log.error(
@@ -708,11 +648,6 @@ class RechargeService(
                 razorpayOrderId = razorpayOrderId,
                 paymentSessionId = null,
                 razorpayKeyId = razorpayKeyId,
-                // IMPORTANT: `amount` here is the GATEWAY-CHARGE amount --
-                // the Flutter Razorpay checkout SDK must open for THIS
-                // number, not planAmount. walletAmount/gatewayAmount are
-                // also returned explicitly so the UI can show a clear
-                // breakdown without re-deriving it.
                 amount = gatewayAmount,
                 walletAmount = walletAmount,
                 gatewayAmount = gatewayAmount,
@@ -722,13 +657,25 @@ class RechargeService(
         )
     }
 
-    // ── Webhook-Driven Completion ── -- UNCHANGED; works for SPLIT too
-    // since it just looks up the order by razorpayOrderId (SPLIT orders
-    // have one, same as gateway-only orders) and hands off to
-    // deliverAndResolve(), which now branches on paymentMode == "SPLIT".
+    // ── Webhook-Driven Completion ──
+    //
+    // ← CHANGED: added a serviceType guard. DTH orders live in this same
+    // recharge_orders table (distinguished only by serviceType), so
+    // findByRazorpayOrderId() below finds them too -- without this guard,
+    // a DTH order would fall through to deliverAndResolve() below, which
+    // calls a1topupClient.rechargeMobile() with order.circle=null (DTH
+    // orders never set one) -- guaranteed failure, followed by an
+    // INCORRECT auto-refund, while the real A1Topup DTH recharge never
+    // happens. Returning false here tells PaymentService's webhook
+    // dispatcher "not mine, try the next handler" -- see
+    // DthRechargeService.handleWebhookCaptured(), which is tried next.
     suspend fun handleWebhookCaptured(razorpayOrderId: String, razorpayPaymentId: String): Boolean {
         val order = rechargeRepo.findByRazorpayOrderId(razorpayOrderId) ?: run {
             log.debug("Recharge webhook: no recharge order for razorpayOrderId={} (likely a different purpose)", razorpayOrderId)
+            return false
+        }
+
+        if (order.serviceType != "MOBILE") {
             return false
         }
 
@@ -740,12 +687,9 @@ class RechargeService(
         return deliverAndResolve(order, razorpayPaymentId)
     }
 
-    // ── Shared delivery + outcome + refund + reward + push logic ──
-    //
-    // CHANGED: refund/reversal branch now has THREE cases instead of two --
-    // WALLET (wallet reversal only, unchanged), SPLIT (NEW -- reverse
-    // wallet portion AND refund gateway portion), and gateway-only
-    // (Razorpay refund only, unchanged).
+    // ── Shared delivery + outcome + refund + reward + push logic ── -- UNCHANGED
+    // (only ever reached for serviceType="MOBILE" orders now, thanks to
+    // the guard added above -- this function itself needed no change).
     private suspend fun deliverAndResolve(order: RechargeOrderEntity, paymentIdentifier: String): Boolean {
         var status = "PAYMENT_DONE"
         var a1topupStatus: String
@@ -816,9 +760,6 @@ class RechargeService(
                     }
                 }
                 "SPLIT" -> {
-                    // NEW -- must undo BOTH legs. Attempt both even if one
-                    // fails, so we don't leave the other leg un-refunded
-                    // just because the first call threw.
                     val walletPortion = order.walletAmount ?: BigDecimal.ZERO
                     val gatewayPortion = order.gatewayAmount ?: BigDecimal.ZERO
 
@@ -901,8 +842,21 @@ class RechargeService(
             }
         }
 
-        var updatedOrder = rechargeRepo.updateAfterConfirm(
+        // ← CHANGED: was updateAfterConfirm() (unconditional WHERE id=:id).
+        // Now updateAfterConfirmIfStatus() with expectedCurrentStatus =
+        // "INITIATED" -- this is the exact status handleWebhookCaptured()
+        // already confirmed the order was in right before calling this
+        // function, so in the normal (non-racing) case this behaves
+        // identically and updatedOrder is non-null. It only differs if a
+        // second concurrent call (e.g. a duplicate Razorpay webhook
+        // delivery for the same event) reached this same point for the
+        // same order -- the second call's UPDATE now matches zero rows
+        // (because the first already flipped the status) and gets null
+        // back, instead of silently overwriting/duplicating the first
+        // call's work. See RechargeRepositories.kt for the full rationale.
+        var updatedOrder = rechargeRepo.updateAfterConfirmIfStatus(
             id = order.id!!,
+            expectedCurrentStatus = "INITIATED",
             status = status,
             razorpayPaymentId = paymentIdentifier,
             a1topupStatus = a1topupStatus,
@@ -910,7 +864,10 @@ class RechargeService(
             goldAutoInvest = order.goldAutoInvest,
             goldTxnId = order.goldTxnId,
             failureReason = refundFailureNote
-        )
+        ) ?: run {
+            log.info("Recharge webhook: orderId={} was already resolved by a concurrent call, skipping duplicate reward/push", order.id)
+            return true
+        }
 
         log.info("Recharge confirmed: orderId={}, amount={}, paymentMode={}", updatedOrder.id, updatedOrder.planAmount, order.paymentMode)
 
@@ -945,24 +902,28 @@ class RechargeService(
         return true
     }
 
-    private suspend fun sendRechargeSuccessPushIfEligible(userId: UUID, orderId: String, planAmount: BigDecimal) {
-        if (planAmount < GoldRewardService.MIN_RECHARGE_FOR_REWARD) return
-
-        val earnedValueRupees = planAmount
-            .multiply(GoldRewardService.REWARD_PERCENTAGE)
-            .setScale(2, java.math.RoundingMode.HALF_UP)
-        val earnedCoins = earnedValueRupees
-            .divide(GoldRewardService.COIN_VALUE_RUPEES, 0, java.math.RoundingMode.HALF_UP)
-            .toInt()
-            .coerceAtLeast(0)
+    // ← CHANGED: added minimumEligibleAmount param (default = MIN_RECHARGE_FOR_REWARD,
+    // ₹249) so this same function serves both MOBILE (unchanged, uses the
+    // default) and DTH (reconciliation path below passes ZERO). The
+    // eligibility+coin-math that used to be inlined here now lives in
+    // GoldRewardService.previewReward() -- a single pure helper shared with
+    // DthRechargeService, instead of the same math being duplicated in two
+    // services.
+    private suspend fun sendRechargeSuccessPushIfEligible(
+        userId: UUID,
+        orderId: String,
+        planAmount: BigDecimal,
+        minimumEligibleAmount: BigDecimal = GoldRewardService.MIN_RECHARGE_FOR_REWARD
+    ) {
+        val preview = GoldRewardService.previewReward(planAmount, minimumEligibleAmount) ?: return
 
         val user = userRepository.findById(userId) ?: return
         pushNotificationService.sendRechargeSuccessPush(
             fcmToken = user.fcmToken,
             orderId = orderId,
             amountRupees = planAmount,
-            earnedCoins = earnedCoins,
-            earnedValueRupees = earnedValueRupees
+            earnedCoins = preview.earnedCoins,
+            earnedValueRupees = preview.earnedValueRupees
         )
     }
 
@@ -1115,19 +1076,10 @@ class RechargeService(
         }
     }
 
-    // ── NEW: Stuck SPLIT-order reconciliation ──
-    //
-    // Handles the one gap left by "debit wallet first, then create
-    // Razorpay order": what if the user never completes the Razorpay
-    // checkout at all (closes the app, changes their mind, connection
-    // drops)? No webhook ever fires, so deliverAndResolve() never runs,
-    // and the wallet portion would stay debited indefinitely with no
-    // resolution. This job finds SPLIT orders stuck in INITIATED beyond
-    // SPLIT_ABANDON_THRESHOLD_MINUTES, checks the Razorpay order directly
-    // (mirrors the pattern in WalletService.sweepPendingTopups()), and if
-    // it was never paid, releases the wallet hold and marks the order
-    // EXPIRED. A1Topup is never called for these -- delivery only happens
-    // once BOTH legs are confirmed, so nothing was ever delivered here.
+    // ── Stuck SPLIT-order reconciliation ── -- UNCHANGED. Only scans
+    // paymentMode="SPLIT" -- DTH never uses SPLIT (see
+    // DthRechargeService.createOrder()), so no DTH-specific handling
+    // is needed here.
     @org.springframework.scheduling.annotation.Scheduled(fixedDelay = 300_000) // every 5 minutes
     suspend fun reconcileStuckSplitOrders() {
         val stuckCandidates = try {
@@ -1157,11 +1109,6 @@ class RechargeService(
             try {
                 val rzOrder = razorpayClient.fetchOrder(razorpayOrderId)
                 if (rzOrder.status == "paid") {
-                    // Payment actually went through but our webhook was
-                    // missed -- do NOT release the wallet hold. Let the
-                    // normal webhook-retry / manual-ops path pick this up;
-                    // treating it as abandoned here would double-spend the
-                    // gateway payment. Just log loudly.
                     log.warn(
                         "SPLIT reconciliation: orderId={} Razorpay status=paid but order still INITIATED -- " +
                                 "likely a missed webhook, NOT releasing wallet hold. Needs webhook replay/manual check.",
@@ -1170,8 +1117,6 @@ class RechargeService(
                     continue
                 }
 
-                // Not paid after the abandon threshold -- release the
-                // wallet hold and expire the order.
                 val walletPortion = order.walletAmount ?: BigDecimal.ZERO
                 val reversed = walletCreditPort.reverseDebit(
                     userId = order.userId,
@@ -1207,6 +1152,22 @@ class RechargeService(
         }
     }
 
+    // ← CHANGED: gold-reward eligibility threshold is now serviceType-aware.
+    // The old code had a local `if (order.planAmount >= GOLD_ELIGIBLE_PLAN_AMOUNT)`
+    // gate BEFORE calling goldRewardService.creditRewardForRecharge() at
+    // all. This function is serviceType-agnostic (reconcilePendingRecharges()
+    // above queries by status only, not serviceType -- confirmed safe for
+    // DTH orders to pass through here for status resolution), so that local
+    // gate was ALSO silently blocking gold-reward credit for any DTH order
+    // resolved via reconciliation that happened to be under ₹249 --
+    // violating DTH's "no minimum" rule for exactly this one path (the
+    // direct webhook path in DthRechargeService.deliverAndResolve() was
+    // already correct, since it calls GoldRewardService directly with
+    // minimumEligibleAmount=ZERO and no local gate).
+    // Fix: always call through to GoldRewardService, and let its
+    // minimumEligibleAmount param be the single source of truth --
+    // MOBILE orders get the ₹249 default (unchanged behavior), DTH orders
+    // get ZERO. No other part of this function changed.
     private suspend fun resolveA1TopupOutcome(orderId: String, result: A1TopupRechargeResult) {
         val order = rechargeRepo.findById(java.util.UUID.fromString(orderId)) ?: run {
             log.warn("Reconciliation: no order found for orderId={}, ignoring", orderId)
@@ -1219,15 +1180,32 @@ class RechargeService(
         }
 
         if (result.success) {
-            rechargeRepo.updateAfterConfirm(
+            // ← CHANGED: was updateAfterConfirm() (unconditional WHERE
+            // id=:id). Now updateAfterConfirmIfStatus() with
+            // expectedCurrentStatus = "PENDING_VERIFICATION" -- the exact
+            // status this function just confirmed the order was in, a few
+            // lines above. In the normal (non-racing) case this is
+            // identical to before. It only differs if the DTH webhook path
+            // (DthRechargeService.deliverAndResolve()) reached and resolved
+            // this same order between this function's status check above
+            // and this write -- an unlikely but real race, since that read
+            // and this write are not atomic with each other. If that
+            // happens, this UPDATE now matches zero rows and returns null,
+            // and this function skips reward/push instead of double-
+            // processing an order the webhook path already finished.
+            rechargeRepo.updateAfterConfirmIfStatus(
                 id = order.id!!,
+                expectedCurrentStatus = "PENDING_VERIFICATION",
                 status = "RECHARGE_SUCCESS",
                 razorpayPaymentId = order.razorpayPaymentId,
                 a1topupStatus = "SUCCESS",
                 a1topupRawResponse = toSafeJson(result.rawResponse),
                 goldAutoInvest = false,
                 goldTxnId = null
-            )
+            ) ?: run {
+                log.info("Reconciliation: orderId={} was already resolved by a concurrent call (e.g. webhook), skipping duplicate reward/push", orderId)
+                return
+            }
             log.info("Reconciliation: orderId={} resolved SUCCESS", orderId)
 
             if (order.planValidityDays != null && order.planValidityDays > 0) {
@@ -1235,20 +1213,31 @@ class RechargeService(
                 rechargeRepo.setExpiryDate(order.id!!, expiryDate)
             }
 
-            if (order.planAmount >= GOLD_ELIGIBLE_PLAN_AMOUNT) {
-                try {
-                    goldRewardService.creditRewardForRecharge(
-                        userId = order.userId,
-                        rechargeTxnId = order.id.toString(),
-                        rechargeAmount = order.planAmount
-                    )
-                } catch (e: Exception) {
-                    log.warn("Reconciliation: gold reward crediting failed (non-fatal): orderId={}", orderId, e)
-                }
+            // ← CHANGED: threshold is serviceType-aware (MOBILE=₹249 default,
+            // DTH=ZERO) -- unchanged from the earlier fix, kept as-is.
+            try {
+                goldRewardService.creditRewardForRecharge(
+                    userId = order.userId,
+                    rechargeTxnId = order.id.toString(),
+                    rechargeAmount = order.planAmount,
+                    minimumEligibleAmount = if (order.serviceType == "DTH") BigDecimal.ZERO else GOLD_ELIGIBLE_PLAN_AMOUNT
+                )
+            } catch (e: Exception) {
+                log.warn("Reconciliation: gold reward crediting failed (non-fatal): orderId={}", orderId, e)
             }
 
+            // ← CHANGED: the MOBILE-only guard is removed. sendRechargeSuccessPushIfEligible()
+            // now takes the same serviceType-aware minimumEligibleAmount as the
+            // gold-reward call directly above -- MOBILE keeps its ₹249 default
+            // (unchanged behavior), DTH gets ZERO (every successful DTH
+            // recharge is push-eligible, per the finalized business rule).
             try {
-                sendRechargeSuccessPushIfEligible(order.userId, order.id.toString(), order.planAmount)
+                sendRechargeSuccessPushIfEligible(
+                    userId = order.userId,
+                    orderId = order.id.toString(),
+                    planAmount = order.planAmount,
+                    minimumEligibleAmount = if (order.serviceType == "DTH") BigDecimal.ZERO else GOLD_ELIGIBLE_PLAN_AMOUNT
+                )
             } catch (e: Exception) {
                 log.warn("Reconciliation: push notification dispatch failed (non-fatal): orderId={}", orderId, e)
             }
