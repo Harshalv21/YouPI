@@ -17,6 +17,7 @@
 // (weight-based) endpoint with cash figures, which would be worse than
 // leaving it locked.
 
+import 'dart:convert';
 import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
@@ -120,6 +121,25 @@ class InvestRepository {
         'metalType': 'gold',
       });
       return ApiService.unwrap(res) != null;
+    } on DioException catch (e) {
+      throw ApiService.toException(e);
+    }
+  }
+
+  /// Raw JSON string of content entries for a given category (e.g.
+  /// "faqs") -- GET /v1/gold/content/{category}, backed by
+  /// GoldContentEntity in InvestService.kt. Returns the raw string
+  /// rather than parsed objects since callers (like AugmontFaqScreen)
+  /// decode+shape it themselves and fall back to bundled content on any
+  /// failure.
+  Future<String> getGoldContent(String category) async {
+    try {
+      final res = await _dio.get('/v1/gold/content/$category');
+      final data = ApiService.unwrap(res);
+      // Backend may return either a raw JSON string or an already-decoded
+      // list/map depending on how the endpoint serializes it -- handle
+      // both so the caller's jsonDecode() always gets a valid JSON string.
+      return data is String ? data : jsonEncode(data);
     } on DioException catch (e) {
       throw ApiService.toException(e);
     }

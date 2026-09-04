@@ -30,13 +30,15 @@ class A1TopupClient(
     @Value("\${youpi.a1topup.status-url}") private val statusUrl: String,
     @Value("\${youpi.a1topup.username:}") private val username: String,
     @Value("\${youpi.a1topup.password:}") private val password: String,
-    // A1Topup's docs don't say what circlecode should be for DTH -- circle
-    // is a mobile-telecom concept and DTH subscriptions don't have one.
-    // Rather than guessing (their docs also incorrectly imply circlecode
-    // is optional -- see the mobile circlecode comment below, where it
-    // turned out to be required), this is left unconfigured until
-    // confirmed with A1Topup support. rechargeDth() refuses to fire with
-    // it blank -- see the check there.
+    // A1Topup's docs (Operator Code / query-param reference page, confirmed
+    // Sep 3) list circlecode as OPTIONAL for the shared Mobile/DTH/Postpaid/
+    // Utility recharge API -- unlike mobile recharge, where their docs also
+    // said "optional" but it turned out to be required in practice. For DTH
+    // this is left unconfigured by default (empty string) and doRecharge()
+    // simply omits the circlecode query param when it's blank, rather than
+    // guessing or refusing to fire. If A1Topup support later says a specific
+    // circlecode value is needed for DTH after all, set
+    // youpi.a1topup.dth-circle-code to that value here.
     @Value("\${youpi.a1topup.dth-circle-code:}") private val dthCircleCode: String,
     @Value("\${youpi.proxy.enabled:true}") private val proxyEnabled: Boolean,
     @Value("\${youpi.proxy.host:10.160.0.2}") private val proxyHost: String,
@@ -204,12 +206,11 @@ class A1TopupClient(
      * shared API, differentiated only by operatorcode), just with a
      * subscriber/VC number in place of a mobile number.
      *
-     * NOTE: circlecode for DTH is NOT yet confirmed with A1Topup -- circle
-     * is a mobile-telecom concept and their docs don't say what to send
-     * for non-mobile categories. This throws until
-     * youpi.a1topup.dth-circle-code is set, so we don't fire live DTH
-     * recharges against a guessed value. Confirm with A1Topup support
-     * (or a UAT test call) before wiring up the DTH flow end-to-end.
+     * circlecode for DTH is confirmed OPTIONAL by A1Topup's docs (Sep 3) --
+     * unlike rechargeMobile(), there's no guard here requiring it. If
+     * youpi.a1topup.dth-circle-code is unset/blank, doRecharge() simply
+     * omits the circlecode query param entirely rather than sending an
+     * empty value or a guessed one.
      */
     suspend fun rechargeDth(
         subscriberNumber: String,
@@ -223,14 +224,6 @@ class A1TopupClient(
                 "No confirmed A1Topup DTH operator code for '$operator' -- only Airtel Digital TV/Sun Direct/" +
                         "Tata Play (Tata Sky)/Videocon d2h/Dish TV are mapped."
             )
-
-        if (dthCircleCode.isBlank()) {
-            throw ExternalServiceException(
-                "A1Topup",
-                "youpi.a1topup.dth-circle-code is not configured -- confirm the correct circlecode value " +
-                        "for DTH recharges with A1Topup support before enabling live DTH recharges."
-            )
-        }
 
         return doRecharge(
             operatorCode = operatorCode,
@@ -246,6 +239,11 @@ class A1TopupClient(
      * Shared by rechargeMobile() and rechargeDth() -- both hit the exact
      * same A1Topup endpoint with the exact same query shape, differing
      * only in which operatorcode/circlecode/number they resolved upstream.
+     *
+     * circleCode may be blank (DTH's confirmed-optional case) -- in that
+     * case the circlecode query param is omitted entirely rather than
+     * sent as an empty string, since we don't know which of those two
+     * A1Topup's API actually treats as "not provided".
      */
     private suspend fun doRecharge(
         operatorCode: String,
@@ -272,7 +270,7 @@ class A1TopupClient(
         // sent, not just what A1Topup sent back.
         log.info(
             "A1Topup: sending recharge request for orderId={}: operatorCode={}, circleCode={}, number={}, amount={}",
-            orderId, operatorCode, circleCode, number, amount.toBigInteger()
+            orderId, operatorCode, circleCode.ifBlank { "(omitted)" }, number, amount.toBigInteger()
         )
 
         val rawResponse = try {
@@ -281,7 +279,10 @@ class A1TopupClient(
                     builder
                         .queryParam("username", username)
                         .queryParam("pwd", password)
-                        .queryParam("circlecode", circleCode)
+                    if (circleCode.isNotBlank()) {
+                        builder.queryParam("circlecode", circleCode)
+                    }
+                    builder
                         .queryParam("operatorcode", operatorCode)
                         .queryParam("number", number)
                         .queryParam("amount", amount.toBigInteger().toString())

@@ -6,7 +6,10 @@ import '../core/services/storage_service.dart';
 import '../presentation/splash/splash_screen.dart';
 import '../presentation/onboarding/welcome_screen.dart';
 import '../presentation/onboarding/onboarding_carousel_screen.dart';
-import '../presentation/onboarding/onboarding_questions_screen.dart'; // NEW
+import '../presentation/onboarding/onboarding_questions_screen.dart'; 
+import '../presentation/recharge/dth/dth_operator_select_screen.dart';
+import '../presentation/recharge/dth/dth_customer_id_screen.dart';
+import '../presentation/recharge/dth/dth_amount_screen.dart';
 import '../presentation/auth/mobile_entry_screen.dart';
 import '../presentation/auth/otp_verify_screen.dart';
 import '../presentation/auth/user_profile_setup_screen.dart';
@@ -149,6 +152,9 @@ class AppRouter {
         ],
       ),
       GoRoute(path: '/plans/browse', builder: (c, s) => const BrowsePlansScreen()),
+      GoRoute(path: '/dth/operator-select', builder: (c, s) => const DthOperatorSelectScreen()),
+      GoRoute(path: '/dth/customer-id', builder: (c, s) => const DthCustomerIdScreen()),
+      GoRoute(path: '/dth/amount', builder: (c, s) => const DthAmountScreen()),
       GoRoute(path: '/plans/smartsave', builder: (c, s) => const SmartSaveAdvantageScreen()),
       GoRoute(path: '/plans/emi-select', builder: (c, s) => const EmiSelectionScreen()),
       GoRoute(path: '/plans/success', builder: (c, s) => const RechargeSuccessScreen()),

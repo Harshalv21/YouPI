@@ -13,6 +13,7 @@ import 'package:youpi/presentation/settings/settings_viewmodel.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'core/services/push_notification_service.dart';
 import 'core/services/app_lock_gate.dart';
+import 'presentation/recharge/dth/dth_viewmodel.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -39,6 +40,7 @@ class YoupiApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => SplashViewModel()),
         ChangeNotifierProvider(create: (_) => HomeViewModel()),
         ChangeNotifierProvider(create: (_) => RechargeViewModel()),
+        ChangeNotifierProvider(create: (_) => DthViewModel()),
         ChangeNotifierProvider(create: (_) => InvestViewModel()),
         ChangeNotifierProvider(create: (_) => GoalsViewModel()),
         ChangeNotifierProvider(create: (_) => WalletViewModel()),

@@ -279,7 +279,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         children: [
                           _BillTile('Mobile\nRecharge', Icons.smartphone_rounded, () => ctx.go('/dashboard/plans')),
                           _BillTile('Postpaid', Icons.receipt_long_rounded, () {}, locked: true),
-                          _BillTile('DTH /\nCable TV', Icons.live_tv_rounded, () {}, locked: true),
+                          _BillTile('DTH /\nCable TV', Icons.live_tv_rounded, () => ctx.push('/dth/operator-select')),
                           _BillTile('Electricity', Icons.bolt_rounded, () {}, locked: true),
                           _BillTile('Credit\nCards', Icons.credit_card_rounded, () {}, locked: true),
                         ],

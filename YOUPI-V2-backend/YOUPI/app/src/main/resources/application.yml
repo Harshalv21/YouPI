@@ -152,6 +152,13 @@ youpi:
     username: ${A1TOPUP_USERNAME:}
     password: ${A1TOPUP_PASSWORD:}
     callback-token: ${A1TOPUP_CALLBACK_TOKEN:}
+    # DTH circlecode confirmed OPTIONAL by A1Topup's docs (Sep 3) -- left
+    # unset by default. A1TopupClient.rechargeDth()/doRecharge() omit the
+    # circlecode query param entirely when this is blank, rather than
+    # sending an empty value or a guessed one. Only set
+    # A1TOPUP_DTH_CIRCLE_CODE if A1Topup support later specifies an
+    # actual value is required for DTH after all.
+    dth-circle-code: ${A1TOPUP_DTH_CIRCLE_CODE:}
 
   augmont:
     base-url: ${AUGMONT_BASE_URL:https://uat-api.merchant.augmont.com/api}
@@ -254,3 +261,4 @@ spring:
     redis:
       host: ${REDIS_HOST}
       port: ${REDIS_PORT:6379}
+      
