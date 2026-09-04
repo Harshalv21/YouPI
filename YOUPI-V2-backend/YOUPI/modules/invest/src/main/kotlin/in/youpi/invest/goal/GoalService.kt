@@ -16,7 +16,6 @@ import org.springframework.data.r2dbc.repository.Query
 import org.springframework.data.relational.core.mapping.Table
 import org.springframework.data.repository.kotlin.CoroutineCrudRepository
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate
-import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 import kotlinx.coroutines.reactive.awaitSingle
 import java.math.BigDecimal
@@ -303,23 +302,17 @@ class GoalService(
     // ══════════════════════════════════════
 
     /**
-     * Runs once a day. Cloud Run can have more than one warm instance, so
-     * a bare @Scheduled here could double-fire (spec's open decision 6.3)
-     * -- guarded with a short-lived Redis lock (SET NX), same Redis
-     * instance InvestService already uses for the rates cache.
+     * Triggered externally by a Google Cloud Scheduler job (daily, 09:00
+     * IST) hitting POST /internal/gold-sip/run-due-debits -- see
+     * GoalRouter.handleRunDueDebits(). NOT a Spring @Scheduled in-process
+     * cron: Cloud Run's min-instances=0 means an idle instance sleeps,
+     * and an in-process cron simply does not fire while asleep (confirmed
+     * directly, Sep 4 -- a bare @Scheduled here silently missed its run).
+     * Cloud Scheduler's HTTP call wakes the instance on its own.
      *
-     * Note: kept as a single in-process cron for now, consistent with
-     * WalletService.sweepPendingTopups() elsewhere in this codebase,
-     * which uses the same fixedDelay approach without a lock. If Cloud
-     * Run min-instances ever goes above 1, revisit -- a Cloud Scheduler
-     * + authenticated-endpoint pattern would be a more robust fix than
-     * the Redis lock alone.
+     * Still guarded by a short-lived Redis lock (SET NX) in case Cloud
+     * Scheduler ever retries or two jobs briefly overlap.
      */
-    // TEMP for testing (Sep 4) -- fires every minute; the existing
-    // 30-min Redis lock prevents duplicate processing across repeated
-    // fires, so this is safe. Revert to "0 30 3 * * *" (09:00 IST)
-    // after confirming the scheduler works end-to-end.
-    @Scheduled(cron = "0 30 3 * * *") // 03:30 UTC = 09:00 IST
     suspend fun runDueGoalDebits() {
         val gotLock = redisTemplate.opsForValue()
             .setIfAbsent(SCHEDULER_LOCK_KEY, Instant.now().toString(), Duration.ofMinutes(30))

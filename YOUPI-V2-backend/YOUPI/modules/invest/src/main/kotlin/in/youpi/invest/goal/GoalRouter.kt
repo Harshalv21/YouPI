@@ -25,7 +25,14 @@ import org.springframework.web.reactive.function.server.*
 import java.util.UUID
 
 @Configuration
-class GoalRouter(private val goalService: GoalService) {
+class GoalRouter(
+    private val goalService: GoalService,
+    // Shared secret for the internal scheduler-trigger endpoint (Google
+    // Cloud Scheduler is configured to send this in a header). NOT a
+    // user-facing credential -- separate from JWT auth entirely.
+    @org.springframework.beans.factory.annotation.Value("\${youpi.internal.gold-sip-secret:}")
+    private val internalSecret: String
+) {
 
     @Bean
     @RouterOperations(
@@ -72,6 +79,27 @@ class GoalRouter(private val goalService: GoalService) {
             POST("/{id}/topup") { handleTopup(it) }
             DELETE("/{id}") { handleDeleteGoal(it) }
         }
+        // Called by Google Cloud Scheduler only -- not a user endpoint.
+        // Auth is the X-Internal-Secret header check below, not JWT (see
+        // FirebaseAuthFilter's skipPaths for the matching skip entry).
+        POST("/v1/internal/gold-sip/run-due-debits") { handleRunDueDebits(it) }
+    }
+
+    private suspend fun handleRunDueDebits(request: ServerRequest): ServerResponse {
+        val provided = request.headers().firstHeader("X-Internal-Secret")?.trim()
+        val expected = internalSecret.trim()
+        // Secret Manager values piped via PowerShell's `|` can pick up a
+        // trailing newline that the Cloud Scheduler header value (built
+        // from the same shell variable directly) doesn't have -- trim
+        // both sides so that whitespace difference never causes a false
+        // mismatch (confirmed as the actual cause of a 401 here, Sep 4).
+        if (expected.isBlank() || provided != expected) {
+            return ServerResponse.status(401).contentType(MediaType.APPLICATION_JSON)
+                .bodyValueAndAwait(ApiResponse.error("UNAUTHORIZED", "Invalid internal secret"))
+        }
+        goalService.runDueGoalDebits()
+        return ServerResponse.ok().contentType(MediaType.APPLICATION_JSON)
+            .bodyValueAndAwait(ApiResponse.ok(mapOf("status" to "triggered")))
     }
 
     private suspend fun handleCreateGoal(request: ServerRequest): ServerResponse {

@@ -45,6 +45,11 @@ class FirebaseAuthFilter(
         // filter entirely, same reasoning as /webhooks/ above.
         "/api/v1/admin-panel/",
         "/v1/admin-panel/",
+        // Internal Gold SIP scheduler trigger (called by Cloud Scheduler,
+        // not a user) -- authenticated via its own X-Internal-Secret
+        // header check in GoalRouter.handleRunDueDebits(), not JWT.
+        "/api/v1/internal/gold-sip/",
+        "/v1/internal/gold-sip/",
         "/actuator/health",
         "/api/actuator/health",
         "/swagger-ui",

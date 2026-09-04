@@ -116,6 +116,8 @@ youpi:
 
   admin:
     jwt-secret: ${ADMIN_JWT_SECRET:}
+  internal:
+    gold-sip-secret: ${GOLD_SIP_INTERNAL_SECRET:}
   sms:
     msg91-auth-key: ${MSG91_AUTH_KEY:}
     otp-template-id: ${MSG91_TEMPLATE_ID:}
