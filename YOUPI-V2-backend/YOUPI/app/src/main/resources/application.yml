@@ -205,6 +205,8 @@ mplan:
     plans-url: https://www.mplan.in/api/plans.php
     mobile-plans-url: https://www.mplan.in/apiv2/mobileplans
     recharge-url: https://www.mplan.in/api/recharge.php
+    dth-info-vc-url: https://www.mplan.in/apiv2/dth_info
+    dth-info-mobile-url: https://www.mplan.in/apiv2/dth_info_mobile
 
 # ── Profile: Local (developer laptop — local Redis, GCP or local DB) ──
 ---

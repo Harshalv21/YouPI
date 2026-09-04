@@ -19,12 +19,17 @@ import `in`.youpi.recharge.domain.RechargeOrderResponse
 import `in`.youpi.recharge.domain.RechargeStatusResponse
 import `in`.youpi.recharge.domain.WalletPaymentRejectedException
 import `in`.youpi.recharge.domain.dth.CreateDthRechargeRequest
+import `in`.youpi.recharge.domain.dth.DthCustomerInfoResponse
+import `in`.youpi.recharge.domain.dth.MPLAN_DTH_OPERATOR_CODES
 import `in`.youpi.recharge.repository.RechargeOrderEntity
 import `in`.youpi.recharge.repository.RechargeOrderRepository
 import com.fasterxml.jackson.databind.ObjectMapper
+import kotlinx.coroutines.reactor.awaitSingle
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
+import org.springframework.web.reactive.function.client.WebClient
 import java.math.BigDecimal
 import java.util.UUID
 
@@ -63,7 +68,11 @@ class DthRechargeService(
     private val pushNotificationService: PushNotificationService,
     private val userRepository: UserRepository,
     private val objectMapper: ObjectMapper,
-    @Value("\${youpi.razorpay.key-id:}") private val razorpayKeyId: String
+    @Qualifier("proxiedWebClient") private val webClient: WebClient,
+    @Value("\${youpi.razorpay.key-id:}") private val razorpayKeyId: String,
+    @Value("\${mplan.api.key}") private val mplanApiKey: String,
+    @Value("\${mplan.api.dth-info-vc-url}") private val mplanDthInfoVcUrl: String,
+    @Value("\${mplan.api.dth-info-mobile-url}") private val mplanDthInfoMobileUrl: String
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -79,6 +88,100 @@ class DthRechargeService(
         // so mobile's ₹249 default (in GoldRewardService itself) is never
         // touched by DTH.
         private val DTH_GOLD_REWARD_MINIMUM = BigDecimal.ZERO
+    }
+
+    // ── DTH Customer Info (mPlan) ── -- two lookup variants confirmed
+    // against mPlan's docs (Sep 2026): by subscriber/VC number
+    // (/dth_info) and by the customer's registered mobile number
+    // (/dth_info_mobile). Both share the exact same response shape and
+    // status/error handling, differing only in which query param they
+    // send -- so both funnel through the private fetchDthCustomerInfo()
+    // helper below rather than duplicating the parsing logic twice, same
+    // pattern as A1TopupClient.doRecharge() being shared by
+    // rechargeMobile()/rechargeDth(). Deliberately NOT cached (unlike
+    // RechargeService.fetchPlans()) -- customer info (balance, next due
+    // date, active/inactive) is exactly the kind of thing that goes stale
+    // between one recharge attempt and the next, so every call hits mPlan
+    // fresh. Kept here (not in RechargeService) since this is DTH-only --
+    // mirrors mPlan config (apikey) + proxiedWebClient qualifier the same
+    // way RechargeService does it for mobile plans/operator-check.
+    suspend fun fetchDthCustomerInfoByVc(
+        vcNumber: String, operator: String
+    ): Result<DthCustomerInfoResponse, RechargeException> =
+        fetchDthCustomerInfo(mplanDthInfoVcUrl, "vc_number", vcNumber, operator)
+
+    suspend fun fetchDthCustomerInfoByMobile(
+        mobileNumber: String, operator: String
+    ): Result<DthCustomerInfoResponse, RechargeException> =
+        fetchDthCustomerInfo(mplanDthInfoMobileUrl, "mobile_number", mobileNumber, operator)
+
+    private suspend fun fetchDthCustomerInfo(
+        url: String, numberParamName: String, numberParamValue: String, operator: String
+    ): Result<DthCustomerInfoResponse, RechargeException> {
+        val operatorCode = MPLAN_DTH_OPERATOR_CODES[operator.uppercase()]
+            ?: return Result.failure(RechargeApiException(
+                "No confirmed mPlan DTH operator_code for '$operator' -- only Airtel Digital TV/Sun Direct/" +
+                        "Tata Play (Tata Sky)/Videocon d2h/Dish TV are mapped."
+            ))
+
+        return try {
+            val uri = org.springframework.web.util.UriComponentsBuilder
+                .fromHttpUrl(url)
+                .queryParam("apikey", mplanApiKey.trim())
+                .queryParam(numberParamName, numberParamValue)
+                .queryParam("operator_code", operatorCode)
+                .build().encode().toUri()
+
+            val response = webClient.get().uri(uri).retrieve()
+                .bodyToMono(String::class.java).awaitSingle()
+
+            val root = objectMapper.readTree(response)
+            if (root.path("status").asInt(0) != 1) {
+                // Failure shape has been observed in two forms: a top-level
+                // "records": {"msg": "..."} object (e.g. missing/invalid
+                // apikey, IP not authorized) AND a "records": [{"msg": "..."}]
+                // array (e.g. "Subscriber not found"). Handle both rather
+                // than assuming one shape.
+                val recordsNode = root.path("records")
+                val errorMsg = (if (recordsNode.isArray) recordsNode.firstOrNull() else recordsNode)
+                    ?.path("msg")?.asText()
+                    ?.takeIf { it.isNotBlank() }
+                    ?: "Unknown mPlan DTH customer-info error"
+                log.warn(
+                    "mPlan DTH customer-info lookup failed: paramName={}, operator={}, msg={}",
+                    numberParamName, operator, errorMsg
+                )
+                return Result.failure(RechargeApiException(errorMsg))
+            }
+
+            val recordsNode = root.path("records")
+            val record = (if (recordsNode.isArray) recordsNode.firstOrNull() else recordsNode)
+                ?: return Result.failure(RechargeApiException("mPlan returned no customer record"))
+
+            fun optText(field: String): String? =
+                record.path(field).let { if (it.isMissingNode || it.isNull) null else it.asText() }
+                    ?.takeIf { it.isNotBlank() }
+
+            fun optDecimal(field: String): BigDecimal? =
+                optText(field)?.let {
+                    try { BigDecimal(it) } catch (e: NumberFormatException) { null }
+                }
+
+            val status = optText("status")
+            Result.success(DthCustomerInfoResponse(
+                custId = optText("Cust_id"),
+                customerName = optText("customerName"),
+                monthlyRecharge = optDecimal("MonthlyRecharge"),
+                balance = optDecimal("Balance"),
+                nextRechargeDate = optText("NextRechargeDate"),
+                status = status,
+                planName = optText("planname"),
+                isActive = status?.equals("ACTIVE", ignoreCase = true) ?: false
+            ))
+        } catch (e: Exception) {
+            log.error("mPlan DTH customer-info call failed for operator={}", operator, e)
+            Result.failure(RechargeApiException("Failed to fetch DTH customer info: ${e.message}"))
+        }
     }
 
     suspend fun createOrder(userId: UUID, req: CreateDthRechargeRequest): Result<RechargeOrderResponse, RechargeException> {
@@ -447,7 +550,8 @@ class DthRechargeService(
                 planAmount = order.planAmount,
                 a1TopupStatus = order.a1topupStatus,
                 goldTxnId = order.goldTxnId,
-                createdAt = order.createdAt
+                createdAt = order.createdAt,
+                serviceType = order.serviceType
             )
         )
     }

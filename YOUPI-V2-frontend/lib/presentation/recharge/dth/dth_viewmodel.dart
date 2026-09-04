@@ -23,6 +23,13 @@ class DthViewModel extends ChangeNotifier {
   bool _rechargeSuccess = false;
   bool _stillProcessing = false;
 
+  bool _isFetchingCustomerInfo = false;
+  DthCustomerInfo? _customerInfo;
+  String? _customerInfoError;
+
+  bool _isLoadingRecents = false;
+  List<DthRecentAccount> _recentAccounts = [];
+
   bool get isLoadingOperators => _isLoadingOperators;
   List<DthOperatorModel> get operators => _operators;
   DthOperatorModel? get selectedOperator => _selectedOperator;
@@ -35,6 +42,13 @@ class DthViewModel extends ChangeNotifier {
   bool get rechargeSuccess => _rechargeSuccess;
   bool get stillProcessing => _stillProcessing;
 
+  bool get isFetchingCustomerInfo => _isFetchingCustomerInfo;
+  DthCustomerInfo? get customerInfo => _customerInfo;
+  String? get customerInfoError => _customerInfoError;
+
+  bool get isLoadingRecents => _isLoadingRecents;
+  List<DthRecentAccount> get recentAccounts => _recentAccounts;
+
   Future<void> loadOperators() async {
     _isLoadingOperators = true;
     notifyListeners();
@@ -42,6 +56,20 @@ class DthViewModel extends ChangeNotifier {
       _operators = await _repo.getOperators();
     } finally {
       _isLoadingOperators = false;
+      notifyListeners();
+    }
+  }
+
+  /// Powers the "Recents" section on DthOperatorSelectScreen. Fails soft
+  /// (see DthRepository.getRecentAccounts()) -- an empty list on error just
+  /// means the section doesn't render, never a blocked screen.
+  Future<void> loadRecentAccounts() async {
+    _isLoadingRecents = true;
+    notifyListeners();
+    try {
+      _recentAccounts = await _repo.getRecentAccounts();
+    } finally {
+      _isLoadingRecents = false;
       notifyListeners();
     }
   }
@@ -83,7 +111,51 @@ class DthViewModel extends ChangeNotifier {
     _error = null;
     _rechargeSuccess = false;
     _stillProcessing = false;
+    _isFetchingCustomerInfo = false;
+    _customerInfo = null;
+    _customerInfoError = null;
     notifyListeners();
+  }
+
+  /// Looks up the subscriber via mPlan (DthRouter's GET /dth/customer-info)
+  /// as soon as the subscriber ID is confirmed -- so a mistyped ID or a
+  /// non-existent/never-activated account surfaces right there, before the
+  /// user ever reaches the amount screen, instead of only showing up as a
+  /// payment failure later. On success, pre-fills _amount from mPlan's
+  /// MonthlyRecharge so DthAmountScreen opens with the bill amount already
+  /// populated (still editable) -- matches the "enter subscriber ID once,
+  /// see name + amount auto-filled" flow. Returns true only when a valid
+  /// customer record came back; DthCustomerIdScreen uses the return value
+  /// to decide whether to navigate on to /dth/amount or show the error
+  /// inline instead.
+  Future<bool> fetchCustomerInfo() async {
+    if (_selectedOperator == null || _subscriberNumber.isEmpty) return false;
+
+    _isFetchingCustomerInfo = true;
+    _customerInfoError = null;
+    _customerInfo = null;
+    notifyListeners();
+
+    try {
+      final info = await _repo.getCustomerInfoByVc(
+        vcNumber: _subscriberNumber,
+        operator: _selectedOperator!.name,
+      );
+      _customerInfo = info;
+      if (info.monthlyRecharge != null && info.monthlyRecharge! > 0) {
+        _amount = info.monthlyRecharge;
+      }
+      return true;
+    } catch (e) {
+      // e.toString() surfaces the backend's actual message (e.g. "Subscriber
+      // not found Invalid Customer ID" from mPlan) -- same pattern as the
+      // generic catch in payAndConfirm() below.
+      _customerInfoError = e.toString();
+      return false;
+    } finally {
+      _isFetchingCustomerInfo = false;
+      notifyListeners();
+    }
   }
 
   Future<bool> payAndConfirm() async {

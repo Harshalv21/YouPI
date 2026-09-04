@@ -294,6 +294,7 @@ class RechargeStatusResult {
   final String? a1TopupStatus;
   final String? goldTxnId;
   final DateTime? createdAt; // ← NAYA -- backend ab bhejta hai
+  final String? serviceType; // ← NAYA -- "MOBILE" or "DTH", lets callers tell the two apart in the shared /history feed
 
   RechargeStatusResult({
     required this.orderId,
@@ -304,6 +305,7 @@ class RechargeStatusResult {
     this.a1TopupStatus,
     this.goldTxnId,
     this.createdAt,
+    this.serviceType,
   });
 
   // Matches the backend's actual status enum (chk_recharge_status:
@@ -312,6 +314,7 @@ class RechargeStatusResult {
   bool get isSuccess => status == 'PAYMENT_DONE' || status == 'RECHARGE_SUCCESS';
   bool get isPending => status == 'INITIATED';
   bool get isFailed => status == 'RECHARGE_FAILED';
+  bool get isDth => serviceType == 'DTH';
 
   factory RechargeStatusResult.fromJson(Map<String, dynamic> json) => RechargeStatusResult(
     orderId: json['orderId'] as String,
@@ -327,6 +330,7 @@ class RechargeStatusResult {
     createdAt: json['createdAt'] != null
         ? DateTime.tryParse(json['createdAt'] as String)?.toLocal()
         : null,
+    serviceType: json['serviceType'] as String?,
   );
 }
 

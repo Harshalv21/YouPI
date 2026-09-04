@@ -999,7 +999,8 @@ class RechargeService(
                 planAmount = order.planAmount,
                 a1TopupStatus = order.a1topupStatus,
                 goldTxnId = order.goldTxnId,
-                createdAt = order.createdAt
+                createdAt = order.createdAt,
+                serviceType = order.serviceType
             )
         )
     }
@@ -1023,7 +1024,8 @@ class RechargeService(
                 planAmount = it.planAmount,
                 a1TopupStatus = it.a1topupStatus,
                 goldTxnId = it.goldTxnId,
-                createdAt = it.createdAt 
+                createdAt = it.createdAt,
+                serviceType = it.serviceType
             )
         }
     }

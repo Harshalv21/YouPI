@@ -21,6 +21,20 @@ class _DthAmountScreenState extends State<DthAmountScreen> {
   String? _localError;
 
   @override
+  void initState() {
+    super.initState();
+    // fetchCustomerInfo() (called from DthCustomerIdScreen before this
+    // screen is ever pushed) already set vm.amount from mPlan's
+    // MonthlyRecharge when available -- pre-fill the field with it here
+    // rather than leaving it blank, same as Image 2's auto-filled Bill
+    // Amount. Still fully editable -- this is just the starting value.
+    final vm = context.read<DthViewModel>();
+    if (vm.amount != null) {
+      _amountCtrl.text = vm.amount!.toStringAsFixed(0);
+    }
+  }
+
+  @override
   void dispose() {
     _amountCtrl.dispose();
     super.dispose();
@@ -118,7 +132,11 @@ class _DthAmountScreenState extends State<DthAmountScreen> {
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(operatorName, style: AppTextStyles.labelLarge),
+                      // Shows the verified customer name from mPlan when
+                      // available (set by fetchCustomerInfo() on the
+                      // previous screen), falling back to the operator
+                      // name if that lookup didn't return one.
+                      Text(vm.customerInfo?.customerName ?? operatorName, style: AppTextStyles.labelLarge),
                       Text(vm.subscriberNumber, style: AppTextStyles.captionText.copyWith(color: AppColors.textSecondary)),
                     ],
                   ),
@@ -162,7 +180,13 @@ class _DthAmountScreenState extends State<DthAmountScreen> {
               ),
               const SizedBox(height: 14),
               Text(
-                "Bill amount isn't auto-fetched yet — enter it manually for now.",
+                // Reflects reality: only claim "auto-fetched" when mPlan
+                // actually returned a MonthlyRecharge value for this
+                // subscriber -- otherwise keep the old manual-entry note
+                // (e.g. valid account but mPlan didn't return an amount).
+                vm.customerInfo?.monthlyRecharge != null
+                    ? "Amount auto-fetched from your last recharge — you can edit it if needed."
+                    : "Bill amount isn't auto-fetched yet — enter it manually for now.",
                 style: AppTextStyles.captionText.copyWith(color: AppColors.textSecondary),
               ),
               const Spacer(),

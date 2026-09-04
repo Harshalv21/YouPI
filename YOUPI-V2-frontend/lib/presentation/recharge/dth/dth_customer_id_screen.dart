@@ -23,7 +23,7 @@ class _DthCustomerIdScreenState extends State<DthCustomerIdScreen> {
     super.dispose();
   }
 
-  void _onConfirm(DthViewModel vm) {
+  Future<void> _onConfirm(DthViewModel vm) async {
     final value = _idCtrl.text.trim();
     if (value.isEmpty) {
       setState(() => _localError = 'Enter your subscriber ID first');
@@ -31,7 +31,18 @@ class _DthCustomerIdScreenState extends State<DthCustomerIdScreen> {
     }
     setState(() => _localError = null);
     vm.setSubscriberNumber(value);
-    context.push('/dth/amount');
+
+    final found = await vm.fetchCustomerInfo();
+    if (!mounted) return;
+
+    if (found) {
+      context.push('/dth/amount');
+    } else {
+      setState(() {
+        _localError = vm.customerInfoError ??
+            'Could not verify this subscriber ID. Please check and try again.';
+      });
+    }
   }
 
   @override
@@ -76,8 +87,8 @@ class _DthCustomerIdScreenState extends State<DthCustomerIdScreen> {
               ),
               const Spacer(),
               YoupiButton(
-                label: 'Confirm',
-                onPressed: () => _onConfirm(vm),
+                label: vm.isFetchingCustomerInfo ? 'Checking...' : 'Confirm',
+                onPressed: vm.isFetchingCustomerInfo ? null : () => _onConfirm(vm),
               ),
             ],
           ),

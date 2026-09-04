@@ -59,3 +59,49 @@ val SUPPORTED_DTH_OPERATORS = listOf(
     DthOperatorInfo("VIDEOCON D2H", "Videocon d2h"),
     DthOperatorInfo("DISH TV", "Dish TV")
 )
+
+/**
+ * mPlan's own DTH operator_code values -- CONFIRMED from mPlan's
+ * "Operator Codes" docs page (Sep 2026). Deliberately a SEPARATE map from
+ * A1TopupClient's CONFIRMED_DTH_OPERATOR_CODES -- mPlan and A1Topup are
+ * different vendors with their own independent operator-code schemes, even
+ * though both happen to key off the same SUPPORTED_DTH_OPERATORS names
+ * used elsewhere in this file. Only used by RechargeService's
+ * fetchDthCustomerInfoByVc()/fetchDthCustomerInfoByMobile() -- NOT by
+ * anything A1Topup-related.
+ */
+val MPLAN_DTH_OPERATOR_CODES = mapOf(
+    "DISH TV" to 6,
+    "TATA PLAY" to 7,
+    "VIDEOCON D2H" to 11,
+    "SUN DIRECT" to 12,
+    "AIRTEL DIGITAL TV" to 24
+)
+
+/**
+ * Response shape for mPlan's DTH Customer Info APIs -- both the
+ * vc_number-keyed (/dth_info) and mobile_number-keyed (/dth_info_mobile)
+ * variants, normalized into one model since RechargeService parses both
+ * the same way (see fetchDthCustomerInfo() private helper). Not every
+ * field is present on both variants in practice (e.g. the mobile-number
+ * variant's example response had no `status`/`Balance`/`NextRechargeDate`/
+ * `planname`) -- all fields besides customerName/monthlyRecharge are
+ * therefore nullable rather than assumed always-present.
+ *
+ * `isActive` is derived, not a raw mPlan field: true only when mPlan
+ * returns status == "ACTIVE" (case-insensitive). Since the mobile-number
+ * variant doesn't return a status field at all, isActive will be false for
+ * that variant even for a genuinely active subscriber -- callers using
+ * that variant should treat isActive as "unknown" rather than "inactive"
+ * unless/until mPlan confirms that variant never returns status.
+ */
+data class DthCustomerInfoResponse(
+    val custId: String?,
+    val customerName: String?,
+    val monthlyRecharge: BigDecimal?,
+    val balance: BigDecimal?,
+    val nextRechargeDate: String?,
+    val status: String?,
+    val planName: String?,
+    val isActive: Boolean
+)

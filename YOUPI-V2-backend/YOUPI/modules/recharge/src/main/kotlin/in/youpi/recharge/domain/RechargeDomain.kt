@@ -143,7 +143,13 @@ data class RechargeStatusResponse(
     val planAmount: BigDecimal,
     val a1TopupStatus: String?,
     val goldTxnId: UUID?,
-    val createdAt: java.time.Instant
+    val createdAt: java.time.Instant,
+    // ← NEW: exposes the order's serviceType ("MOBILE" or "DTH") so
+    // clients hitting the shared GET /v1/recharge/history endpoint (which
+    // returns BOTH mobile and DTH orders -- getOrderHistory() doesn't
+    // filter by serviceType) can tell them apart client-side, instead of
+    // having to guess from `operator`'s value.
+    val serviceType: String
 )
 
 /**
