@@ -299,6 +299,7 @@ class AugmontClient(
 
     suspend fun createUser(request: AugmontCreateUserRequest): AugmontUserResponse {
         val fields = mutableMapOf(
+            "uniqueId" to request.uniqueId,
             "userName" to request.userName,
             "userEmail" to request.userEmail,
             "userMobile" to request.userMobile

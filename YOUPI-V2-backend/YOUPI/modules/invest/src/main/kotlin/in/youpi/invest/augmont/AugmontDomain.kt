@@ -183,6 +183,10 @@ data class AugmontSellData(
 // ── User ──
 
 data class AugmontCreateUserRequest(
+    // Augmont's /merchant/v1/users API now requires a merchant-supplied
+    // uniqueId (confirmed via live 422 test, Sep 4) -- previously assumed
+    // to be Augmont-generated and only returned in the response.
+    val uniqueId: String,
     val userName: String,
     val userEmail: String,
     val userMobile: String,

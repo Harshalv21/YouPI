@@ -312,16 +312,34 @@ class InvestService(
         val existing = augmontUserRepo.findByUserId(userId)
         if (existing != null) return existing.augmontUniqueId
 
-        // Create on Augmont
+        // WE generate the uniqueId now (Augmont's API requires it in the
+        // request as of Sep 4 -- previously assumed Augmont-generated).
+        // Prefixed so it's identifiable as ours in Augmont's dashboard.
+        val generatedUniqueId = "YOUPI-${userId}"
+
+        // TODO(KYC/bank integration): userState/userPincode are hardcoded
+        // placeholders below purely to satisfy Augmont's mandatory-field
+        // validation and unblock UAT testing (Sep 4 decision). Replace
+        // with the user's actual KYC/bank address data once that flow
+        // exists -- do NOT ship this placeholder to real users without
+        // wiring in real address data first.
         val response = augmontClient.createUser(AugmontCreateUserRequest(
+            uniqueId = generatedUniqueId,
             userName = userName,
             userEmail = userEmail,
-            userMobile = userMobile
+            userMobile = userMobile,
+            // Augmont expects their internal state ID, not the state name -- confirmed
+            // via /merchant/v1/master/states-list (Sep 4): Maharashtra = "qYMjvMvX"
+            userState = "ep9kJ7Px",
+            userPincode = "400001"
         ))
 
-        val uniqueId = response.result?.data?.uniqueId
-            ?: throw ExternalServiceException("Augmont", "User creation failed: ${response.message}")
-
+        if (response.result?.data == null) {
+            throw ExternalServiceException("Augmont", "User creation failed: ${response.message}")
+        }
+        // Use our own generated id as the canonical mapping -- more
+        // robust than trusting Augmont's response to echo it back.
+        val uniqueId = generatedUniqueId
         // Save mapping
         augmontUserRepo.save(AugmontUserMappingEntity(
             userId = userId,

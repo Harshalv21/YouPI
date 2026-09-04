@@ -161,7 +161,7 @@ class WalletService(
     @Value("\${youpi.razorpay.key-id:}") private val razorpayKeyId: String
 ) : WalletCreditPort, WalletDebitPort {
 
-    private val serviceCodeAllowlist = setOf("RECHARGE")
+    private val serviceCodeAllowlist = setOf("RECHARGE", "GOLD_SIP")
     private val log = LoggerFactory.getLogger(javaClass)
     private val txOperator = TransactionalOperator.create(txManager)
 
